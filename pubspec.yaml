@@ -1,31 +1,29 @@
 name: simply_morse
 description: "SimplyMorse - Audio-visual Morse code encoder-decoder."
 publish_to: 'none'
+homepage: "https://github.com/igrowing/SimplyMorse"
 
 version: 0.0.8+1
 
 environment:
-  sdk: ^3.12.2
+  sdk: ^3.12.0
 
 dependencies:
   audioplayers: ^6.1.0
-  camera: ^0.11.0
   cupertino_icons: ^1.0.8
   equatable: ^2.0.5
   flutter:
     sdk: flutter
-  get_it: ^8.0.3
+  get_it: ^9.2.1
   meta: ^1.15.0
   provider: ^6.1.2
-  record: ^5.2.0
   shared_preferences: ^2.3.2
-  share_plus: ^10.1.2
   torch_light: ^2.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  very_good_analysis: ^9.0.0
+  very_good_analysis: ^10.3.0
 
 flutter:
   uses-material-design: true
