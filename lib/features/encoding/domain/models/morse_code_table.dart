@@ -20,11 +20,23 @@ class MorseCodeTable {
     '.': '.-.-.-', ',': '--..--', '?': '..--..', "'": '.----.',
     '!': '-.-.--', '/': '-..-.', '(': '-.--.', ')': '-.--.-',
     '&': '.-...', ':': '---...', ';': '-.-.-.', '=': '-...-',
-    '+': '.-.-.', '-': '-....-', '_': '..--..', '"': '.-..-.',
+    '+': '.-.-.', '-': '-....-', '_': '..--.-', '"': '.-..-.',
     r'$': '...-..-', '@': '.--.-.',
     // Space (word separator)
     ' ': '',
   };
+
+  static final Map<String, String> _reverseTable = _buildReverseTable();
+
+  static Map<String, String> _buildReverseTable() {
+    final map = <String, String>{};
+    for (final entry in _table.entries) {
+      if (entry.value.isNotEmpty) {
+        map[entry.value] = entry.key;
+      }
+    }
+    return map;
+  }
 
   /// Returns the Morse code for [character], or `null` if the
   /// character is not representable in Morse code.
@@ -36,5 +48,11 @@ class MorseCodeTable {
   /// Whether [character] can be encoded in Morse code.
   static bool canEncode(String character) {
     return _table.containsKey(character.toUpperCase());
+  }
+
+  /// Reverse lookup: returns the character for [morseCode], or
+  /// `null` if the Morse code is not a valid symbol.
+  static String? reverseLookup(String morseCode) {
+    return _reverseTable[morseCode];
   }
 }
