@@ -1,5 +1,8 @@
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
+import 'package:simply_morse/features/decoding/data/audio_capture_service.dart';
+import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
+import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 import 'package:simply_morse/features/encoding/data/datasources/local_storage_datasource.dart';
@@ -29,6 +32,7 @@ Future<void> configureDependencies() async {
     )
     ..registerSingleton<MorseEncoder>(MorseEncoder())
     ..registerSingleton<MorseDecoder>(MorseDecoder())
+    ..registerSingleton<AudioCapture>(AudioCaptureImpl())
     ..registerFactory<MorseTransmitter>(
       () => MorseTransmitter(
         torchService: getIt<TorchService>(),
@@ -42,9 +46,12 @@ Future<void> configureDependencies() async {
         morseTransmitter: getIt<MorseTransmitter>(),
       ),
     )
+    ..registerFactory<AudioDecoder>(() => AudioDecoder())
     ..registerFactory<DecodingController>(
       () => DecodingController(
         morseDecoder: getIt<MorseDecoder>(),
+        audioDecoder: getIt<AudioDecoder>(),
+        audioCapture: getIt<AudioCapture>(),
       ),
     );
 }

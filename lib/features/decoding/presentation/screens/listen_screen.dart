@@ -9,10 +9,9 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 
 /// Screen for audio-based Morse decoding via microphone.
 ///
-/// Phase 2 stub: full UI layout with editable text output,
-/// dynamic Pause/Resume button, and Clear button. The actual
-/// audio capture and FFT/Goertzel pipeline will be wired in a
-/// later phase.
+/// Implements the audio decoding pipeline:
+/// AudioCapture → AudioDecoder (FFT scan → Goertzel lock →
+/// envelope → timing) → MorseDecoder → text output.
 class ListenScreen extends StatefulWidget {
   const ListenScreen({
     required this.themeMode,
@@ -43,6 +42,23 @@ class _ListenScreenState extends State<ListenScreen> {
     _textController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _onStartPressed() async {
+    final granted = await _controller.checkPermission();
+    if (!mounted) return;
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Microphone permission is required to decode '
+            'Morse audio.',
+          ),
+        ),
+      );
+      return;
+    }
+    _controller.start();
   }
 
   @override
@@ -106,15 +122,19 @@ class _ListenScreenState extends State<ListenScreen> {
     final theme = Theme.of(context);
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
-        final color = switch (ctrl.status) {
-          DecodingStatus.idle => theme.colorScheme.outline,
-          DecodingStatus.listening => theme.colorScheme.primary,
-          DecodingStatus.paused => theme.colorScheme.tertiary,
-        };
-        final label = switch (ctrl.status) {
-          DecodingStatus.idle => 'Idle',
-          DecodingStatus.listening => 'Listening…',
-          DecodingStatus.paused => 'Paused',
+        final (color, label) = switch (ctrl.status) {
+          DecodingStatus.idle => (
+            theme.colorScheme.outline,
+            'Idle',
+          ),
+          DecodingStatus.listening => (
+            theme.colorScheme.primary,
+            'Listening…',
+          ),
+          DecodingStatus.paused => (
+            theme.colorScheme.tertiary,
+            'Paused',
+          ),
         };
         return Row(
           children: [
@@ -122,7 +142,9 @@ class _ListenScreenState extends State<ListenScreen> {
             const SizedBox(width: 8),
             Text(
               label,
-              style: theme.textTheme.bodyMedium?.copyWith(color: color),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: color,
+              ),
             ),
           ],
         );
@@ -157,7 +179,7 @@ class _ListenScreenState extends State<ListenScreen> {
       builder: (context, ctrl, _) {
         if (ctrl.isIdle) {
           return FilledButton.icon(
-            onPressed: ctrl.start,
+            onPressed: _onStartPressed,
             icon: const Icon(Icons.play_arrow),
             label: const Text('Start'),
           );
