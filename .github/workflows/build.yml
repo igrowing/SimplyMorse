@@ -1,0 +1,248 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ '**' ]
+  workflow_dispatch:
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # 1. Unit tests — every branch, every push
+  # ───────────────────────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Run unit tests
+        run: flutter test --coverage --reporter expanded
+
+      - name: Code coverage report
+        if: always()
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y lcov
+          # --ignore-errors keeps lcov 2.x from failing on Dart lcov quirks.
+          lcov --summary coverage/lcov.info --ignore-errors inconsistent,empty
+          genhtml coverage/lcov.info --output-directory coverage/html --quiet \
+            --ignore-errors inconsistent,category,corrupt
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/html
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 2. APK build — every non-main branch (pre-release, sideload / testing)
+  # ───────────────────────────────────────────────────────────────────────────
+  build-apk:
+    name: Build APK (non-main)
+    runs-on: ubuntu-latest
+    needs: test
+    # if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    if: false # temporarily disable all non-main builds to save CI minutes while we focus on Play Store release
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Set FLUTTER_ROOT
+        run: echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Compute version
+        id: version
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          BUILD_NUM=$(git rev-list --count HEAD)
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-' | tr -cd '[:alnum:]-_')
+          # Dart pubspec semver: pre-release uses hyphen  →  0.1.0-a.15+15
+          VERSION_NAME="${BASE_VERSION}-a.${BUILD_NUM}"
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUM"     >> $GITHUB_OUTPUT
+          echo "safe_branch=$SAFE_BRANCH"    >> $GITHUB_OUTPUT
+          echo "Branch: $BRANCH | Version: $VERSION_NAME | Build#: $BUILD_NUM"
+
+      - name: Patch pubspec version
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.build_number }}/" pubspec.yaml
+
+                # Decode the keystore from the base64 secret and write it to disk
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+            echo "storeFile=upload-keystore.jks" > android/key.properties
+            echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
+            echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+            echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+            echo "✅ Keystore and key.properties successfully created in the runner"
+          else
+            echo "⚠️  KEYSTORE_BASE64 secret not set — build will use debug signing"
+          fi
+
+      - name: Scan for v1 embedding references
+        run: |
+          if grep -rE \
+               'io\.flutter\.app\.Flutter|PluginRegistry\.Registrar|registerWith\(Registrar|flutterEmbedding.*value.*"1"' \
+               android/; then
+            echo "❌ v1 embedding found"; exit 1
+          else
+            echo "✅ no v1 embedding"
+          fi
+
+      - name: Build APK (split per ABI)
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS:      ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD:   ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release --split-per-abi \
+            --build-name="${{ steps.version.outputs.version_name }}" \
+            --build-number="${{ steps.version.outputs.build_number }}"
+          # Also build universal APK for devices where arch is unknown
+          flutter build apk --release \
+            --build-name="${{ steps.version.outputs.version_name }}" \
+            --build-number="${{ steps.version.outputs.build_number }}"
+
+      - name: Upload arm64 APK (primary — covers 99%+ of modern devices)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimplyMorse-${{ steps.version.outputs.version_name }}-arm64-${{ steps.version.outputs.safe_branch }}
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          retention-days: 30
+
+      - name: Upload universal APK (fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimplyMorse-${{ steps.version.outputs.version_name }}-universal-${{ steps.version.outputs.safe_branch }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 3. AAB build — main branch only (Google Play production releases)
+  # ───────────────────────────────────────────────────────────────────────────
+  build-aab:
+    name: Build AAB (main → Play Store)
+    runs-on: ubuntu-latest
+    needs: test
+    # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false # temporarily disable all non-main builds to save CI minutes while we focus on Play Store release
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Set FLUTTER_ROOT
+        run: echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Compute version
+        id: version
+        run: |
+          BASE_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          BUILD_NUM=$(git rev-list --count HEAD)
+          echo "version_name=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUM"    >> $GITHUB_OUTPUT
+          echo "Version: $BASE_VERSION | Build#: $BUILD_NUM"
+
+      - name: Patch pubspec version
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.version.outputs.version_name }}+${{ steps.version.outputs.build_number }}/" pubspec.yaml
+
+      # Decode the keystore from the base64 secret and write it to disk
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+            echo "storeFile=upload-keystore.jks" > android/key.properties
+            echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
+            echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+            echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+            echo "✅ Keystore and key.properties successfully created in the runner"
+          else
+            echo "⚠️  KEYSTORE_BASE64 secret not set — build will use debug signing"
+          fi
+
+      - name: Scan for v1 embedding references
+        run: |
+          if grep -rE \
+               'io\.flutter\.app\.Flutter|PluginRegistry\.Registrar|registerWith\(Registrar|flutterEmbedding.*value.*"1"' \
+               android/; then
+            echo "❌ v1 embedding found"; exit 1
+          else
+            echo "✅ no v1 embedding"
+          fi
+
+      - name: Build AAB
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS:      ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD:   ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter build appbundle --release \
+            --build-name="${{ steps.version.outputs.version_name }}" \
+            --build-number="${{ steps.version.outputs.build_number }}"
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimplyMorse-${{ steps.version.outputs.version_name }}-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 90
