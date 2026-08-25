@@ -1,0 +1,9 @@
+flutter_launcher_icons:
+  android: true                     # generates ic_launcher and related res
+  adaptive_icon_foreground: "assets/SimplyMorse_icon1024.png"  # artwork with 20% padding
+  image_path_android: "assets/SimplyMorse_icon1024.png"
+  ios: true
+  image_path_ios: "assets/SimplyMorse_icon1024.png"
+  min_sdk_android: 21
+  web:
+    generate: false
