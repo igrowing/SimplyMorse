@@ -3,7 +3,7 @@ class AppConstants {
   AppConstants._();
 
   static const appName = 'SimplyMorse';
-  static const appVersion = '0.0.4';
+  static const appVersion = '0.0.5';
 
   // Encoding defaults
   static const defaultSpeedWpm = 7.0;

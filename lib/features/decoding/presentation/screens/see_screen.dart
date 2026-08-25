@@ -1,7 +1,9 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
 
+import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
@@ -9,10 +11,9 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 
 /// Screen for visual Morse decoding via camera.
 ///
-/// Phase 2 stub: full UI layout with editable text output,
-/// camera preview placeholder, dynamic Pause/Resume button,
-/// and Clear button. The actual camera capture and brightness
-/// analysis pipeline will be wired in a later phase.
+/// Implements the video decoding pipeline:
+/// CameraCapture → VideoDecoder (region detection →
+/// brightness tracking → timing) → MorseDecoder → text.
 class SeeScreen extends StatefulWidget {
   const SeeScreen({
     required this.themeMode,
@@ -29,12 +30,15 @@ class SeeScreen extends StatefulWidget {
 
 class _SeeScreenState extends State<SeeScreen> {
   late final DecodingController _controller;
+  late final CameraCaptureImpl _cameraCapture;
   final _textController = TextEditingController();
+  bool _showLowFpsWarning = false;
 
   @override
   void initState() {
     super.initState();
     _controller = GetIt.instance<DecodingController>();
+    _cameraCapture = GetIt.instance<CameraCaptureImpl>();
     _controller.init(DecodingMode.video);
   }
 
@@ -43,6 +47,32 @@ class _SeeScreenState extends State<SeeScreen> {
     _textController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _onStartPressed() async {
+    final granted = await _controller.checkPermission();
+    if (!mounted) return;
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Camera permission is required to '
+            'decode visual Morse code.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!_controller.isHighFrameRate) {
+      setState(() => _showLowFpsWarning = true);
+    }
+
+    _controller.start();
+  }
+
+  void _dismissLowFpsWarning() {
+    setState(() => _showLowFpsWarning = false);
   }
 
   @override
@@ -99,7 +129,10 @@ class _SeeScreenState extends State<SeeScreen> {
       children: [
         Icon(Icons.camera_alt, size: 28),
         const SizedBox(width: 12),
-        Text('Watch', style: theme.textTheme.headlineSmall),
+        Text(
+          'Watch',
+          style: theme.textTheme.headlineSmall,
+        ),
       ],
     );
   }
@@ -108,15 +141,19 @@ class _SeeScreenState extends State<SeeScreen> {
     final theme = Theme.of(context);
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
-        final color = switch (ctrl.status) {
-          DecodingStatus.idle => theme.colorScheme.outline,
-          DecodingStatus.listening => theme.colorScheme.primary,
-          DecodingStatus.paused => theme.colorScheme.tertiary,
-        };
-        final label = switch (ctrl.status) {
-          DecodingStatus.idle => 'Idle',
-          DecodingStatus.listening => 'Watching…',
-          DecodingStatus.paused => 'Paused',
+        final (color, label) = switch (ctrl.status) {
+          DecodingStatus.idle => (
+            theme.colorScheme.outline,
+            'Idle',
+          ),
+          DecodingStatus.listening => (
+            theme.colorScheme.primary,
+            'Watching…',
+          ),
+          DecodingStatus.paused => (
+            theme.colorScheme.tertiary,
+            'Paused',
+          ),
         };
         return Row(
           children: [
@@ -161,6 +198,8 @@ class _SeeScreenState extends State<SeeScreen> {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
         final isActive = ctrl.isListening;
+        final camController = _cameraCapture.controller;
+
         return AspectRatio(
           aspectRatio: 4 / 3,
           child: Container(
@@ -174,59 +213,86 @@ class _SeeScreenState extends State<SeeScreen> {
               borderRadius: BorderRadius.circular(8),
               color: theme.colorScheme.surfaceContainerLow,
             ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (isActive)
-                  // Placeholder for live camera feed
-                  const Center(
-                    child: CircularProgressIndicator(),
-                  )
-                else
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.camera_alt,
-                        size: 48,
-                        color: theme.colorScheme.outline,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Camera preview',
-                        style: theme.textTheme.bodySmall?.copyWith(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (camController != null &&
+                      camController.value.isInitialized)
+                    CameraPreview(camController)
+                  else
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.camera_alt,
+                          size: 48,
                           color: theme.colorScheme.outline,
                         ),
-                      ),
-                    ],
-                  ),
-                // Scanning indicator
-                if (isActive)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'SCANNING',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onPrimary,
+                        const SizedBox(height: 8),
+                        Text(
+                          'Camera preview',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  if (isActive)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'SCANNING',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onPrimary,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                  if (_showLowFpsWarning) _buildLowFpsWarning(context),
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLowFpsWarning(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.scrim.withValues(alpha: 0.7),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: AlertDialog(
+            title: const Text('Camera info'),
+            content: const Text(
+              'Your phone camera supports only '
+              'decoding of 7 words per minute at '
+              'maximum.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: _dismissLowFpsWarning,
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -235,7 +301,7 @@ class _SeeScreenState extends State<SeeScreen> {
       builder: (context, ctrl, _) {
         if (ctrl.isIdle) {
           return FilledButton.icon(
-            onPressed: ctrl.start,
+            onPressed: _onStartPressed,
             icon: const Icon(Icons.play_arrow),
             label: const Text('Start'),
           );

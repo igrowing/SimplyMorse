@@ -1,9 +1,12 @@
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/features/decoding/data/audio_capture_service.dart';
+import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
+import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
+import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 import 'package:simply_morse/features/encoding/data/datasources/local_storage_datasource.dart';
 import 'package:simply_morse/features/encoding/data/repositories/settings_repository_impl.dart';
@@ -21,6 +24,8 @@ Future<void> configureDependencies() async {
   final dataSource = LocalStorageDatasource();
   await dataSource.init();
 
+  final cameraCapture = CameraCaptureImpl();
+
   getIt
     ..registerSingleton<TorchService>(createTorchService())
     ..registerSingleton<LocalStorageDatasource>(dataSource)
@@ -33,6 +38,8 @@ Future<void> configureDependencies() async {
     ..registerSingleton<MorseEncoder>(MorseEncoder())
     ..registerSingleton<MorseDecoder>(MorseDecoder())
     ..registerSingleton<AudioCapture>(AudioCaptureImpl())
+    ..registerSingleton<CameraCapture>(cameraCapture)
+    ..registerSingleton<CameraCaptureImpl>(cameraCapture)
     ..registerFactory<MorseTransmitter>(
       () => MorseTransmitter(
         torchService: getIt<TorchService>(),
@@ -47,11 +54,14 @@ Future<void> configureDependencies() async {
       ),
     )
     ..registerFactory<AudioDecoder>(() => AudioDecoder())
+    ..registerFactory<VideoDecoder>(() => VideoDecoder())
     ..registerFactory<DecodingController>(
       () => DecodingController(
         morseDecoder: getIt<MorseDecoder>(),
         audioDecoder: getIt<AudioDecoder>(),
         audioCapture: getIt<AudioCapture>(),
+        videoDecoder: getIt<VideoDecoder>(),
+        cameraCapture: getIt<CameraCapture>(),
       ),
     );
 }
