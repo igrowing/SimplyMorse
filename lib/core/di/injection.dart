@@ -1,4 +1,6 @@
 import 'package:get_it/get_it.dart';
+import 'package:simply_morse/core/services/share_service.dart';
+import 'package:simply_morse/core/services/share_service_impl.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/features/decoding/data/audio_capture_service.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
@@ -28,6 +30,7 @@ Future<void> configureDependencies() async {
 
   getIt
     ..registerSingleton<TorchService>(createTorchService())
+    ..registerSingleton<ShareService>(ShareServiceImpl())
     ..registerSingleton<LocalStorageDatasource>(dataSource)
     ..registerSingleton<SettingsRepository>(
       SettingsRepositoryImpl(dataSource),

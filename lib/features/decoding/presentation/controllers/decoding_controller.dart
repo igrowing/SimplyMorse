@@ -48,6 +48,25 @@ class DecodingController extends ChangeNotifier {
   DecodingStatus get status => _status;
   String get decodedText => _decodedText;
 
+  /// Current estimated WPM based on decoded elements.
+  /// Returns 0 when no elements have been decoded yet.
+  int get currentWpm {
+    if (_elements.isEmpty) return 0;
+
+    // Estimate dit from shortest on-element
+    final onDurations = _elements
+        .where((e) => e.isOn && e.durationMs > 0)
+        .map((e) => e.durationMs)
+        .toList();
+    if (onDurations.isEmpty) return 0;
+    onDurations.sort();
+    final ditMs = onDurations.first.toDouble();
+    if (ditMs <= 0) return 0;
+
+    // PARIS = 50 dits per word, so WPM = 60000 / (ditMs * 50) = 1200 / ditMs
+    return (1200 / ditMs).round();
+  }
+
   bool get isIdle => _status == DecodingStatus.idle;
   bool get isListening => _status == DecodingStatus.listening;
   bool get isPaused => _status == DecodingStatus.paused;
