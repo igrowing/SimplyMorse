@@ -21,7 +21,17 @@ class MorseTransmitter {
     : _torchService = torchService;
 
   final TorchService _torchService;
-  final AudioPlayer _player = AudioPlayer();
+
+  /// Lazily created audio player — only instantiated when
+  /// audio transmission is actually needed. This avoids
+  /// requiring platform audio services in flash-only mode
+  /// or in tests.
+  AudioPlayer? _player;
+  AudioPlayer get _audioPlayer => _player ??= AudioPlayer();
+
+  /// Whether the audio player has been created.
+  /// Used in tests to verify lazy initialization.
+  bool get hasAudioPlayer => _player != null;
 
   Timer? _progressTimer;
   bool _isRunning = false;
@@ -80,8 +90,8 @@ class MorseTransmitter {
     // Audio transmission
     if (needsAudio) {
       final wav = _generateWav(events, settings.toneHz);
-      await _player.setReleaseMode(ReleaseMode.stop);
-      await _player.play(BytesSource(wav));
+      await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+      await _audioPlayer.play(BytesSource(wav));
     }
 
     // Flash transmission
@@ -95,14 +105,14 @@ class MorseTransmitter {
     _isRunning = false;
     _progressTimer?.cancel();
     _progressTimer = null;
-    await _player.stop();
+    await _player?.stop();
     await _torchService.disable();
   }
 
   /// Disposes all resources.
   void dispose() {
     _progressTimer?.cancel();
-    _player.dispose();
+    _player?.dispose();
   }
 
   Uint8List _generateWav(

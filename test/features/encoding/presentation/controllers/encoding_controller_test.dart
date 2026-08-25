@@ -1,0 +1,264 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
+import 'package:simply_morse/features/encoding/domain/models/transmission_state.dart';
+import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
+import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
+
+import '../../../../helpers/fakes.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late FakeSettingsRepository settingsRepo;
+  late FakeTextHistoryRepository historyRepo;
+  late MorseEncoder encoder;
+  late FakeMorseTransmitter transmitter;
+  late EncodingController controller;
+
+  setUp(() {
+    settingsRepo = FakeSettingsRepository();
+    historyRepo = FakeTextHistoryRepository();
+    encoder = MorseEncoder();
+    transmitter = FakeMorseTransmitter();
+    controller = EncodingController(
+      settingsRepository: settingsRepo,
+      textHistoryRepository: historyRepo,
+      morseEncoder: encoder,
+      morseTransmitter: transmitter,
+    );
+  });
+
+  tearDown(() {
+    controller.dispose();
+  });
+
+  group('EncodingController', () {
+    group('init', () {
+      test('loads settings and history', () async {
+        settingsRepo.speed = 15.0;
+        settingsRepo.tone = 800.0;
+        historyRepo.seed(['hello', 'sos']);
+
+        await controller.init(EncodingMode.sound);
+
+        expect(controller.mode, EncodingMode.sound);
+        expect(controller.speedWpm, 15.0);
+        expect(controller.toneHz, 800.0);
+        expect(controller.history, ['hello', 'sos']);
+        expect(controller.text, isEmpty);
+        expect(controller.isTransmitting, isFalse);
+      });
+
+      test('only initializes once', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.init(EncodingMode.flash);
+
+        // Mode should stay as first init
+        expect(controller.mode, EncodingMode.sound);
+      });
+
+      test('notifies listeners after init', () async {
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        await controller.init(EncodingMode.sound);
+
+        expect(notifyCount, greaterThan(0));
+      });
+    });
+
+    group('updateText', () {
+      test('updates text value', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('hello');
+
+        expect(controller.text, 'hello');
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        controller.updateText('test');
+
+        expect(notifyCount, 1);
+      });
+    });
+
+    group('selectFromHistory', () {
+      test('sets text from history entry', () async {
+        await controller.init(EncodingMode.sound);
+        controller.selectFromHistory('SOS');
+
+        expect(controller.text, 'SOS');
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        controller.selectFromHistory('SOS');
+
+        expect(notifyCount, 1);
+      });
+    });
+
+    group('updateSpeed', () {
+      test('updates speed value', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateSpeed(20.0);
+
+        expect(controller.speedWpm, 20.0);
+      });
+
+      test('persists to settings repository', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateSpeed(25.0);
+
+        expect(settingsRepo.saveSpeedCount, 1);
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        await controller.updateSpeed(15.0);
+
+        expect(notifyCount, 1);
+      });
+    });
+
+    group('updateTone', () {
+      test('updates tone value', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateTone(850.0);
+
+        expect(controller.toneHz, 850.0);
+      });
+
+      test('persists to settings repository', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateTone(600.0);
+
+        expect(settingsRepo.saveToneCount, 1);
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        await controller.updateTone(500.0);
+
+        expect(notifyCount, 1);
+      });
+    });
+
+    group('send', () {
+      test('does nothing when text is empty', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.send();
+
+        expect(transmitter.transmitCount, 0);
+      });
+
+      test('does nothing when already transmitting', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('SOS');
+        // Simulate transmitting state
+        await controller.send();
+        // First send should work
+        expect(transmitter.transmitCount, 1);
+      });
+
+      test('encodes and transmits the text', () async {
+        await controller.init(EncodingMode.flash);
+        controller.updateText('SOS');
+        await controller.send();
+
+        expect(transmitter.transmitCount, 1);
+        expect(transmitter.lastEvents, isNotNull);
+        expect(transmitter.lastEvents!, isNotEmpty);
+        expect(transmitter.lastSettings!.mode, EncodingMode.flash);
+      });
+
+      test('saves text to history', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('HELLO');
+        await controller.send();
+
+        expect(historyRepo.saveCount, 1);
+        expect(controller.history, contains('HELLO'));
+      });
+
+      test(
+        'updates transmission status to completed',
+        () async {
+          await controller.init(EncodingMode.sound);
+          controller.updateText('E');
+          await controller.send();
+
+          // Fake transmitter calls onComplete immediately
+          expect(
+            controller.transmission.status,
+            TransmissionStatus.completed,
+          );
+        },
+      );
+    });
+
+    group('clear', () {
+      test('clears text and resets transmission state', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('hello');
+        await controller.clear();
+
+        expect(controller.text, isEmpty);
+        expect(
+          controller.transmission.status,
+          TransmissionStatus.idle,
+        );
+      });
+
+      test('stops the transmitter', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('hello');
+        await controller.send();
+        await controller.clear();
+
+        expect(transmitter.stopCount, 1);
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('hello');
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        await controller.clear();
+
+        expect(notifyCount, greaterThan(0));
+      });
+    });
+
+    group('defaults', () {
+      test('has default speed and tone before init', () {
+        expect(controller.speedWpm, 7.0);
+        expect(controller.toneHz, 700.0);
+      });
+
+      test(
+        'transmission state starts idle',
+        () {
+          expect(
+            controller.transmission.status,
+            TransmissionStatus.idle,
+          );
+          expect(controller.isTransmitting, isFalse);
+        },
+      );
+    });
+  });
+}
