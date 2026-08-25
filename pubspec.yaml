@@ -2,7 +2,7 @@ name: simply_morse
 description: "SimplyMorse - Audio-visual Morse code encoder-decoder."
 publish_to: 'none'
 
-version: 1.0.1+1
+version: 0.0.2+1
 
 environment:
   sdk: ^3.12.2
