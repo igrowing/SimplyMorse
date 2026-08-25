@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
+import 'package:simply_morse/features/decoding/domain/services/alpha_beta_filter.dart';
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
 
 /// State of the video decoding pipeline.
@@ -16,41 +17,78 @@ enum VideoDecoderState {
   locked,
 }
 
-/// Video decoding pipeline for visual Morse code detection.
+/// Video decoding pipeline with motion compensation.
 ///
 /// Implements the approach described in the SimplyMorse spec:
 ///
-/// 1. Capture in low-res, locked-exposure mode (handled by
-///    the [CameraCapture] implementation).
-/// 2. Preprocess: convert to grayscale luminance (done by
-///    the camera capture, frames arrive as [VideoFrame]).
-/// 3. Detect candidate blinking region via per-block temporal
-///    variance over a rolling window.
-/// 4. Confirm before locking: same region across several
-///    frames.
-/// 5. Lock and track: read mean brightness of the region,
-///    apply hysteresis threshold for on/off detection.
-/// 6. Extract on/off timing and emit [DecodedElement]s.
-/// 7. Periodic re-scan if the signal is lost.
+/// 1. **Scanning**: Compute per-block temporal variance to
+///    find a blinking source. Detects both localized blinks
+///    (one block) and full-frame blinks.
+///
+/// 2. **Confirming**: Verify the candidate persists across
+///    [confirmFrames] frames using a local search window
+///    around the predicted position (via the α-β filter).
+///
+/// 3. **Tracking (locked)**: Continuously re-find the source
+///    within a search window around the α-β filter's
+///    prediction. The filter smooths hand shaking (high-
+///    frequency oscillation) and tracks steady drift (slide).
+///    The brightness-reading region adapts to the filter's
+///    [AlphaBetaFilter.innovation] — it grows when the source
+///    moves unpredictably and shrinks when stable.
+///
+/// 4. **Signal loss**: If the peak variance in the search
+///    window drops below [minVariance] for [lostFrameLimit]
+///    consecutive frames, returns to scanning.
+///
+/// **Motion handling:**
+/// - **Hand shaking**: The α filter coefficient smooths the
+///   oscillation → region stays centered on the mean →
+///   brightness reading is stable.
+/// - **Sliding/drift**: The β filter coefficient estimates
+///   velocity → predicts next position → region follows.
+/// - **Combination**: Both α and β work together to track
+///   the smoothed trajectory.
 class VideoDecoder {
   VideoDecoder({
     this.blockSize = 8,
     this.confirmFrames = 3,
     this.historySize = 30,
+    this.historyDecay = 0.95,
     this.rescanIntervalMs = 2000,
     this.minVariance = 0.001,
+    this.searchRadius = 2,
+    this.lostFrameLimit = 10,
+    this.minRegionSize = 8,
+    this.maxRegionSize = 32,
     BrightnessThreshold? threshold,
-  }) : _threshold = threshold ?? BrightnessThreshold();
+    AlphaBetaFilter? filter,
+  }) : _threshold = threshold ?? BrightnessThreshold(),
+       _filter = filter ?? AlphaBetaFilter();
 
   // Configuration
   final int blockSize;
   final int confirmFrames;
   final int historySize;
+  final double historyDecay;
   final int rescanIntervalMs;
   final double minVariance;
 
+  /// Search radius in blocks around the predicted position.
+  final int searchRadius;
+
+  /// Consecutive low-variance frames before signal loss.
+  final int lostFrameLimit;
+
+  /// Minimum brightness-reading region size (pixels).
+  final int minRegionSize;
+
+  /// Maximum brightness-reading region size (pixels).
+  final int maxRegionSize;
+
   // Components
   final BrightnessThreshold _threshold;
+  final AlphaBetaFilter _filter;
 
   // State machine
   VideoDecoderState _state = VideoDecoderState.scanning;
@@ -59,19 +97,18 @@ class VideoDecoder {
   // Frame history for temporal variance
   final List<VideoFrame> _history = [];
 
-  // Candidate / locked region
-  int _regionX = 0;
-  int _regionY = 0;
-  int _regionW = 0;
-  int _regionH = 0;
+  // Candidate / locked region (block coordinates)
+  int _regionBlockX = 0;
+  int _regionBlockY = 0;
   bool _isFullFrame = false;
   int _confirmCount = 0;
 
   // Timing
   int _transitionMs = 0;
+  int _lastFrameMs = 0;
 
-  // Re-scan timer
-  int _lastScanMs = 0;
+  // Signal loss counter
+  int _lostFrameCount = 0;
 
   // Output
   void Function(DecodedElement element)? onElement;
@@ -120,22 +157,27 @@ class VideoDecoder {
     final meanVariance = variances.reduce((a, b) => a + b) / variances.length;
 
     if (maxVariance < meanVariance * 2) {
-      // Full-frame blink — use the whole frame
       _isFullFrame = true;
-      _regionX = 0;
-      _regionY = 0;
-      _regionW = frame.width;
-      _regionH = frame.height;
+      _regionBlockX = 0;
+      _regionBlockY = 0;
     } else {
-      // Localized blink — use the block
       _isFullFrame = false;
-      _regionX = maxBx * blockSize;
-      _regionY = maxBy * blockSize;
-      _regionW = blockSize;
-      _regionH = blockSize;
+      _regionBlockX = maxBx;
+      _regionBlockY = maxBy;
     }
 
+    // Initialize α-β filter at the detected region center
+    final centerX = _isFullFrame
+        ? frame.width / 2
+        : maxBx * blockSize + blockSize / 2.0;
+    final centerY = _isFullFrame
+        ? frame.height / 2
+        : maxBy * blockSize + blockSize / 2.0;
+    _filter.initialize(centerX, centerY);
+
     _confirmCount = 1;
+    _lostFrameCount = 0;
+    _lastFrameMs = frame.timestampMs;
     _state = VideoDecoderState.confirming;
   }
 
@@ -144,69 +186,153 @@ class VideoDecoder {
   void _confirm(VideoFrame frame) {
     _addToHistory(frame);
 
-    final v = _regionVariance();
-    final meanV = _meanVariance();
+    final dt = _computeDt(frame.timestampMs);
+    _filter.predict(dt);
 
-    final threshold = _isFullFrame ? minVariance : meanV * 2;
+    final result = _searchPeakVariance(frame);
 
-    if (v > threshold) {
+    if (result.variance > minVariance) {
+      _filter.update(result.centerX, result.centerY, dt);
+      _lostFrameCount = 0;
       _confirmCount++;
       if (_confirmCount >= confirmFrames) {
         _state = VideoDecoderState.locked;
         _threshold.reset();
-        _lastScanMs = frame.timestampMs;
         _transitionMs = frame.timestampMs;
       }
     } else {
-      _state = VideoDecoderState.scanning;
-      _confirmCount = 0;
+      _lostFrameCount++;
+      if (_lostFrameCount >= lostFrameLimit) {
+        _signalLost();
+      }
     }
+
+    _lastFrameMs = frame.timestampMs;
   }
 
   // -- Tracking --------------------------------------------------
 
   void _track(VideoFrame frame) {
-    // Keep history fresh so re-scan variance reflects
-    // current conditions, not stale frames from lock time.
     _addToHistory(frame);
 
-    final brightness = frame.regionMeanLuminance(
-      _regionX,
-      _regionY,
-      _regionW,
-      _regionH,
-    );
+    final dt = _computeDt(frame.timestampMs);
+    _filter.predict(dt);
 
-    final wasOn = _threshold.isOn;
-    final isOn = _threshold.process(brightness);
+    final result = _searchPeakVariance(frame);
 
-    if (isOn != wasOn) {
-      _emitElement(wasOn, frame.timestampMs);
+    if (result.variance > minVariance) {
+      _filter.update(result.centerX, result.centerY, dt);
+      _lostFrameCount = 0;
+
+      // Read brightness from the tracked region.
+      // Region size adapts to filter innovation — grows
+      // when the source moves unpredictably.
+      final regionSize = (_filter.innovation * 2)
+          .clamp(
+            minRegionSize.toDouble(),
+            maxRegionSize.toDouble(),
+          )
+          .round();
+
+      final cx = _filter.x.round();
+      final cy = _filter.y.round();
+      final half = regionSize ~/ 2;
+
+      final brightness = frame.regionMeanLuminance(
+        cx - half,
+        cy - half,
+        regionSize,
+        regionSize,
+      );
+
+      final wasOn = _threshold.isOn;
+      final isOn = _threshold.process(brightness);
+      if (isOn != wasOn) {
+        _emitElement(wasOn, frame.timestampMs);
+      }
+    } else {
+      _lostFrameCount++;
+      if (_lostFrameCount >= lostFrameLimit) {
+        _signalLost();
+      }
     }
 
-    // Periodic re-scan
-    if (frame.timestampMs - _lastScanMs > rescanIntervalMs) {
-      _checkSignal(frame);
-    }
+    _lastFrameMs = frame.timestampMs;
   }
 
-  void _checkSignal(VideoFrame frame) {
-    // Frame already added to history by _track.
-    final v = _regionVariance();
+  // -- Signal loss -----------------------------------------------
 
-    if (v < minVariance) {
-      // Signal lost — flush and re-scan
-      if (_threshold.isOn) {
-        _emitElement(true, frame.timestampMs);
-      }
-      _threshold.reset();
-      _state = VideoDecoderState.scanning;
+  void _signalLost() {
+    if (_threshold.isOn) {
+      _emitElement(true, _lastFrameMs);
+    }
+    _threshold.reset();
+    _filter.reset();
+    _state = VideoDecoderState.scanning;
+    _confirmCount = 0;
+    _lostFrameCount = 0;
+  }
+
+  // -- Search ----------------------------------------------------
+
+  /// Result of a local variance search.
+  static const _emptyResult = _SearchResult(
+    variance: 0,
+    centerX: 0,
+    centerY: 0,
+  );
+
+  _SearchResult _searchPeakVariance(VideoFrame frame) {
+    if (_isFullFrame) {
+      // Full-frame blink — no need to search
+      return _SearchResult(
+        variance: _blockVariance(0, 0),
+        centerX: frame.width / 2,
+        centerY: frame.height / 2,
+      );
     }
 
-    _lastScanMs = frame.timestampMs;
+    final blocksX = frame.width ~/ blockSize;
+    final blocksY = frame.height ~/ blockSize;
+    if (blocksX == 0 || blocksY == 0) return _emptyResult;
+
+    // Convert filter position to block coordinates
+    final predBx = (_filter.x / blockSize).round();
+    final predBy = (_filter.y / blockSize).round();
+
+    final minBx = max(0, predBx - searchRadius);
+    final maxBx = min(blocksX - 1, predBx + searchRadius);
+    final minBy = max(0, predBy - searchRadius);
+    final maxBy = min(blocksY - 1, predBy + searchRadius);
+
+    var maxVariance = 0.0;
+    var maxBxResult = predBx;
+    var maxByResult = predBy;
+
+    for (var by = minBy; by <= maxBy; by++) {
+      for (var bx = minBx; bx <= maxBx; bx++) {
+        final v = _blockVariance(bx, by);
+        if (v > maxVariance) {
+          maxVariance = v;
+          maxBxResult = bx;
+          maxByResult = by;
+        }
+      }
+    }
+
+    return _SearchResult(
+      variance: maxVariance,
+      centerX: maxBxResult * blockSize + blockSize / 2.0,
+      centerY: maxByResult * blockSize + blockSize / 2.0,
+    );
   }
 
   // -- Helpers ---------------------------------------------------
+
+  double _computeDt(int timestampMs) {
+    final dt = _lastFrameMs > 0 ? (timestampMs - _lastFrameMs) / 1000.0 : 0.033;
+    return dt > 0 ? dt : 0.033;
+  }
 
   void _addToHistory(VideoFrame frame) {
     _history.add(frame);
@@ -215,70 +341,48 @@ class VideoDecoder {
     }
   }
 
+  /// Computes exponentially-weighted temporal variance of
+  /// a block across the frame history.
+  ///
+  /// Recent frames contribute more (weight =
+  /// [historyDecay]^age), so the variance reflects the
+  /// *current* source position rather than the average over
+  /// the whole window.
   double _blockVariance(int bx, int by) {
     final startX = bx * blockSize;
     final startY = by * blockSize;
 
-    final means = <double>[];
-    for (final frame in _history) {
-      means.add(
-        frame.regionMeanLuminance(
-          startX,
-          startY,
-          blockSize,
-          blockSize,
-        ),
+    final n = _history.length;
+    if (n == 0) return 0;
+
+    var totalWeight = 0.0;
+    var weightedMean = 0.0;
+
+    for (var i = 0; i < n; i++) {
+      final w = pow(historyDecay, n - 1 - i).toDouble();
+      final m = _history[i].regionMeanLuminance(
+        startX,
+        startY,
+        blockSize,
+        blockSize,
       );
+      totalWeight += w;
+      weightedMean += w * m;
     }
+    weightedMean /= totalWeight;
 
-    if (means.isEmpty) return 0;
-
-    final avg = means.reduce((a, b) => a + b) / means.length;
     var varSum = 0.0;
-    for (final m in means) {
-      varSum += (m - avg) * (m - avg);
-    }
-    return varSum / means.length;
-  }
-
-  double _regionVariance() {
-    final means = <double>[];
-    for (final frame in _history) {
-      means.add(
-        frame.regionMeanLuminance(
-          _regionX,
-          _regionY,
-          _regionW,
-          _regionH,
-        ),
+    for (var i = 0; i < n; i++) {
+      final w = pow(historyDecay, n - 1 - i).toDouble();
+      final m = _history[i].regionMeanLuminance(
+        startX,
+        startY,
+        blockSize,
+        blockSize,
       );
+      varSum += w * (m - weightedMean) * (m - weightedMean);
     }
-
-    if (means.isEmpty) return 0;
-
-    final avg = means.reduce((a, b) => a + b) / means.length;
-    var varSum = 0.0;
-    for (final m in means) {
-      varSum += (m - avg) * (m - avg);
-    }
-    return varSum / means.length;
-  }
-
-  double _meanVariance() {
-    final frame = _history.last;
-    final blocksX = frame.width ~/ blockSize;
-    final blocksY = frame.height ~/ blockSize;
-    if (blocksX == 0 || blocksY == 0) return 0;
-
-    var sum = 0.0;
-    var count = 0;
-    for (var by = 0; by < blocksY; by++) {
-      for (var bx = 0; bx < blocksX; bx++) {
-        sum += _blockVariance(bx, by);
-        count++;
-      }
-    }
-    return count > 0 ? sum / count : 0;
+    return varSum / totalWeight;
   }
 
   void _emitElement(bool isOn, int timestampMs) {
@@ -295,9 +399,24 @@ class VideoDecoder {
     _state = VideoDecoderState.scanning;
     _history.clear();
     _threshold.reset();
+    _filter.reset();
     _confirmCount = 0;
+    _lostFrameCount = 0;
     _transitionMs = 0;
-    _lastScanMs = 0;
+    _lastFrameMs = 0;
     _isFullFrame = false;
   }
+}
+
+/// Internal result of a local variance search.
+class _SearchResult {
+  const _SearchResult({
+    required this.variance,
+    required this.centerX,
+    required this.centerY,
+  });
+
+  final double variance;
+  final double centerX;
+  final double centerY;
 }
