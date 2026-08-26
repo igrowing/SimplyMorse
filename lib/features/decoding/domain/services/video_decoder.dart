@@ -98,8 +98,6 @@ class VideoDecoder {
   final List<VideoFrame> _history = [];
 
   // Candidate / locked region (block coordinates)
-  int _regionBlockX = 0;
-  int _regionBlockY = 0;
   bool _isFullFrame = false;
   int _confirmCount = 0;
 
@@ -158,12 +156,8 @@ class VideoDecoder {
 
     if (maxVariance < meanVariance * 2) {
       _isFullFrame = true;
-      _regionBlockX = 0;
-      _regionBlockY = 0;
     } else {
       _isFullFrame = false;
-      _regionBlockX = maxBx;
-      _regionBlockY = maxBy;
     }
 
     // Initialize α-β filter at the detected region center

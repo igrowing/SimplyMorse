@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:simply_morse/core/services/feedback_service.dart';
 import '../../helpers/fake_feedback_service.dart';
 
 void main() {

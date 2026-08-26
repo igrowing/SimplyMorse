@@ -1,5 +1,3 @@
-import 'dart:math';
-
 /// Adaptive hysteresis threshold for brightness on/off
 /// detection.
 ///

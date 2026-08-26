@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/core/utils/wav_generator.dart';
 

@@ -1,5 +1,3 @@
-import 'package:flutter/services.dart';
-
 /// Abstract interface for sharing text and copying to clipboard.
 abstract interface class ShareService {
   /// Copies [text] to the system clipboard.

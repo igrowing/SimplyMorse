@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
-import 'package:simply_morse/features/encoding/domain/models/morse_symbol.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 
 void main() {

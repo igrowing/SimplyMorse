@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
@@ -211,8 +210,6 @@ class AudioDecoder {
     final floor = _noiseFloor.noiseFloor;
     final onThreshold = floor * onThresholdFactor;
     final offThreshold = floor * offThresholdFactor;
-
-    final wasOn = _isOn;
 
     if (!_isOn && env > onThreshold) {
       // Off → On transition

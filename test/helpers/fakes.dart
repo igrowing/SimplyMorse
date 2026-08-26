@@ -1,5 +1,4 @@
 import 'package:simply_morse/core/services/torch_service.dart';
-import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
 import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/encoding/domain/repositories/text_history_repository.dart';

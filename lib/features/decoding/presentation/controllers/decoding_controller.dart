@@ -90,10 +90,10 @@ class DecodingController extends ChangeNotifier {
   Future<bool> checkPermission() async {
     if (_mode == DecodingMode.audio) {
       if (_audioCapture == null) return false;
-      return _audioCapture!.hasPermission();
+      return _audioCapture.hasPermission();
     }
     if (_cameraCapture == null) return false;
-    return _cameraCapture!.hasPermission();
+    return _cameraCapture.hasPermission();
   }
 
   /// Begins listening / watching.
@@ -154,20 +154,20 @@ class DecodingController extends ChangeNotifier {
 
   void _startAudio() {
     if (_audioDecoder == null || _audioCapture == null) return;
-    _audioDecoder!.reset();
-    _audioDecoder!.onElement = _onElement;
-    final stream = _audioCapture!.start();
+    _audioDecoder.reset();
+    _audioDecoder.onElement = _onElement;
+    final stream = _audioCapture.start();
     _audioSub = stream.listen((samples) {
-      _audioDecoder!.processSamples(samples);
+      _audioDecoder.processSamples(samples);
     });
   }
 
   void _startVideo() {
     if (_videoDecoder == null || _cameraCapture == null) return;
-    _videoDecoder!.reset();
-    _videoDecoder!.onElement = _onElement;
-    _cameraCapture!.startImageStream((frame) {
-      _videoDecoder!.processFrame(frame);
+    _videoDecoder.reset();
+    _videoDecoder.onElement = _onElement;
+    _cameraCapture.startImageStream((frame) {
+      _videoDecoder.processFrame(frame);
     });
   }
 

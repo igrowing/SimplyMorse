@@ -20,13 +20,13 @@ class Goertzel {
   final int blockSize;
 
   late final double _coeff;
-  late final double _coeff2;
+  // late final double _coeff2;
 
   void _initCoefficients() {
     final k = (blockSize * targetFreq / sampleRate).round();
     final omega = 2 * pi * k / blockSize;
     _coeff = 2 * cos(omega);
-    _coeff2 = 2 * cos(2 * pi * targetFreq / sampleRate);
+    // _coeff2 = 2 * cos(2 * pi * targetFreq / sampleRate);
   }
 
   /// Processes [samples] and returns the power at
