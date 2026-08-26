@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
@@ -7,8 +6,8 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 
 /// Screen offering three encoding modes: Sound, Flash LED, Both.
 ///
-/// On web, Flash LED and Both modes are disabled because
-/// the torch is a hardware-only feature.
+/// On web, Flash LED and Both modes use screen-based LED
+/// emulation instead of hardware torch.
 class SendScreen extends StatelessWidget {
   const SendScreen({
     required this.themeMode,
@@ -49,16 +48,12 @@ class SendScreen extends StatelessWidget {
 
   List<Widget> _modeButtons(BuildContext context) {
     return EncodingMode.values.map((mode) {
-      final supportsTorch =
-          mode == EncodingMode.flash || mode == EncodingMode.both;
-      final disabled = kIsWeb && supportsTorch;
       return Expanded(
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: _ModeButton(
             mode: mode,
-            onTap: disabled ? null : () => _navigateToMode(context, mode),
-            disabledOnWeb: disabled,
+            onTap: () => _navigateToMode(context, mode),
           ),
         ),
       );
@@ -82,15 +77,10 @@ class SendScreen extends StatelessWidget {
 }
 
 class _ModeButton extends StatelessWidget {
-  const _ModeButton({
-    required this.mode,
-    required this.onTap,
-    this.disabledOnWeb = false,
-  });
+  const _ModeButton({required this.mode, required this.onTap});
 
   final EncodingMode mode;
-  final VoidCallback? onTap;
-  final bool disabledOnWeb;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -100,21 +90,9 @@ class _ModeButton extends StatelessWidget {
       icon: Icon(mode.icon, size: 32),
       label: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              mode.label,
-              style: theme.textTheme.titleMedium,
-            ),
-            if (disabledOnWeb)
-              Text(
-                'Not available on web',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-          ],
+        child: Text(
+          mode.label,
+          style: theme.textTheme.titleMedium,
         ),
       ),
       style: FilledButton.styleFrom(

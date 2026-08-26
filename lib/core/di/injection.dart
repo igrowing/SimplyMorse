@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/feedback_service_impl.dart';
+import 'package:simply_morse/core/services/screen_flash_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
 import 'package:simply_morse/core/services/share_service_impl.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
@@ -22,6 +24,10 @@ import 'package:simply_morse/features/encoding/domain/services/morse_transmitter
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 
 /// Configures the service locator with all dependencies.
+///
+/// On web, [ScreenFlashService] is registered as the
+/// [TorchService] implementation — it emulates the LED
+/// using the screen instead of hardware torch.
 Future<void> configureDependencies() async {
   final getIt = GetIt.instance;
 
@@ -30,8 +36,17 @@ Future<void> configureDependencies() async {
 
   final cameraCapture = CameraCaptureImpl();
 
+  // Register the appropriate torch service for the platform.
+  if (kIsWeb) {
+    final screenFlash = ScreenFlashService();
+    getIt
+      ..registerSingleton<TorchService>(screenFlash)
+      ..registerSingleton<ScreenFlashService>(screenFlash);
+  } else {
+    getIt.registerSingleton<TorchService>(createTorchService());
+  }
+
   getIt
-    ..registerSingleton<TorchService>(createTorchService())
     ..registerSingleton<ShareService>(ShareServiceImpl())
     ..registerSingleton<FeedbackService>(FeedbackServiceImpl())
     ..registerSingleton<LocalStorageDatasource>(dataSource)

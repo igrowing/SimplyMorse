@@ -31,25 +31,9 @@ void main() {
       expect(find.text('Both'), findsOneWidget);
     });
 
-    testWidgets('all mode buttons are enabled on non-web', (tester) async {
+    testWidgets('all three mode buttons are present', (tester) async {
       await pumpScreen(tester);
-
-      // On non-web, all three buttons should be tappable
-      final soundButton = find.ancestor(
-        of: find.text('Sound'),
-        matching: find.byType(FilledButton),
-      );
-      final flashButton = find.ancestor(
-        of: find.text('Flash LED'),
-        matching: find.byType(FilledButton),
-      );
-      final bothButton = find.ancestor(
-        of: find.text('Both'),
-        matching: find.byType(FilledButton),
-      );
-
-      // Verify no "Not available on web" text
-      expect(find.text('Not available on web'), findsNothing);
+      expect(find.byType(FilledButton), findsNWidgets(3));
     });
   });
 }
