@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
 
+import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/share_service.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
@@ -28,12 +30,16 @@ class ListenScreen extends StatefulWidget {
 
 class _ListenScreenState extends State<ListenScreen> {
   late final DecodingController _controller;
+  late final ShareService _shareService;
+  late final FeedbackService _feedbackService;
   final _textController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _controller = GetIt.instance<DecodingController>();
+    _shareService = GetIt.instance<ShareService>();
+    _feedbackService = GetIt.instance<FeedbackService>();
     _controller.init(DecodingMode.audio);
   }
 
@@ -45,6 +51,7 @@ class _ListenScreenState extends State<ListenScreen> {
   }
 
   Future<void> _onStartPressed() async {
+    await _feedbackService.mediumImpact();
     final granted = await _controller.checkPermission();
     if (!mounted) return;
     if (!granted) {
@@ -59,6 +66,35 @@ class _ListenScreenState extends State<ListenScreen> {
       return;
     }
     _controller.start();
+  }
+
+  Future<void> _onPausePressed() async {
+    await _feedbackService.lightImpact();
+    _controller.pause();
+  }
+
+  Future<void> _onResumePressed() async {
+    await _feedbackService.lightImpact();
+    _controller.resume();
+  }
+
+  Future<void> _onClearPressed() async {
+    await _feedbackService.lightImpact();
+    _controller.clear();
+  }
+
+  Future<void> _onCopyPressed() async {
+    await _feedbackService.lightImpact();
+    await _shareService.copyToClipboard(_controller.decodedText);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Copied to clipboard')),
+    );
+  }
+
+  Future<void> _onSharePressed() async {
+    await _feedbackService.lightImpact();
+    await _shareService.share(_controller.decodedText);
   }
 
   @override
@@ -89,8 +125,12 @@ class _ListenScreenState extends State<ListenScreen> {
                         _buildHeader(context),
                         const SizedBox(height: 16),
                         _buildStatusIndicator(context),
+                        const SizedBox(height: 8),
+                        _buildWpmDisplay(context),
                         const SizedBox(height: 16),
                         _buildDecodedTextInput(context),
+                        const SizedBox(height: 8),
+                        _buildShareButtons(context),
                         const SizedBox(height: 16),
                         _buildPauseResumeButton(context),
                         const SizedBox(height: 12),
@@ -152,6 +192,27 @@ class _ListenScreenState extends State<ListenScreen> {
     );
   }
 
+  Widget _buildWpmDisplay(BuildContext context) {
+    final theme = Theme.of(context);
+    return Consumer<DecodingController>(
+      builder: (context, ctrl, _) {
+        if (ctrl.currentWpm == 0) return const SizedBox.shrink();
+        return Row(
+          children: [
+            Icon(Icons.speed, size: 16, color: theme.colorScheme.outline),
+            const SizedBox(width: 4),
+            Text(
+              '${ctrl.currentWpm} WPM',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildDecodedTextInput(BuildContext context) {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
@@ -174,6 +235,33 @@ class _ListenScreenState extends State<ListenScreen> {
     );
   }
 
+  Widget _buildShareButtons(BuildContext context) {
+    return Consumer<DecodingController>(
+      builder: (context, ctrl, _) {
+        if (ctrl.decodedText.isEmpty) return const SizedBox.shrink();
+        return Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _onCopyPressed,
+                icon: const Icon(Icons.copy, size: 18),
+                label: const Text('Copy'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _onSharePressed,
+                icon: const Icon(Icons.share, size: 18),
+                label: const Text('Share'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildPauseResumeButton(BuildContext context) {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
@@ -186,13 +274,13 @@ class _ListenScreenState extends State<ListenScreen> {
         }
         if (ctrl.isListening) {
           return FilledButton.icon(
-            onPressed: ctrl.pause,
+            onPressed: _onPausePressed,
             icon: const Icon(Icons.pause),
             label: const Text('Pause'),
           );
         }
         return FilledButton.icon(
-          onPressed: ctrl.resume,
+          onPressed: _onResumePressed,
           icon: const Icon(Icons.play_arrow),
           label: const Text('Resume'),
         );
@@ -206,7 +294,7 @@ class _ListenScreenState extends State<ListenScreen> {
         return OutlinedButton.icon(
           onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
               ? null
-              : ctrl.clear,
+              : _onClearPressed,
           icon: const Icon(Icons.clear),
           label: const Text('Clear'),
         );

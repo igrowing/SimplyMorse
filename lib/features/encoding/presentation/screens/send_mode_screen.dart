@@ -3,6 +3,7 @@ import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
 
 import 'package:simply_morse/core/constants/app_constants.dart';
+import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
@@ -27,12 +28,14 @@ class SendModeScreen extends StatefulWidget {
 
 class _SendModeScreenState extends State<SendModeScreen> {
   late final EncodingController _controller;
+  late final FeedbackService _feedbackService;
   final _textController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _controller = GetIt.instance<EncodingController>();
+    _feedbackService = GetIt.instance<FeedbackService>();
     _controller.init(widget.mode);
   }
 
@@ -41,6 +44,26 @@ class _SendModeScreenState extends State<SendModeScreen> {
     _textController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _onSendPressed() async {
+    await _feedbackService.heavyImpact();
+    await _controller.send();
+  }
+
+  Future<void> _onClearPressed() async {
+    await _feedbackService.lightImpact();
+    await _controller.clear();
+  }
+
+  Future<void> _onSpeedChanged(double value) async {
+    await _feedbackService.selectionClick();
+    await _controller.updateSpeed(value);
+  }
+
+  Future<void> _onToneChanged(double value) async {
+    await _feedbackService.selectionClick();
+    await _controller.updateTone(value);
   }
 
   @override
@@ -132,7 +155,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
               max: AppConstants.maxSpeedWpm,
               divisions: 39,
               label: '${ctrl.speedWpm.round()}',
-              onChanged: ctrl.isTransmitting ? null : ctrl.updateSpeed,
+              onChanged: ctrl.isTransmitting ? null : _onSpeedChanged,
             ),
           ],
         );
@@ -163,7 +186,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
               max: AppConstants.maxToneHz,
               divisions: 60,
               label: '${ctrl.toneHz.round()}',
-              onChanged: ctrl.isTransmitting ? null : ctrl.updateTone,
+              onChanged: ctrl.isTransmitting ? null : _onToneChanged,
             ),
           ],
         );
@@ -240,7 +263,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
               child: FilledButton.icon(
                 onPressed: ctrl.isTransmitting || ctrl.text.isEmpty
                     ? null
-                    : ctrl.send,
+                    : _onSendPressed,
                 icon: const Icon(Icons.send),
                 label: const Text('Send'),
               ),
@@ -252,7 +275,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
                     ctrl.isTransmitting ||
                         (ctrl.text.isEmpty && !ctrl.transmission.isCompleted)
                     ? null
-                    : ctrl.clear,
+                    : _onClearPressed,
                 icon: const Icon(Icons.clear),
                 label: const Text('Clear'),
               ),
