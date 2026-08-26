@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:simply_morse/features/decoding/presentation/screens/listen_screen.dart';
@@ -5,7 +6,11 @@ import 'package:simply_morse/features/decoding/presentation/screens/see_screen.d
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 
 /// Receive screen with two entry points: Hear (audio) and
-/// Watch (camera). These are stubs for Phase 1.
+/// Watch (camera).
+///
+/// On web, the Watch button is disabled because camera frame
+/// streaming (`startImageStream`) is not supported on the
+/// web platform.
 class ReceiveScreen extends StatelessWidget {
   const ReceiveScreen({
     required this.themeMode,
@@ -68,13 +73,16 @@ class ReceiveScreen extends StatelessWidget {
           child: _EntryButton(
             icon: Icons.camera_alt,
             label: 'Watch',
-            onTap: () => _navigate(
-              context,
-              SeeScreen(
-                themeMode: themeMode,
-                onThemeToggle: onThemeToggle,
-              ),
-            ),
+            disabledOnWeb: kIsWeb,
+            onTap: kIsWeb
+                ? null
+                : () => _navigate(
+                    context,
+                    SeeScreen(
+                      themeMode: themeMode,
+                      onThemeToggle: onThemeToggle,
+                    ),
+                  ),
           ),
         ),
       ),
@@ -93,11 +101,13 @@ class _EntryButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.disabledOnWeb = false,
   });
 
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool disabledOnWeb;
 
   @override
   Widget build(BuildContext context) {
@@ -107,9 +117,21 @@ class _EntryButton extends StatelessWidget {
       icon: Icon(icon, size: 32),
       label: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(
-          label,
-          style: theme.textTheme.titleMedium,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.titleMedium,
+            ),
+            if (disabledOnWeb)
+              Text(
+                'Not available on web',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+          ],
         ),
       ),
       style: FilledButton.styleFrom(

@@ -58,5 +58,12 @@ void main() {
         isNotNull,
       );
     });
+
+    testWidgets('does not show "Not available on web" on non-web', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      expect(find.text('Not available on web'), findsNothing);
+    });
   });
 }

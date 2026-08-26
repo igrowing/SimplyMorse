@@ -1,6 +1,8 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
 
@@ -10,6 +12,10 @@ import 'package:simply_morse/features/decoding/domain/services/camera_capture.da
 /// Captures low-resolution frames, extracts luminance from
 /// the YUV420 Y plane, downsamples to ~80×60, and exposes
 /// the [CameraController] for preview rendering.
+///
+/// On web, camera frame streaming (`startImageStream`) is
+/// not supported — methods return early and [isInitialized]
+/// stays `false`.
 class CameraCaptureImpl implements CameraCapture {
   CameraCaptureImpl();
 
@@ -34,6 +40,7 @@ class CameraCaptureImpl implements CameraCapture {
 
   @override
   Future<bool> hasPermission() async {
+    if (kIsWeb) return false;
     try {
       if (!isInitialized) {
         await initialize();
@@ -46,6 +53,8 @@ class CameraCaptureImpl implements CameraCapture {
 
   @override
   Future<void> initialize() async {
+    if (kIsWeb) return;
+
     final cameras = await availableCameras();
     if (cameras.isEmpty) return;
 
@@ -77,6 +86,7 @@ class CameraCaptureImpl implements CameraCapture {
   void startImageStream(
     void Function(VideoFrame frame) onFrame,
   ) {
+    if (kIsWeb) return;
     if (_controller == null || !isInitialized) return;
     _isActive = true;
 

@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +17,9 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 /// Implements the video decoding pipeline:
 /// CameraCapture → VideoDecoder (region detection →
 /// brightness tracking → timing) → MorseDecoder → text.
+///
+/// On web, camera frame streaming is not supported — the
+/// screen displays an informational message instead.
 class SeeScreen extends StatefulWidget {
   const SeeScreen({
     required this.themeMode,
@@ -113,6 +117,9 @@ class _SeeScreenState extends State<SeeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return _buildWebPlaceholder(context);
+    }
     return ChangeNotifierProvider.value(
       value: _controller,
       child: Scaffold(
@@ -157,6 +164,49 @@ class _SeeScreenState extends State<SeeScreen> {
                 ),
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Shown on web where camera frame streaming is unavailable.
+  Widget _buildWebPlaceholder(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppTopBar(
+        themeMode: widget.themeMode,
+        onThemeToggle: widget.onThemeToggle,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.videocam_off,
+                size: 64,
+                color: theme.colorScheme.outline,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Watch mode is not available on web',
+                style: theme.textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Camera frame streaming is not supported in '
+                'browsers. Use the Hear mode for audio-based '
+                'Morse decoding, or run the app on a mobile '
+                'device for video decoding.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
       ),

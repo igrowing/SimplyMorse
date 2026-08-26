@@ -1,0 +1,9 @@
+{
+  "name": "SimplyMorse",
+  "short_name": "SimplyMorse",
+  "description": "Audio-visual Morse code encoder-decoder",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
