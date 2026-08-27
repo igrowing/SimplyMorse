@@ -8,15 +8,19 @@ void main() {
     Future<void> pumpBar(
       WidgetTester tester, {
       ThemeMode mode = ThemeMode.light,
+      Brightness platformBrightness = Brightness.light,
       VoidCallback? onToggle,
     }) async {
       onToggle ??= () {};
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(
-            body: AppTopBar(
-              themeMode: mode,
-              onThemeToggle: onToggle,
+          home: MediaQuery(
+            data: MediaQueryData(platformBrightness: platformBrightness),
+            child: Scaffold(
+              body: AppTopBar(
+                themeMode: mode,
+                onThemeToggle: onToggle,
+              ),
             ),
           ),
         ),
@@ -46,11 +50,30 @@ void main() {
     });
 
     testWidgets(
-      'shows brightness_auto icon for system theme',
+      'shows dark_mode icon when system is light (system theme)',
       (tester) async {
-        await pumpBar(tester, mode: ThemeMode.system);
+        await pumpBar(
+          tester,
+          mode: ThemeMode.system,
+          platformBrightness: Brightness.light,
+        );
 
-        expect(find.byIcon(Icons.brightness_auto), findsOneWidget);
+        // System is light → show opposite (dark_mode)
+        expect(find.byIcon(Icons.dark_mode), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'shows light_mode icon when system is dark (system theme)',
+      (tester) async {
+        await pumpBar(
+          tester,
+          mode: ThemeMode.system,
+          platformBrightness: Brightness.dark,
+        );
+
+        // System is dark → show opposite (light_mode)
+        expect(find.byIcon(Icons.light_mode), findsOneWidget);
       },
     );
 

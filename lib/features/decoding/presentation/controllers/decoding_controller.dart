@@ -43,10 +43,21 @@ class DecodingController extends ChangeNotifier {
   DecodingMode _mode = DecodingMode.audio;
   DecodingStatus _status = DecodingStatus.idle;
   String _decodedText = '';
+  double _lockedFrequency = 0;
 
   DecodingMode get mode => _mode;
   DecodingStatus get status => _status;
   String get decodedText => _decodedText;
+
+  /// The frequency the audio decoder has locked onto (Hz).
+  /// Returns 0 while calibrating or in video mode.
+  double get lockedFrequency => _lockedFrequency;
+
+  /// Whether the audio decoder is in the calibration phase.
+  bool get isCalibrating =>
+      _mode == DecodingMode.audio &&
+      _status == DecodingStatus.listening &&
+      _audioDecoder?.isCalibrating == true;
 
   /// Current estimated WPM based on decoded elements.
   /// Returns 0 when no elements have been decoded yet.
@@ -82,6 +93,7 @@ class DecodingController extends ChangeNotifier {
     _mode = mode;
     _status = DecodingStatus.idle;
     _decodedText = '';
+    _lockedFrequency = 0;
     _elements.clear();
     notifyListeners();
   }
@@ -145,6 +157,7 @@ class DecodingController extends ChangeNotifier {
   /// Clears the decoded text and resets to idle.
   void clear() {
     _decodedText = '';
+    _lockedFrequency = 0;
     _elements.clear();
     _status = DecodingStatus.idle;
     _audioDecoder?.reset();
@@ -156,6 +169,8 @@ class DecodingController extends ChangeNotifier {
     if (_audioDecoder == null || _audioCapture == null) return;
     _audioDecoder.reset();
     _audioDecoder.onElement = _onElement;
+    _audioDecoder.onLock = _onLock;
+    _lockedFrequency = 0;
     final stream = _audioCapture.start();
     _audioSub = stream.listen((samples) {
       _audioDecoder.processSamples(samples);
@@ -174,6 +189,11 @@ class DecodingController extends ChangeNotifier {
   void _onElement(DecodedElement element) {
     _elements.add(element);
     _decodedText = _morseDecoder.decodeElements(_elements);
+    notifyListeners();
+  }
+
+  void _onLock(double freq) {
+    _lockedFrequency = freq;
     notifyListeners();
   }
 

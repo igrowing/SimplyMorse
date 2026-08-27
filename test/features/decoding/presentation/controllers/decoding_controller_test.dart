@@ -154,7 +154,7 @@ void main() {
 
         controller.clear();
 
-        expect(audioDecoder.state, DecoderState.scanning);
+        expect(audioDecoder.state, DecoderState.calibrating);
       });
     });
 
@@ -265,7 +265,7 @@ void main() {
         final noise = List<double>.filled(256 * 6, 0.0);
         audioCapture.emit(noise);
 
-        expect(audioDecoder.state, DecoderState.scanning);
+        expect(audioDecoder.state, DecoderState.calibrating);
 
         controller.pause();
       });

@@ -12,8 +12,12 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 /// Screen for audio-based Morse decoding via microphone.
 ///
 /// Implements the audio decoding pipeline:
-/// AudioCapture → AudioDecoder (FFT scan → Goertzel lock →
+/// AudioCapture → AudioDecoder (calibration → Goertzel lock →
 /// envelope → timing) → MorseDecoder → text output.
+///
+/// When listening starts, the decoder calibrates for ~2 s to
+/// detect the dominant tone in 400-1000 Hz. The locked
+/// frequency is shown in the status bar.
 class ListenScreen extends StatefulWidget {
   const ListenScreen({
     required this.themeMode,
@@ -81,6 +85,7 @@ class _ListenScreenState extends State<ListenScreen> {
   Future<void> _onClearPressed() async {
     await _feedbackService.lightImpact();
     _controller.clear();
+    _textController.clear();
   }
 
   Future<void> _onCopyPressed() async {
@@ -124,17 +129,13 @@ class _ListenScreenState extends State<ListenScreen> {
                       children: [
                         _buildHeader(context),
                         const SizedBox(height: 16),
-                        _buildStatusIndicator(context),
-                        const SizedBox(height: 8),
-                        _buildWpmDisplay(context),
+                        _buildStatusBar(context),
                         const SizedBox(height: 16),
                         _buildDecodedTextInput(context),
                         const SizedBox(height: 8),
                         _buildShareButtons(context),
                         const SizedBox(height: 16),
-                        _buildPauseResumeButton(context),
-                        const SizedBox(height: 12),
-                        _buildClearButton(context),
+                        _buildActionButtons(context),
                       ],
                     ),
                   ),
@@ -158,7 +159,9 @@ class _ListenScreenState extends State<ListenScreen> {
     );
   }
 
-  Widget _buildStatusIndicator(BuildContext context) {
+  /// Combined status bar showing status indicator, locked
+  /// frequency, and WPM on one line.
+  Widget _buildStatusBar(BuildContext context) {
     final theme = Theme.of(context);
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
@@ -168,45 +171,71 @@ class _ListenScreenState extends State<ListenScreen> {
             'Idle',
           ),
           DecodingStatus.listening => (
-            theme.colorScheme.primary,
-            'Listening…',
+            ctrl.isCalibrating
+                ? theme.colorScheme.tertiary
+                : theme.colorScheme.primary,
+            ctrl.isCalibrating ? 'Calibrating…' : 'Listening…',
           ),
           DecodingStatus.paused => (
             theme.colorScheme.tertiary,
             'Paused',
           ),
         };
-        return Row(
-          children: [
-            Icon(Icons.circle, size: 12, color: color),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: color,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
-  Widget _buildWpmDisplay(BuildContext context) {
-    final theme = Theme.of(context);
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        if (ctrl.currentWpm == 0) return const SizedBox.shrink();
-        return Row(
+        return Wrap(
+          spacing: 16,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Icon(Icons.speed, size: 16, color: theme.colorScheme.outline),
-            const SizedBox(width: 4),
-            Text(
-              '${ctrl.currentWpm} WPM',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 12, color: color),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: color,
+                  ),
+                ),
+              ],
             ),
+            if (ctrl.lockedFrequency > 0)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.lock,
+                    size: 14,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Locked at ${ctrl.lockedFrequency.round()} Hz',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            if (ctrl.currentWpm > 0)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.speed,
+                    size: 14,
+                    color: theme.colorScheme.outline,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${ctrl.currentWpm} WPM',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
           ],
         );
       },
@@ -262,41 +291,44 @@ class _ListenScreenState extends State<ListenScreen> {
     );
   }
 
-  Widget _buildPauseResumeButton(BuildContext context) {
+  /// Start/Pause/Resume and Clear buttons side by side,
+  /// consistent with Send screens.
+  Widget _buildActionButtons(BuildContext context) {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
-        if (ctrl.isIdle) {
-          return FilledButton.icon(
-            onPressed: _onStartPressed,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Start'),
-          );
-        }
-        if (ctrl.isListening) {
-          return FilledButton.icon(
-            onPressed: _onPausePressed,
-            icon: const Icon(Icons.pause),
-            label: const Text('Pause'),
-          );
-        }
-        return FilledButton.icon(
-          onPressed: _onResumePressed,
-          icon: const Icon(Icons.play_arrow),
-          label: const Text('Resume'),
-        );
-      },
-    );
-  }
+        final isStart = ctrl.isIdle;
+        final isPause = ctrl.isListening;
 
-  Widget _buildClearButton(BuildContext context) {
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        return OutlinedButton.icon(
-          onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
-              ? null
-              : _onClearPressed,
-          icon: const Icon(Icons.clear),
-          label: const Text('Clear'),
+        return Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: isStart
+                    ? _onStartPressed
+                    : isPause
+                    ? _onPausePressed
+                    : _onResumePressed,
+                icon: Icon(isPause ? Icons.pause : Icons.play_arrow),
+                label: Text(
+                  isStart
+                      ? 'Start'
+                      : isPause
+                      ? 'Pause'
+                      : 'Resume',
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
+                    ? null
+                    : _onClearPressed,
+                icon: const Icon(Icons.clear),
+                label: const Text('Clear'),
+              ),
+            ),
+          ],
         );
       },
     );

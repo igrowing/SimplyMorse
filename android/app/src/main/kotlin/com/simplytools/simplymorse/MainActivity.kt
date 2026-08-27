@@ -1,4 +1,4 @@
-package com.igrowing.simply_morse
+package com.simplytools.simplymorse
 
 import io.flutter.embedding.android.FlutterActivity
 

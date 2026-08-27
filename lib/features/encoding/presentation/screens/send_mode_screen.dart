@@ -77,6 +77,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
   Future<void> _onClearPressed() async {
     await _feedbackService.lightImpact();
     await _controller.clear();
+    _textController.clear();
   }
 
   Future<void> _onSpeedChanged(double value) async {

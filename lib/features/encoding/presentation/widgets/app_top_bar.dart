@@ -4,6 +4,10 @@ import 'package:simply_morse/core/constants/app_constants.dart';
 
 /// A reusable top app bar showing the app icon, name, version,
 /// and a theme toggle button.
+///
+/// When in [ThemeMode.system], the toggle icon shows the
+/// *opposite* of the current system theme — e.g. if the
+/// system is light, it shows `Icons.dark_mode`.
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   const AppTopBar({
     required this.themeMode,
@@ -22,7 +26,11 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       leading: const Padding(
         padding: EdgeInsets.all(10),
-        child: Icon(Icons.graphic_eq, size: 28),
+        child: Image(
+          image: AssetImage('assets/SimplyMorse_icon1024.png'),
+          width: 28,
+          height: 28,
+        ),
       ),
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,7 +50,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       actions: [
         IconButton(
-          icon: Icon(_themeIcon),
+          icon: Icon(_themeIcon(context)),
           onPressed: onThemeToggle,
           tooltip: _themeTooltip,
         ),
@@ -50,11 +58,19 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  IconData get _themeIcon => switch (themeMode) {
-    ThemeMode.system => Icons.brightness_auto,
-    ThemeMode.light => Icons.light_mode,
-    ThemeMode.dark => Icons.dark_mode,
-  };
+  IconData _themeIcon(BuildContext context) {
+    switch (themeMode) {
+      case ThemeMode.system:
+        // Show the opposite of the current system theme
+        final isSystemDark =
+            MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+        return isSystemDark ? Icons.light_mode : Icons.dark_mode;
+      case ThemeMode.light:
+        return Icons.light_mode;
+      case ThemeMode.dark:
+        return Icons.dark_mode;
+    }
+  }
 
   String get _themeTooltip => switch (themeMode) {
     ThemeMode.system => 'System theme (tap to change)',

@@ -95,6 +95,7 @@ class _SeeScreenState extends State<SeeScreen> {
   Future<void> _onClearPressed() async {
     await _feedbackService.lightImpact();
     _controller.clear();
+    _textController.clear();
   }
 
   Future<void> _onCopyPressed() async {
@@ -155,9 +156,7 @@ class _SeeScreenState extends State<SeeScreen> {
                         const SizedBox(height: 16),
                         _buildCameraPreview(context),
                         const SizedBox(height: 16),
-                        _buildPauseResumeButton(context),
-                        const SizedBox(height: 12),
-                        _buildClearButton(context),
+                        _buildActionButtons(context),
                       ],
                     ),
                   ),
@@ -434,41 +433,44 @@ class _SeeScreenState extends State<SeeScreen> {
     );
   }
 
-  Widget _buildPauseResumeButton(BuildContext context) {
+  /// Start/Pause/Resume and Clear buttons side by side,
+  /// consistent with Send screens.
+  Widget _buildActionButtons(BuildContext context) {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
-        if (ctrl.isIdle) {
-          return FilledButton.icon(
-            onPressed: _onStartPressed,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Start'),
-          );
-        }
-        if (ctrl.isListening) {
-          return FilledButton.icon(
-            onPressed: _onPausePressed,
-            icon: const Icon(Icons.pause),
-            label: const Text('Pause'),
-          );
-        }
-        return FilledButton.icon(
-          onPressed: _onResumePressed,
-          icon: const Icon(Icons.play_arrow),
-          label: const Text('Resume'),
-        );
-      },
-    );
-  }
+        final isStart = ctrl.isIdle;
+        final isPause = ctrl.isListening;
 
-  Widget _buildClearButton(BuildContext context) {
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        return OutlinedButton.icon(
-          onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
-              ? null
-              : _onClearPressed,
-          icon: const Icon(Icons.clear),
-          label: const Text('Clear'),
+        return Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: isStart
+                    ? _onStartPressed
+                    : isPause
+                    ? _onPausePressed
+                    : _onResumePressed,
+                icon: Icon(isPause ? Icons.pause : Icons.play_arrow),
+                label: Text(
+                  isStart
+                      ? 'Start'
+                      : isPause
+                      ? 'Pause'
+                      : 'Resume',
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
+                    ? null
+                    : _onClearPressed,
+                icon: const Icon(Icons.clear),
+                label: const Text('Clear'),
+              ),
+            ),
+          ],
         );
       },
     );
