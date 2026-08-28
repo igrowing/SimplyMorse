@@ -1,11 +1,11 @@
 # Privacy Policy — SimplyMorse
 
-**Last updated: August 25, 2026**
+**Last updated: August 28, 2026**
 
-SimplyMorse is an open-source Internet connection diagnostics app developed
-by [igrowing](https://github.com/igrowing/SimplyMorse). This policy
-explains what data the app accesses, why, and what it does (and does not) do
-with it.
+SimplyMorse is an open-source audio-visual Morse code encoder-decoder
+developed by [igrowing](https://github.com/igrowing/SimplyMorse). This
+policy explains what data the app accesses, why, and what it does (and does
+not) do with it.
 
 ---
 
@@ -13,17 +13,17 @@ with it.
 
 - SimplyMorse **does not collect, store, transmit, or share any personal
   data**.
-- The app has **two functions**: diagnosing your connection, and checking
-  whether a specific website is reachable. Both run **only when you tap the
-  button** — nothing happens in the background.
-- Diagnostic checks are sent to a handful of well-known, independent Internet
-  services (listed below) so the app can tell you what's actually wrong.
-  These services see only technical connection data, never anything that
-  identifies you personally.
-- Speed measurement transfers real data, so it uses **mobile data only when
-  mobile data is the connection you are already on**, or when you explicitly
-  ask to repeat the test over it (see Section 2).
-- There are **no ads, no analytics, no tracking, no telemetry, no accounts**.
+- The app works **fully offline**. It has no network code and makes no
+  Internet requests at all.
+- Decoding Morse code from sound uses the **microphone**, and decoding from
+  light uses the **camera**. Both run **only on the screen where you start
+  them**, and the audio and video are analysed live in memory — nothing is
+  ever recorded to a file, saved, or sent anywhere.
+- Sending Morse code can drive the phone's **flashlight (LED)**, the
+  speaker, or both. This happens only while you are on a Send screen and
+  tap "Send".
+- There are **no ads, no analytics, no tracking, no telemetry, no
+  accounts, no crash reporting**.
 - The app is **open source** — you can inspect every line of code at
   [github.com/igrowing/SimplyMorse](https://github.com/igrowing/SimplyMorse).
 
@@ -31,93 +31,90 @@ with it.
 
 ## 2. Permissions and Why They Are Used
 
-SimplyMorse requests far fewer permissions than a typical network tool,
-because it only diagnoses your connection — it does not scan your LAN, does
-not run background services, and does not send notifications.
+### Microphone (RECORD_AUDIO / NSMicrophoneUsageDescription)
 
-### Location (ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION)
+Used **only** on the "Hear" decoding screen, to listen for a Morse tone and
+convert it to text. Audio is streamed straight into the on-device decoder
+as raw samples, processed frame by frame, and discarded. It is **never**
+written to storage, **never** kept after you leave the screen or tap
+"Pause", and **never** transmitted.
 
-Android requires the **Location** permission for any app that reads Wi-Fi
-network details (such as the router/gateway IP address) via the OS Wi-Fi
-APIs. This is an Android platform policy, not a choice made by SimplyMorse
-— the app cannot ask the OS for this information without the permission
-being granted.
+On Android, the `record` library that provides microphone streaming also
+declares `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE` in the
+merged manifest. SimplyMorse does not start a foreground service and does
+not listen in the background — capture stops when you pause or leave the
+screen.
 
-SimplyMorse uses this permission **only** to:
+### Camera (CAMERA / NSCameraUsageDescription)
 
-- Detect your router's gateway IP address, so it can check whether your
-  device can reach your own router.
+Used **only** on the "See" decoding screen, to watch a blinking light and
+convert it to text. Frames are captured at low resolution, immediately
+reduced to a small brightness map, analysed, and discarded. Audio recording
+on the camera is disabled. No photo or video is ever saved or sent.
 
-The app **never** derives your physical location from this permission. It
-does not use GPS, does not request your coordinates, and does not record,
-transmit, or log your location.
+### Flashlight / LED
 
-### Network / Internet Access (INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE)
+Sending Morse code as light toggles the device torch through the
+`torch_light` library while you hold a Send screen and a transmission is
+running. No location, identity, or other data is involved.
 
-Required to check your connection type (Wi-Fi/mobile/none), reach your
-router, and run the diagnostic and website-check probes described below. All
-of these operations are initiated explicitly by you, by tapping "Find the
-problem" or "Check it". Results are displayed on screen only.
+### Network
 
-### Mobile data usage during speed measurement
-
-The connection check measures download and upload speed, which means moving
-real data — roughly 5–15 MB per run, depending on how fast the line is. The app
-measures whichever connection the device is already using and never switches
-the connection itself, so mobile data is consumed only when:
-
-1. **Wi-Fi is not connected.** Mobile data is then the only Internet available,
-   so it is what gets measured.
-2. **You choose to repeat the test over mobile data** after a Wi-Fi run.
-   Choosing that option is your acknowledgement of the data usage.
-
-The app never runs a speed measurement over mobile data while Wi-Fi is working,
-and never runs one in the background: every check starts with a button tap.
-
-SimplyMorse does **not** request `CHANGE_WIFI_STATE`, does **not** run a
-foreground service, and does **not** request notification permission — it
-has no background or persistent processes.
+SimplyMorse requests **no** Internet permission and contains **no**
+networking code. It cannot phone home even by accident.
 
 ---
 
-## 3. What Happens When You Tap a Button
+## 3. What Happens On Each Screen
 
-TBD
+| Screen | What it accesses | What leaves the device |
+|--------|------------------|------------------------|
+| Main / Send menu | Nothing | Nothing |
+| Send (Sound / Flash / Both) | Speaker and/or LED while transmitting | Nothing |
+| Hear (decode audio) | Microphone stream while active | Nothing |
+| See (decode light) | Camera stream while active | Nothing |
+
+All processing is local. The only thing that can ever leave the device is
+text **you** choose to send via the system share sheet (see Section 4).
 
 ---
 
 ## 4. Data Storage
 
-SimplyMorse stores only **one small setting on your device**:
+SimplyMorse stores a few small settings on your device using the standard
+platform key-value store (Android SharedPreferences / iOS
+`NSUserDefaults`):
 
-| What | Where | Why |
-|------|-------|-----|
-| Light/dark theme preference | Android SharedPreferences | Remember your chosen theme across app launches |
+| What | Why |
+|------|-----|
+| Sending speed (words per minute) | Restore your last-used speed |
+| Tone frequency (Hz) | Restore your last-used sending tone |
+| Text history — the messages you have typed to send | Offer them from a drop-down next time |
 
-No scan logs, diagnostic history, or checked URLs are saved. No data is
-stored in the cloud. No account is required. No registration. Uninstalling
-the app removes all stored data.
+The theme (light/dark/system) selection is **not** persisted; it resets to
+"follow system" on each launch.
+
+No decoded text, microphone audio, camera images, diagnostic logs, or usage
+history are saved. No data is stored in the cloud. No account or
+registration is required. Uninstalling the app removes all stored data.
+
+### Sharing text
+
+The decoder screens let you share the decoded text through your device's
+standard share sheet (via the `share_plus` library). This happens only when
+you tap Share and pick a destination app yourself. SimplyMorse has no
+control over, and no visibility into, what the app you choose does with that
+text.
 
 ---
 
 ## 5. Third-Party Services and Libraries
 
-To diagnose your connection, SimplyMorse contacts the following
-**independent, well-known Internet services**. Each request contains only
-the technical data described in Section 3 above (never your name, contacts,
-files, or anything else on your device):
+SimplyMorse contacts **no third-party services** of any kind.
 
-| Service | Purpose |
-|---------|---------|
-| [Google connectivity check](https://developers.google.com/speed/public-dns) (`connectivitycheck.gstatic.com`) | Detect captive portals / generic Internet reachability |
-| [Cloudflare](https://www.cloudflare.com/) (`cp.cloudflare.com`, `cdn-cgi/trace`, `speed.cloudflare.com`) | Connectivity check, public IP/country lookup, speed test |
-| [RDAP / rdap.org](https://rdap.org/) | Domain registration lookup |
-| [check-host.net](https://check-host.net/) | Multi-location reachability check |
-| [websitedown.org](https://websitedown.org/) | Independent outage cross-check |
-
-SimplyMorse uses the following **open-source libraries**. None of them
-collect, transmit, or process personal data beyond what's described above.
-All are distributed under permissive open-source licenses.
+It uses the following **open-source libraries**. None of them collect,
+transmit, or process personal data. All are distributed under permissive
+open-source licenses.
 
 | Library | License | Purpose |
 |---------|---------|---------|
@@ -125,9 +122,14 @@ All are distributed under permissive open-source licenses.
 | [provider](https://pub.dev/packages/provider) | MIT | State management |
 | [get_it](https://pub.dev/packages/get_it) | MIT | Dependency injection |
 | [equatable](https://pub.dev/packages/equatable) | MIT | Value equality for domain models |
-| [shared_preferences](https://pub.dev/packages/shared_preferences) | BSD 3-Clause | Local theme setting storage |
-| [url_launcher](https://pub.dev/packages/url_launcher) | BSD 3-Clause | Open captive-portal / website links in your browser |
-| [http](https://pub.dev/packages/http) | BSD 3-Clause | Diagnostic and website-check network requests |
+| [meta](https://pub.dev/packages/meta) | BSD 3-Clause | Source annotations |
+| [shared_preferences](https://pub.dev/packages/shared_preferences) | BSD 3-Clause | Local storage of speed, tone and text history |
+| [audioplayers](https://pub.dev/packages/audioplayers) | MIT | Play the Morse sending tone |
+| [camera](https://pub.dev/packages/camera) | BSD 3-Clause | Live camera frames for light decoding |
+| [record](https://pub.dev/packages/record) | BSD 3-Clause | Live microphone stream for audio decoding |
+| [torch_light](https://pub.dev/packages/torch_light) | Apache 2.0 | Toggle the LED for light sending |
+| [share_plus](https://pub.dev/packages/share_plus) | BSD 3-Clause | Share decoded text via the system share sheet |
+| [cupertino_icons](https://pub.dev/packages/cupertino_icons) | MIT | Icon assets |
 
 There are **no third-party advertising SDKs**, **no crash reporting
 services**, and **no analytics platforms** integrated in SimplyMorse.
@@ -143,9 +145,9 @@ and does not knowingly collect any data from anyone.
 
 ## 7. Changes to This Policy
 
-If the app ever changes in a way that affects privacy (e.g., a new permission
-or a new third-party service is added), this policy will be updated and the
-"Last updated" date will change. The policy is always available at:
+If the app ever changes in a way that affects privacy (e.g., a new
+permission or a third-party service is added), this policy will be updated
+and the "Last updated" date will change. The policy is always available at:
 [https://raw.githubusercontent.com/igrowing/SimplyMorse/refs/heads/main/PRIVACY_POLICY.md](https://raw.githubusercontent.com/igrowing/SimplyMorse/refs/heads/main/PRIVACY_POLICY.md)
 
 ---
