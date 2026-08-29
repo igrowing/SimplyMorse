@@ -175,6 +175,16 @@ class _SendModeScreenState extends State<SendModeScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 32),
+                  OutlinedButton.icon(
+                    onPressed: _onPausePressed,
+                    icon: const Icon(Icons.cancel_outlined),
+                    label: const Text('Cancel'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -369,7 +379,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
   }
 
   /// Full-screen blink overlay for mobile display transmission.
-  /// Shows only a Pause button.
+  /// Shows a Stop button.
   Widget _buildDisplayOverlay(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: _controller.displayBlink,
@@ -383,10 +393,10 @@ class _SendModeScreenState extends State<SendModeScreen> {
                 const Spacer(),
                 FilledButton.icon(
                   onPressed: _onPausePressed,
-                  icon: const Icon(Icons.pause, size: 36),
+                  icon: const Icon(Icons.stop, size: 36),
                   label: const Padding(
                     padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text('Pause', style: TextStyle(fontSize: 20)),
+                    child: Text('Stop', style: TextStyle(fontSize: 20)),
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: isBlinking ? Colors.black87 : Colors.white,
@@ -630,13 +640,28 @@ class _SendModeScreenState extends State<SendModeScreen> {
   Widget _buildActionButtons(BuildContext context) {
     return Consumer<EncodingController>(
       builder: (context, ctrl, _) {
+        if (ctrl.isTransmitting) {
+          return Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _onPausePressed,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
         return Row(
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: ctrl.isTransmitting || ctrl.text.isEmpty
-                    ? null
-                    : _onSendPressed,
+                onPressed: ctrl.text.isEmpty ? null : _onSendPressed,
                 icon: const Icon(Icons.send),
                 label: const Text('Send'),
               ),
@@ -644,9 +669,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed:
-                    ctrl.isTransmitting ||
-                        (ctrl.text.isEmpty && !ctrl.transmission.isCompleted)
+                onPressed: ctrl.text.isEmpty && !ctrl.transmission.isCompleted
                     ? null
                     : _onClearPressed,
                 icon: const Icon(Icons.clear),
