@@ -6,6 +6,8 @@ import 'package:simply_morse/core/services/screen_flash_service.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
 
 import '../../../../helpers/fakes.dart';
@@ -47,8 +49,10 @@ void main() {
       MaterialApp(
         home: SendModeScreen(
           mode: mode,
-          themeMode: ThemeMode.light,
-          onThemeToggle: () {},
+          themeController: ThemeController(),
+          screenTimeoutService: ScreenTimeoutService(),
+          displayTimeout: DisplayTimeout.system,
+          onDisplayTimeoutChanged: (_) {},
         ),
       ),
     );
@@ -210,6 +214,8 @@ void main() {
           );
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Clear'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Clear'));
           await tester.pumpAndSettle();
 
@@ -297,6 +303,8 @@ void main() {
           );
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
           await tester.pumpAndSettle();
 
@@ -350,7 +358,10 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
+          await tester.pump();
           await tester.pump();
 
           // Countdown overlay should be visible
@@ -374,7 +385,10 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
+          await tester.pump();
           await tester.pump();
 
           expect(
@@ -403,7 +417,10 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
+          await tester.pump();
           await tester.pump();
 
           expect(
@@ -432,7 +449,10 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
+          await tester.pump();
           await tester.pump();
 
           expect(
@@ -457,7 +477,10 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
+          await tester.pump();
           await tester.pump();
 
           expect(find.text('Get ready to transmit'), findsOneWidget);
@@ -479,7 +502,10 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
+          await tester.pump();
           await tester.pump();
 
           // Countdown is showing
@@ -508,6 +534,8 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
           await tester.pumpAndSettle();
 
@@ -529,6 +557,8 @@ void main() {
           await tester.enterText(find.byType(TextField), 'E');
           await tester.pumpAndSettle();
 
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Send'));
           await tester.pumpAndSettle();
 

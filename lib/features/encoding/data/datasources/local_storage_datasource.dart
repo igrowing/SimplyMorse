@@ -50,6 +50,33 @@ class LocalStorageDatasource {
     await _instance.setDouble(AppConstants.initialDelayKey, seconds);
   }
 
+  Future<bool> getRepeatLoop() async {
+    return _instance.getBool(AppConstants.repeatLoopKey) ??
+        AppConstants.defaultRepeatLoop;
+  }
+
+  Future<void> saveRepeatLoop(bool enabled) async {
+    await _instance.setBool(AppConstants.repeatLoopKey, enabled);
+  }
+
+  Future<double> getRepeatDelay() async {
+    return _instance.getDouble(AppConstants.repeatDelayKey) ??
+        AppConstants.defaultRepeatDelaySec;
+  }
+
+  Future<void> saveRepeatDelay(double seconds) async {
+    await _instance.setDouble(AppConstants.repeatDelayKey, seconds);
+  }
+
+  Future<String> getDisplayTimeout() async {
+    return _instance.getString(AppConstants.displayTimeoutKey) ??
+        AppConstants.defaultDisplayTimeout;
+  }
+
+  Future<void> saveDisplayTimeout(String mode) async {
+    await _instance.setString(AppConstants.displayTimeoutKey, mode);
+  }
+
   Future<List<String>> getTextHistory() async {
     final json = _instance.getString(AppConstants.textHistoryKey);
     if (json == null) return [];

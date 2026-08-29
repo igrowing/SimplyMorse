@@ -26,4 +26,25 @@ class SettingsRepositoryImpl implements SettingsRepository {
   @override
   Future<void> saveInitialDelay(double seconds) =>
       _dataSource.saveInitialDelay(seconds);
+
+  @override
+  Future<bool> getRepeatLoop() => _dataSource.getRepeatLoop();
+
+  @override
+  Future<void> saveRepeatLoop(bool enabled) =>
+      _dataSource.saveRepeatLoop(enabled);
+
+  @override
+  Future<double> getRepeatDelay() => _dataSource.getRepeatDelay();
+
+  @override
+  Future<void> saveRepeatDelay(double seconds) =>
+      _dataSource.saveRepeatDelay(seconds);
+
+  @override
+  Future<String> getDisplayTimeout() => _dataSource.getDisplayTimeout();
+
+  @override
+  Future<void> saveDisplayTimeout(String mode) =>
+      _dataSource.saveDisplayTimeout(mode);
 }

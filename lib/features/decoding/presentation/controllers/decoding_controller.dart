@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:simply_morse/features/decoding/data/audio_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
@@ -25,17 +26,20 @@ class DecodingController extends ChangeNotifier {
     AudioCapture? audioCapture,
     VideoDecoder? videoDecoder,
     CameraCapture? cameraCapture,
+    AudioDebugLogger? debugLogger,
   }) : _morseDecoder = morseDecoder,
        _audioDecoder = audioDecoder,
        _audioCapture = audioCapture,
        _videoDecoder = videoDecoder,
-       _cameraCapture = cameraCapture;
+       _cameraCapture = cameraCapture,
+       _debugLogger = debugLogger;
 
   final MorseDecoder _morseDecoder;
   final AudioDecoder? _audioDecoder;
   final AudioCapture? _audioCapture;
   final VideoDecoder? _videoDecoder;
   final CameraCapture? _cameraCapture;
+  final AudioDebugLogger? _debugLogger;
 
   StreamSubscription<List<double>>? _audioSub;
   final List<DecodedElement> _elements = [];
@@ -44,6 +48,12 @@ class DecodingController extends ChangeNotifier {
   DecodingStatus _status = DecodingStatus.idle;
   String _decodedText = '';
   double _lockedFrequency = 0;
+
+  /// Whether debug logging is enabled.
+  bool get isDebugLoggingEnabled => _debugLogger?.enabled ?? false;
+
+  /// Path to the current debug log file, if logging is active.
+  String? get debugLogPath => _debugLogger?.logFilePath;
 
   DecodingMode get mode => _mode;
   DecodingStatus get status => _status;
@@ -87,6 +97,14 @@ class DecodingController extends ChangeNotifier {
   bool get isHighFrameRate => _mode == DecodingMode.video
       ? _cameraCapture?.isHighFrameRate ?? false
       : true;
+
+  /// Toggles debug logging on/off.
+  void toggleDebugLogging() {
+    final logger = _debugLogger;
+    if (logger == null) return;
+    logger.enabled = !logger.enabled;
+    notifyListeners();
+  }
 
   /// Initialises the controller for the given mode.
   void init(DecodingMode mode) {
@@ -168,6 +186,90 @@ class DecodingController extends ChangeNotifier {
   void _startAudio() {
     if (_audioDecoder == null || _audioCapture == null) return;
     _audioDecoder.reset();
+
+    // Wire debug logger if enabled
+    if (_debugLogger != null && _debugLogger!.enabled) {
+      _debugLogger!.start();
+      _audioDecoder.onDebugCalibration =
+          ({
+            required totalSamples,
+            required sampleRate,
+            required avgPower,
+            required noiseFloor,
+            required calibrationFrames,
+            required elapsedMs,
+          }) {
+            _debugLogger!.logCalibration(
+              totalSamples: totalSamples,
+              sampleRate: sampleRate,
+              avgPower: avgPower,
+              noiseFloor: noiseFloor,
+              binPower: const {},
+              calibrationFrames: calibrationFrames,
+              elapsedMs: elapsedMs,
+            );
+          };
+
+      _audioDecoder.onDebugLock =
+          ({
+            required totalSamples,
+            required sampleRate,
+            required freq,
+            required bestAvgPower,
+            required noiseFloor,
+            required onThresholdFactor,
+          }) {
+            _debugLogger!.logLock(
+              totalSamples: totalSamples,
+              sampleRate: sampleRate,
+              freq: freq,
+              bestAvgPower: bestAvgPower,
+              noiseFloor: noiseFloor,
+              onThresholdFactor: onThresholdFactor,
+            );
+          };
+
+      _audioDecoder.onDebugTracking =
+          ({
+            required totalSamples,
+            required sampleRate,
+            required freq,
+            required power,
+            required envelope,
+            required noiseFloor,
+            required onThreshold,
+            required offThreshold,
+            required isOn,
+          }) {
+            _debugLogger!.logTracking(
+              totalSamples: totalSamples,
+              sampleRate: sampleRate,
+              freq: freq,
+              power: power,
+              envelope: envelope,
+              noiseFloor: noiseFloor,
+              onThreshold: onThreshold,
+              offThreshold: offThreshold,
+              isOn: isOn,
+            );
+          };
+
+      _audioDecoder.onDebugTransition =
+          ({
+            required totalSamples,
+            required sampleRate,
+            required isOn,
+            required durationMs,
+          }) {
+            _debugLogger!.logTransition(
+              totalSamples: totalSamples,
+              sampleRate: sampleRate,
+              isOn: isOn,
+              durationMs: durationMs,
+            );
+          };
+    }
+
     _audioDecoder.onElement = _onElement;
     _audioDecoder.onLock = _onLock;
     _lockedFrequency = 0;
@@ -202,6 +304,7 @@ class DecodingController extends ChangeNotifier {
     _audioSub?.cancel();
     _audioCapture?.stop();
     _cameraCapture?.stop();
+    _debugLogger?.stop();
     _status = DecodingStatus.idle;
     super.dispose();
   }

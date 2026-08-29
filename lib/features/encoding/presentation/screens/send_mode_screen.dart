@@ -9,8 +9,11 @@ import 'package:simply_morse/core/services/screen_flash_service.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/morse_transmission_label.dart';
+import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for composing and transmitting Morse code.
 ///
@@ -28,14 +31,18 @@ import 'package:simply_morse/features/encoding/presentation/widgets/morse_transm
 class SendModeScreen extends StatefulWidget {
   const SendModeScreen({
     required this.mode,
-    required this.themeMode,
-    required this.onThemeToggle,
+    required this.themeController,
+    required this.screenTimeoutService,
+    required this.displayTimeout,
+    required this.onDisplayTimeoutChanged,
     super.key,
   });
 
   final EncodingMode mode;
-  final ThemeMode themeMode;
-  final VoidCallback onThemeToggle;
+  final ThemeController themeController;
+  final ScreenTimeoutService screenTimeoutService;
+  final DisplayTimeout displayTimeout;
+  final ValueChanged<DisplayTimeout> onDisplayTimeoutChanged;
 
   @override
   State<SendModeScreen> createState() => _SendModeScreenState();
@@ -113,8 +120,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
       value: _controller,
       child: Scaffold(
         appBar: AppTopBar(
-          themeMode: widget.themeMode,
-          onThemeToggle: widget.onThemeToggle,
+          onSettingsTap: () => _navigateToSettings(context),
         ),
         body: Stack(
           children: [
@@ -122,6 +128,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
                 ? _buildSplitLayout(context)
                 : _buildNormalLayout(context),
             _buildCountdownOverlay(context),
+            _buildRepeatCountdownOverlay(context),
           ],
         ),
       ),
@@ -439,6 +446,8 @@ class _SendModeScreenState extends State<SendModeScreen> {
       ],
       const SizedBox(height: 8),
       _buildInitialDelaySlider(context),
+      const SizedBox(height: 12),
+      _buildRepeatControls(context),
       if (widget.mode.needsLight) ...[
         const SizedBox(height: 12),
         _buildLightMethodSelector(context),
@@ -723,6 +732,126 @@ class _SendModeScreenState extends State<SendModeScreen> {
           state: ctrl.transmission,
         );
       },
+    );
+  }
+
+  /// Repeat-in-loop toggle and delay-between-repeats slider.
+  Widget _buildRepeatControls(BuildContext context) {
+    final theme = Theme.of(context);
+    return Consumer<EncodingController>(
+      builder: (context, ctrl, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              title: Text('Repeat in loop', style: theme.textTheme.titleSmall),
+              value: ctrl.repeatLoop,
+              onChanged: ctrl.isTransmitting
+                  ? null
+                  : (value) => _controller.updateRepeatLoop(value),
+              contentPadding: EdgeInsets.zero,
+            ),
+            if (ctrl.repeatLoop) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Delay between repeats',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  Text(
+                    '${ctrl.repeatDelaySec.round()} s',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+              Slider(
+                value: ctrl.repeatDelaySec,
+                min: AppConstants.minRepeatDelaySec,
+                max: AppConstants.maxRepeatDelaySec,
+                divisions: 19,
+                label: '${ctrl.repeatDelaySec.round()}',
+                onChanged: ctrl.isTransmitting ? null : _onRepeatDelayChanged,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _onRepeatDelayChanged(double value) async {
+    await _feedbackService.selectionClick();
+    await _controller.updateRepeatDelay(value);
+  }
+
+  /// Repeat-delay countdown overlay.
+  Widget _buildRepeatCountdownOverlay(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: _controller.repeatCountdown,
+      builder: (context, remaining, _) {
+        if (remaining == null) return const SizedBox.shrink();
+        return Positioned.fill(
+          child: Container(
+            color: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.7),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Repeating in',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '$remaining',
+                    style: TextStyle(
+                      fontSize: 72,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  OutlinedButton.icon(
+                    onPressed: _onPausePressed,
+                    icon: const Icon(Icons.cancel_outlined, size: 28),
+                    label: const Text(
+                      'Cancel',
+                      style: TextStyle(fontSize: 20),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54, width: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 48,
+                        vertical: 24,
+                      ),
+                      shape: const StadiumBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _navigateToSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          themeController: widget.themeController,
+          screenTimeoutService: widget.screenTimeoutService,
+          themeMode: widget.themeController.mode,
+          displayTimeout: widget.displayTimeout,
+          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+        ),
+      ),
     );
   }
 }

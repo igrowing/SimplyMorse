@@ -10,7 +10,10 @@ import 'package:simply_morse/features/decoding/data/camera_capture_service.dart'
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for visual Morse decoding via camera.
 ///
@@ -22,13 +25,17 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 /// screen displays an informational message instead.
 class SeeScreen extends StatefulWidget {
   const SeeScreen({
-    required this.themeMode,
-    required this.onThemeToggle,
+    required this.themeController,
+    required this.screenTimeoutService,
+    required this.displayTimeout,
+    required this.onDisplayTimeoutChanged,
     super.key,
   });
 
-  final ThemeMode themeMode;
-  final VoidCallback onThemeToggle;
+  final ThemeController themeController;
+  final ScreenTimeoutService screenTimeoutService;
+  final DisplayTimeout displayTimeout;
+  final ValueChanged<DisplayTimeout> onDisplayTimeoutChanged;
 
   @override
   State<SeeScreen> createState() => _SeeScreenState();
@@ -125,8 +132,7 @@ class _SeeScreenState extends State<SeeScreen> {
       value: _controller,
       child: Scaffold(
         appBar: AppTopBar(
-          themeMode: widget.themeMode,
-          onThemeToggle: widget.onThemeToggle,
+          onSettingsTap: () => _navigateToSettings(context),
         ),
         body: SafeArea(
           child: LayoutBuilder(
@@ -174,8 +180,7 @@ class _SeeScreenState extends State<SeeScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppTopBar(
-        themeMode: widget.themeMode,
-        onThemeToggle: widget.onThemeToggle,
+        onSettingsTap: () => _navigateToSettings(context),
       ),
       body: Center(
         child: Padding(
@@ -495,6 +500,20 @@ class _SeeScreenState extends State<SeeScreen> {
           ],
         );
       },
+    );
+  }
+
+  void _navigateToSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          themeController: widget.themeController,
+          screenTimeoutService: widget.screenTimeoutService,
+          themeMode: widget.themeController.mode,
+          displayTimeout: widget.displayTimeout,
+          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+        ),
+      ),
     );
   }
 }

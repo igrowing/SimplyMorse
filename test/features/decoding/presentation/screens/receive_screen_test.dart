@@ -1,15 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/receive_screen.dart';
 
 void main() {
+  late ThemeController themeController;
+  late ScreenTimeoutService screenTimeoutService;
+
+  setUp(() {
+    themeController = ThemeController();
+    screenTimeoutService = ScreenTimeoutService();
+  });
+
   group('ReceiveScreen', () {
     Future<void> pumpScreen(WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: ReceiveScreen(
-            themeMode: ThemeMode.light,
-            onThemeToggle: () {},
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            displayTimeout: DisplayTimeout.system,
+            onDisplayTimeoutChanged: (_) {},
           ),
         ),
       );

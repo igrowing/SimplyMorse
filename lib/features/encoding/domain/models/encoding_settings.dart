@@ -13,6 +13,8 @@ class EncodingSettings extends Equatable {
     required this.toneHz,
     this.lightMethod = LightMethod.flashLed,
     this.initialDelaySec = 1.0,
+    this.repeatLoop = false,
+    this.repeatDelaySec = 2.0,
   });
 
   final EncodingMode mode;
@@ -20,6 +22,8 @@ class EncodingSettings extends Equatable {
   final double toneHz;
   final LightMethod lightMethod;
   final double initialDelaySec;
+  final bool repeatLoop;
+  final double repeatDelaySec;
 
   /// Dit duration in milliseconds, derived from WPM.
   /// Based on the PARIS standard: 1 WPM = 1200 ms per dit.
@@ -53,6 +57,8 @@ class EncodingSettings extends Equatable {
     double? toneHz,
     LightMethod? lightMethod,
     double? initialDelaySec,
+    bool? repeatLoop,
+    double? repeatDelaySec,
   }) {
     return EncodingSettings(
       mode: mode ?? this.mode,
@@ -60,6 +66,8 @@ class EncodingSettings extends Equatable {
       toneHz: toneHz ?? this.toneHz,
       lightMethod: lightMethod ?? this.lightMethod,
       initialDelaySec: initialDelaySec ?? this.initialDelaySec,
+      repeatLoop: repeatLoop ?? this.repeatLoop,
+      repeatDelaySec: repeatDelaySec ?? this.repeatDelaySec,
     );
   }
 
@@ -70,5 +78,7 @@ class EncodingSettings extends Equatable {
     toneHz,
     lightMethod,
     initialDelaySec,
+    repeatLoop,
+    repeatDelaySec,
   ];
 }

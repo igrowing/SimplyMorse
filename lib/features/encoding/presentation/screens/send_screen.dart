@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen offering three encoding modes: Sound, Flash LED, Both.
 ///
@@ -10,20 +13,23 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 /// emulation instead of hardware torch.
 class SendScreen extends StatelessWidget {
   const SendScreen({
-    required this.themeMode,
-    required this.onThemeToggle,
+    required this.themeController,
+    required this.screenTimeoutService,
+    required this.displayTimeout,
+    required this.onDisplayTimeoutChanged,
     super.key,
   });
 
-  final ThemeMode themeMode;
-  final VoidCallback onThemeToggle;
+  final ThemeController themeController;
+  final ScreenTimeoutService screenTimeoutService;
+  final DisplayTimeout displayTimeout;
+  final ValueChanged<DisplayTimeout> onDisplayTimeoutChanged;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppTopBar(
-        themeMode: themeMode,
-        onThemeToggle: onThemeToggle,
+        onSettingsTap: () => _navigateToSettings(context),
       ),
       body: Center(
         child: Padding(
@@ -58,8 +64,24 @@ class SendScreen extends StatelessWidget {
       MaterialPageRoute<void>(
         builder: (_) => SendModeScreen(
           mode: mode,
-          themeMode: themeMode,
-          onThemeToggle: onThemeToggle,
+          themeController: themeController,
+          screenTimeoutService: screenTimeoutService,
+          displayTimeout: displayTimeout,
+          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          themeController: themeController,
+          screenTimeoutService: screenTimeoutService,
+          themeMode: themeController.mode,
+          displayTimeout: displayTimeout,
+          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
         ),
       ),
     );

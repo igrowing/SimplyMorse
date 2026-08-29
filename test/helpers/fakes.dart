@@ -32,9 +32,15 @@ class FakeSettingsRepository implements SettingsRepository {
   double speed = 7.0;
   double tone = 700.0;
   double initialDelay = 1.0;
+  bool repeatLoop = false;
+  double repeatDelay = 2.0;
+  String displayTimeout = 'system';
   int saveSpeedCount = 0;
   int saveToneCount = 0;
   int saveInitialDelayCount = 0;
+  int saveRepeatLoopCount = 0;
+  int saveRepeatDelayCount = 0;
+  int saveDisplayTimeoutCount = 0;
 
   @override
   Future<double> getSpeed() async => speed;
@@ -61,6 +67,33 @@ class FakeSettingsRepository implements SettingsRepository {
   Future<void> saveInitialDelay(double seconds) async {
     initialDelay = seconds;
     saveInitialDelayCount++;
+  }
+
+  @override
+  Future<bool> getRepeatLoop() async => repeatLoop;
+
+  @override
+  Future<void> saveRepeatLoop(bool enabled) async {
+    repeatLoop = enabled;
+    saveRepeatLoopCount++;
+  }
+
+  @override
+  Future<double> getRepeatDelay() async => repeatDelay;
+
+  @override
+  Future<void> saveRepeatDelay(double seconds) async {
+    repeatDelay = seconds;
+    saveRepeatDelayCount++;
+  }
+
+  @override
+  Future<String> getDisplayTimeout() async => displayTimeout;
+
+  @override
+  Future<void> saveDisplayTimeout(String mode) async {
+    displayTimeout = mode;
+    saveDisplayTimeoutCount++;
   }
 }
 

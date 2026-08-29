@@ -6,6 +6,51 @@ import 'package:simply_morse/features/decoding/domain/services/fft.dart';
 import 'package:simply_morse/features/decoding/domain/services/goertzel.dart';
 import 'package:simply_morse/features/decoding/domain/services/noise_floor_estimator.dart';
 
+/// Debug log callback for calibration frames.
+typedef DebugCalibrationCallback =
+    void Function({
+      required int totalSamples,
+      required int sampleRate,
+      required double avgPower,
+      required double noiseFloor,
+      required int calibrationFrames,
+      required double elapsedMs,
+    });
+
+/// Debug log callback for lock events.
+typedef DebugLockCallback =
+    void Function({
+      required int totalSamples,
+      required int sampleRate,
+      required double freq,
+      required double bestAvgPower,
+      required double noiseFloor,
+      required double onThresholdFactor,
+    });
+
+/// Debug log callback for tracking frames.
+typedef DebugTrackingCallback =
+    void Function({
+      required int totalSamples,
+      required int sampleRate,
+      required double freq,
+      required double power,
+      required double envelope,
+      required double noiseFloor,
+      required double onThreshold,
+      required double offThreshold,
+      required bool isOn,
+    });
+
+/// Debug log callback for transitions.
+typedef DebugTransitionCallback =
+    void Function({
+      required int totalSamples,
+      required int sampleRate,
+      required bool isOn,
+      required int durationMs,
+    });
+
 /// State of the audio decoding pipeline.
 enum DecoderState {
   /// Calibration phase — collecting FFT frames for
@@ -101,6 +146,12 @@ class AudioDecoder {
   /// Optional callback invoked when the frequency is locked.
   void Function(double freq)? onLock;
 
+  // -- Debug callbacks --
+  DebugCalibrationCallback? onDebugCalibration;
+  DebugLockCallback? onDebugLock;
+  DebugTrackingCallback? onDebugTracking;
+  DebugTransitionCallback? onDebugTransition;
+
   /// Processes a batch of audio samples.
   void processSamples(List<double> samples) {
     _buffer.addAll(samples);
@@ -152,9 +203,19 @@ class AudioDecoder {
 
     _calibrationFrames++;
 
-    // Check if calibration period is over
     final elapsedMs =
         (_totalSamples - _calibrationStartSample) * 1000 / sampleRate;
+
+    onDebugCalibration?.call(
+      totalSamples: _totalSamples,
+      sampleRate: sampleRate,
+      avgPower: avgPower,
+      noiseFloor: _noiseFloor.noiseFloor,
+      calibrationFrames: _calibrationFrames,
+      elapsedMs: elapsedMs,
+    );
+
+    // Check if calibration period is over
     if (elapsedMs >= calibrationMs) {
       _lockFromCalibration();
     }
@@ -198,6 +259,15 @@ class AudioDecoder {
       return;
     }
 
+    onDebugLock?.call(
+      totalSamples: _totalSamples,
+      sampleRate: sampleRate,
+      freq: freq,
+      bestAvgPower: bestAvgPower,
+      noiseFloor: floor,
+      onThresholdFactor: onThresholdFactor,
+    );
+
     _lock(freq);
   }
 
@@ -225,6 +295,18 @@ class AudioDecoder {
     final onThreshold = floor * onThresholdFactor;
     final offThreshold = floor * offThresholdFactor;
 
+    onDebugTracking?.call(
+      totalSamples: _totalSamples,
+      sampleRate: sampleRate,
+      freq: _lockedFreq,
+      power: power,
+      envelope: env,
+      noiseFloor: floor,
+      onThreshold: onThreshold,
+      offThreshold: offThreshold,
+      isOn: _isOn,
+    );
+
     if (!_isOn && env > onThreshold) {
       // Off → On transition
       _emitElement(false);
@@ -243,6 +325,13 @@ class AudioDecoder {
     final durationMs = (durationSamples * 1000 / sampleRate).round();
 
     if (durationMs <= 0) return;
+
+    onDebugTransition?.call(
+      totalSamples: _totalSamples,
+      sampleRate: sampleRate,
+      isOn: isOn,
+      durationMs: durationMs,
+    );
 
     onElement?.call(
       DecodedElement(isOn: isOn, durationMs: durationMs),

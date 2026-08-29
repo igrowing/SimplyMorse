@@ -17,4 +17,23 @@ abstract interface class SettingsRepository {
 
   /// Saves the initial delay in seconds.
   Future<void> saveInitialDelay(double seconds);
+
+  /// Gets whether repeat-in-loop is enabled.
+  Future<bool> getRepeatLoop();
+
+  /// Saves the repeat-in-loop setting.
+  Future<void> saveRepeatLoop(bool enabled);
+
+  /// Gets the delay between repeats in seconds.
+  Future<double> getRepeatDelay();
+
+  /// Saves the delay between repeats in seconds.
+  Future<void> saveRepeatDelay(double seconds);
+
+  /// Gets the display lit timeout mode
+  /// ('system', '3x', or 'always').
+  Future<String> getDisplayTimeout();
+
+  /// Saves the display lit timeout mode.
+  Future<void> saveDisplayTimeout(String mode);
 }

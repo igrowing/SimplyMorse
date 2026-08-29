@@ -2,21 +2,21 @@ import 'package:flutter/material.dart';
 
 import 'package:simply_morse/core/constants/app_constants.dart';
 
-/// A reusable top app bar showing the app icon, name, version,
-/// and a theme toggle button.
+/// A reusable top app bar showing the app icon and name.
 ///
-/// When in [ThemeMode.system], the toggle icon shows the
-/// *opposite* of the current system theme — e.g. if the
-/// system is light, it shows `Icons.dark_mode`.
+/// Optionally shows a settings (gear) icon that navigates to
+/// the Settings screen. When [showSettingsIcon] is false,
+/// no action button is shown (used on the Settings screen
+/// itself).
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   const AppTopBar({
-    required this.themeMode,
-    required this.onThemeToggle,
+    this.showSettingsIcon = true,
+    this.onSettingsTap,
     super.key,
   });
 
-  final ThemeMode themeMode;
-  final VoidCallback onThemeToggle;
+  final bool showSettingsIcon;
+  final VoidCallback? onSettingsTap;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -32,49 +32,21 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
           height: 28,
         ),
       ),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            AppConstants.appName,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          Text(
-            'v${AppConstants.appVersion}',
-            style: Theme.of(context).textTheme.labelSmall,
-          ),
-        ],
+      title: const Text(
+        AppConstants.appName,
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       actions: [
-        IconButton(
-          icon: Icon(_themeIcon(context)),
-          onPressed: onThemeToggle,
-          tooltip: _themeTooltip,
-        ),
+        if (showSettingsIcon)
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: onSettingsTap,
+            tooltip: 'Settings',
+          ),
       ],
     );
   }
-
-  IconData _themeIcon(BuildContext context) {
-    switch (themeMode) {
-      case ThemeMode.system:
-        // Show the opposite of the current system theme
-        final isSystemDark =
-            MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-        return isSystemDark ? Icons.light_mode : Icons.dark_mode;
-      case ThemeMode.light:
-        return Icons.light_mode;
-      case ThemeMode.dark:
-        return Icons.dark_mode;
-    }
-  }
-
-  String get _themeTooltip => switch (themeMode) {
-    ThemeMode.system => 'System theme (tap to change)',
-    ThemeMode.light => 'Light theme (tap to change)',
-    ThemeMode.dark => 'Dark theme (tap to change)',
-  };
 }

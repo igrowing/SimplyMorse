@@ -32,21 +32,31 @@ class EncodingController extends ChangeNotifier {
   double _speedWpm = AppConstants.defaultSpeedWpm;
   double _toneHz = AppConstants.defaultToneHz;
   double _initialDelaySec = AppConstants.defaultInitialDelaySec;
+  bool _repeatLoop = AppConstants.defaultRepeatLoop;
+  double _repeatDelaySec = AppConstants.defaultRepeatDelaySec;
   LightMethod _lightMethod = LightMethod.flashLed;
   String _text = '';
   List<String> _history = [];
   TransmissionState _transmission = const TransmissionState();
   bool _initialized = false;
+  bool _isRepeatCancelled = false;
 
   /// Notifier for the initial-delay countdown.
   /// Non-null while the countdown is active (value = seconds remaining).
   /// Null when no countdown is running.
   final ValueNotifier<int?> countdownRemaining = ValueNotifier<int?>(null);
 
+  /// Notifier for the repeat-delay countdown.
+  /// Non-null while waiting between repeats (value = seconds remaining).
+  /// Null when no repeat delay is running.
+  final ValueNotifier<int?> repeatCountdown = ValueNotifier<int?>(null);
+
   EncodingMode get mode => _mode;
   double get speedWpm => _speedWpm;
   double get toneHz => _toneHz;
   double get initialDelaySec => _initialDelaySec;
+  bool get repeatLoop => _repeatLoop;
+  double get repeatDelaySec => _repeatDelaySec;
   LightMethod get lightMethod => _lightMethod;
   String get text => _text;
   List<String> get history => _history;
@@ -66,6 +76,8 @@ class EncodingController extends ChangeNotifier {
     _speedWpm = await _settingsRepo.getSpeed();
     _toneHz = await _settingsRepo.getTone();
     _initialDelaySec = await _settingsRepo.getInitialDelay();
+    _repeatLoop = await _settingsRepo.getRepeatLoop();
+    _repeatDelaySec = await _settingsRepo.getRepeatDelay();
     _history = await _historyRepo.getAll();
     _initialized = true;
     notifyListeners();
@@ -99,6 +111,18 @@ class EncodingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateRepeatLoop(bool value) async {
+    _repeatLoop = value;
+    await _settingsRepo.saveRepeatLoop(value);
+    notifyListeners();
+  }
+
+  Future<void> updateRepeatDelay(double value) async {
+    _repeatDelaySec = value;
+    await _settingsRepo.saveRepeatDelay(value);
+    notifyListeners();
+  }
+
   void updateLightMethod(LightMethod value) {
     _lightMethod = value;
     notifyListeners();
@@ -106,7 +130,29 @@ class EncodingController extends ChangeNotifier {
 
   Future<void> send() async {
     if (_text.isEmpty || isTransmitting) return;
+    _isRepeatCancelled = false;
+    await _sendOnce();
+    while (_repeatLoop && !_isRepeatCancelled) {
+      // Wait between repeats
+      if (_isRepeatCancelled) break;
 
+      final seconds = _repeatDelaySec.round();
+      for (var i = seconds; i >= 1; i--) {
+        if (_isRepeatCancelled) {
+          repeatCountdown.value = null;
+          return;
+        }
+        repeatCountdown.value = i;
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+      repeatCountdown.value = null;
+
+      if (_isRepeatCancelled) break;
+      await _sendOnce();
+    }
+  }
+
+  Future<void> _sendOnce() async {
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.transmitting,
       currentCharIndex: -1,
@@ -164,25 +210,30 @@ class EncodingController extends ChangeNotifier {
   }
 
   Future<void> pause() async {
+    _isRepeatCancelled = true;
     await _transmitter.stop();
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.idle,
     );
     countdownRemaining.value = null;
+    repeatCountdown.value = null;
     notifyListeners();
   }
 
   Future<void> clear() async {
+    _isRepeatCancelled = true;
     await _transmitter.stop();
     _text = '';
     _transmission = const TransmissionState();
     countdownRemaining.value = null;
+    repeatCountdown.value = null;
     notifyListeners();
   }
 
   @override
   void dispose() {
     countdownRemaining.dispose();
+    repeatCountdown.dispose();
     _transmitter.dispose();
     super.dispose();
   }

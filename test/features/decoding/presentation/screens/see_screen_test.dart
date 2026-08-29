@@ -8,6 +8,8 @@ import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dar
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/see_screen.dart';
 
 import '../../../../helpers/decoding_fakes.dart';
@@ -56,8 +58,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: SeeScreen(
-          themeMode: ThemeMode.light,
-          onThemeToggle: () {},
+          themeController: ThemeController(),
+          screenTimeoutService: ScreenTimeoutService(),
+          displayTimeout: DisplayTimeout.system,
+          onDisplayTimeoutChanged: (_) {},
         ),
       ),
     );

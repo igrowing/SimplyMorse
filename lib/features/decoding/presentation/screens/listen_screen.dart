@@ -7,7 +7,10 @@ import 'package:simply_morse/core/services/share_service.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for audio-based Morse decoding via microphone.
 ///
@@ -20,13 +23,17 @@ import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.
 /// frequency is shown in the status bar.
 class ListenScreen extends StatefulWidget {
   const ListenScreen({
-    required this.themeMode,
-    required this.onThemeToggle,
+    required this.themeController,
+    required this.screenTimeoutService,
+    required this.displayTimeout,
+    required this.onDisplayTimeoutChanged,
     super.key,
   });
 
-  final ThemeMode themeMode;
-  final VoidCallback onThemeToggle;
+  final ThemeController themeController;
+  final ScreenTimeoutService screenTimeoutService;
+  final DisplayTimeout displayTimeout;
+  final ValueChanged<DisplayTimeout> onDisplayTimeoutChanged;
 
   @override
   State<ListenScreen> createState() => _ListenScreenState();
@@ -108,8 +115,7 @@ class _ListenScreenState extends State<ListenScreen> {
       value: _controller,
       child: Scaffold(
         appBar: AppTopBar(
-          themeMode: widget.themeMode,
-          onThemeToggle: widget.onThemeToggle,
+          onSettingsTap: () => _navigateToSettings(context),
         ),
         body: SafeArea(
           child: LayoutBuilder(
@@ -353,6 +359,20 @@ class _ListenScreenState extends State<ListenScreen> {
           ],
         );
       },
+    );
+  }
+
+  void _navigateToSettings(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          themeController: widget.themeController,
+          screenTimeoutService: widget.screenTimeoutService,
+          themeMode: widget.themeController.mode,
+          displayTimeout: widget.displayTimeout,
+          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+        ),
+      ),
     );
   }
 }
