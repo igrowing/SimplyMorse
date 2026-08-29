@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
 
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
 
 /// Holds all settings for an encoding session.
 @immutable
@@ -10,11 +11,15 @@ class EncodingSettings extends Equatable {
     required this.mode,
     required this.speedWpm,
     required this.toneHz,
+    this.lightMethod = LightMethod.flashLed,
+    this.initialDelaySec = 1.0,
   });
 
   final EncodingMode mode;
   final double speedWpm;
   final double toneHz;
+  final LightMethod lightMethod;
+  final double initialDelaySec;
 
   /// Dit duration in milliseconds, derived from WPM.
   /// Based on the PARIS standard: 1 WPM = 1200 ms per dit.
@@ -32,18 +37,38 @@ class EncodingSettings extends Equatable {
   /// Inter-word gap.
   double get wordGapMs => 7 * ditMs;
 
+  /// Whether this mode uses audio output.
+  bool get needsAudio =>
+      mode == EncodingMode.sound || mode == EncodingMode.both;
+
+  /// Whether this mode uses the hardware torch / web LED.
+  bool get needsTorch => mode.needsLight && lightMethod.needsTorch;
+
+  /// Whether this mode uses screen display blink.
+  bool get needsDisplay => mode.needsLight && lightMethod.needsDisplay;
+
   EncodingSettings copyWith({
     EncodingMode? mode,
     double? speedWpm,
     double? toneHz,
+    LightMethod? lightMethod,
+    double? initialDelaySec,
   }) {
     return EncodingSettings(
       mode: mode ?? this.mode,
       speedWpm: speedWpm ?? this.speedWpm,
       toneHz: toneHz ?? this.toneHz,
+      lightMethod: lightMethod ?? this.lightMethod,
+      initialDelaySec: initialDelaySec ?? this.initialDelaySec,
     );
   }
 
   @override
-  List<Object?> get props => [mode, speedWpm, toneHz];
+  List<Object?> get props => [
+    mode,
+    speedWpm,
+    toneHz,
+    lightMethod,
+    initialDelaySec,
+  ];
 }

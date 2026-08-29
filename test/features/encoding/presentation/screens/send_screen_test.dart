@@ -21,9 +21,9 @@ void main() {
       expect(find.text('Sound'), findsOneWidget);
     });
 
-    testWidgets('displays Flash LED button', (tester) async {
+    testWidgets('displays Light button', (tester) async {
       await pumpScreen(tester);
-      expect(find.text('Flash LED'), findsOneWidget);
+      expect(find.text('Light'), findsOneWidget);
     });
 
     testWidgets('displays Both button', (tester) async {
@@ -34,6 +34,11 @@ void main() {
     testWidgets('all three mode buttons are present', (tester) async {
       await pumpScreen(tester);
       expect(find.byType(FilledButton), findsNWidgets(3));
+    });
+
+    testWidgets('does not display old Flash LED label', (tester) async {
+      await pumpScreen(tester);
+      expect(find.text('Flash LED'), findsNothing);
     });
   });
 }

@@ -41,6 +41,15 @@ class LocalStorageDatasource {
     await _instance.setDouble(AppConstants.toneKey, hz);
   }
 
+  Future<double> getInitialDelay() async {
+    return _instance.getDouble(AppConstants.initialDelayKey) ??
+        AppConstants.defaultInitialDelaySec;
+  }
+
+  Future<void> saveInitialDelay(double seconds) async {
+    await _instance.setDouble(AppConstants.initialDelayKey, seconds);
+  }
+
   Future<List<String>> getTextHistory() async {
     final json = _instance.getString(AppConstants.textHistoryKey);
     if (json == null) return [];

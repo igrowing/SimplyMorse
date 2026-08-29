@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
 import 'package:simply_morse/features/encoding/domain/models/transmission_state.dart';
 import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/encoding/domain/repositories/text_history_repository.dart';
@@ -29,6 +31,8 @@ class EncodingController extends ChangeNotifier {
   EncodingMode _mode = EncodingMode.sound;
   double _speedWpm = AppConstants.defaultSpeedWpm;
   double _toneHz = AppConstants.defaultToneHz;
+  double _initialDelaySec = AppConstants.defaultInitialDelaySec;
+  LightMethod _lightMethod = LightMethod.flashLed;
   String _text = '';
   List<String> _history = [];
   TransmissionState _transmission = const TransmissionState();
@@ -37,10 +41,17 @@ class EncodingController extends ChangeNotifier {
   EncodingMode get mode => _mode;
   double get speedWpm => _speedWpm;
   double get toneHz => _toneHz;
+  double get initialDelaySec => _initialDelaySec;
+  LightMethod get lightMethod => _lightMethod;
   String get text => _text;
   List<String> get history => _history;
   TransmissionState get transmission => _transmission;
   bool get isTransmitting => _transmission.isTransmitting;
+
+  /// The display blink notifier from the transmitter.
+  /// The UI watches this to blink the screen/panel in sync
+  /// with the Morse signal.
+  ValueNotifier<bool> get displayBlink => _transmitter.displayBlink;
 
   /// Initializes the controller with the given [mode] and loads
   /// persisted settings and history.
@@ -49,6 +60,7 @@ class EncodingController extends ChangeNotifier {
     _mode = mode;
     _speedWpm = await _settingsRepo.getSpeed();
     _toneHz = await _settingsRepo.getTone();
+    _initialDelaySec = await _settingsRepo.getInitialDelay();
     _history = await _historyRepo.getAll();
     _initialized = true;
     notifyListeners();
@@ -76,6 +88,17 @@ class EncodingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateInitialDelay(double value) async {
+    _initialDelaySec = value;
+    await _settingsRepo.saveInitialDelay(value);
+    notifyListeners();
+  }
+
+  void updateLightMethod(LightMethod value) {
+    _lightMethod = value;
+    notifyListeners();
+  }
+
   Future<void> send() async {
     if (_text.isEmpty || isTransmitting) return;
 
@@ -83,6 +106,8 @@ class EncodingController extends ChangeNotifier {
       mode: _mode,
       speedWpm: _speedWpm,
       toneHz: _toneHz,
+      lightMethod: _lightMethod,
+      initialDelaySec: _initialDelaySec,
     );
 
     final symbols = _encoder.encode(_text, settings);
@@ -114,6 +139,14 @@ class EncodingController extends ChangeNotifier {
         notifyListeners();
       },
     );
+  }
+
+  Future<void> pause() async {
+    await _transmitter.stop();
+    _transmission = _transmission.copyWith(
+      status: TransmissionStatus.idle,
+    );
+    notifyListeners();
   }
 
   Future<void> clear() async {

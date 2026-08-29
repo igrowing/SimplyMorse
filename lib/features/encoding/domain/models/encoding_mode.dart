@@ -11,19 +11,28 @@ enum EncodingMode {
 extension EncodingModeX on EncodingMode {
   String get label => switch (this) {
     EncodingMode.sound => 'Sound',
-    EncodingMode.flash => 'Flash LED',
+    EncodingMode.flash => 'Light',
     EncodingMode.both => 'Both',
   };
 
   IconData get icon => switch (this) {
     EncodingMode.sound => Icons.volume_up,
-    EncodingMode.flash => Icons.flash_on,
+    EncodingMode.flash => Icons.lightbulb,
     EncodingMode.both => Icons.graphic_eq,
   };
 
+  /// Whether this mode produces audio (needs a tone frequency).
   bool get needsTone => switch (this) {
     EncodingMode.sound => true,
     EncodingMode.flash => false,
+    EncodingMode.both => true,
+  };
+
+  /// Whether this mode produces visual output (needs a
+  /// [LightMethod] sub-selector).
+  bool get needsLight => switch (this) {
+    EncodingMode.sound => false,
+    EncodingMode.flash => true,
     EncodingMode.both => true,
   };
 }

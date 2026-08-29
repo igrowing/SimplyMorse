@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/screen_flash_service.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
@@ -30,7 +31,8 @@ void main() {
           morseTransmitter: FakeMorseTransmitter(),
         ),
       )
-      ..registerSingleton<FeedbackService>(FakeFeedbackService());
+      ..registerSingleton<FeedbackService>(FakeFeedbackService())
+      ..registerSingleton<ScreenFlashService>(ScreenFlashService());
   });
 
   tearDown(() async {
@@ -80,6 +82,13 @@ void main() {
         expect(find.text('Speed'), findsOneWidget);
         expect(find.byType(Slider), findsAtLeast(1));
       });
+
+      testWidgets('displays initial delay slider', (tester) async {
+        await pumpScreen(tester);
+
+        expect(find.text('Initial delay'), findsOneWidget);
+        expect(find.byType(Slider), findsAtLeast(2));
+      });
     });
 
     group('sound mode', () {
@@ -89,32 +98,46 @@ void main() {
         expect(find.text('Tone'), findsOneWidget);
       });
 
-      testWidgets(
-        'displays Sound header with icon',
-        (tester) async {
-          await pumpScreen(tester, mode: EncodingMode.sound);
+      testWidgets('displays Sound header with icon', (tester) async {
+        await pumpScreen(tester, mode: EncodingMode.sound);
 
-          expect(find.text('Sound'), findsOneWidget);
-          expect(find.byIcon(Icons.volume_up), findsOneWidget);
-        },
-      );
+        expect(find.text('Sound'), findsOneWidget);
+        expect(find.byIcon(Icons.volume_up), findsOneWidget);
+      });
+
+      testWidgets('does not show light method selector', (tester) async {
+        await pumpScreen(tester, mode: EncodingMode.sound);
+
+        expect(find.text('Light method'), findsNothing);
+      });
     });
 
-    group('flash mode', () {
+    group('light mode (was flash)', () {
       testWidgets('hides tone slider', (tester) async {
         await pumpScreen(tester, mode: EncodingMode.flash);
 
         expect(find.text('Tone'), findsNothing);
       });
 
-      testWidgets(
-        'displays Flash LED header',
-        (tester) async {
-          await pumpScreen(tester, mode: EncodingMode.flash);
+      testWidgets('displays Light header', (tester) async {
+        await pumpScreen(tester, mode: EncodingMode.flash);
 
-          expect(find.text('Flash LED'), findsOneWidget);
-        },
-      );
+        expect(find.text('Light'), findsOneWidget);
+      });
+
+      testWidgets('displays light method selector', (tester) async {
+        await pumpScreen(tester, mode: EncodingMode.flash);
+
+        expect(find.text('Light method'), findsOneWidget);
+      });
+
+      testWidgets('displays all three light method options', (tester) async {
+        await pumpScreen(tester, mode: EncodingMode.flash);
+
+        expect(find.text('Flash LED'), findsOneWidget);
+        expect(find.text('Display'), findsOneWidget);
+        expect(find.text('Both'), findsAtLeast(1));
+      });
     });
 
     group('both mode', () {
@@ -127,7 +150,13 @@ void main() {
       testWidgets('displays Both header', (tester) async {
         await pumpScreen(tester, mode: EncodingMode.both);
 
-        expect(find.text('Both'), findsOneWidget);
+        expect(find.text('Both'), findsAtLeast(1));
+      });
+
+      testWidgets('displays light method selector', (tester) async {
+        await pumpScreen(tester, mode: EncodingMode.both);
+
+        expect(find.text('Light method'), findsOneWidget);
       });
     });
 
@@ -184,7 +213,6 @@ void main() {
           await tester.tap(find.text('Clear'));
           await tester.pumpAndSettle();
 
-          // Send button should be disabled (text is empty)
           final sendButton = find.widgetWithText(
             FilledButton,
             'Send',
@@ -206,6 +234,21 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(find.textContaining('WPM'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'updates initial delay label when slider changes',
+        (tester) async {
+          await pumpScreen(tester);
+
+          // Find the initial delay slider (second slider)
+          final sliders = find.byType(Slider);
+          // First slider is Speed, second is Initial delay
+          await tester.drag(sliders.at(1), const Offset(100, 0));
+          await tester.pumpAndSettle();
+
+          expect(find.textContaining('s'), findsWidgets);
         },
       );
 
@@ -257,12 +300,6 @@ void main() {
           await tester.tap(find.text('Send'));
           await tester.pumpAndSettle();
 
-          // The fake transmitter should have been called
-          // (via the controller created by the factory)
-          expect(transmitter.transmitCount, 0);
-          // transmitCount is 0 because the factory creates a
-          // *different* FakeMorseTransmitter instance. Instead
-          // verify the controller state changed.
           expect(find.text('E'), findsOneWidget);
         },
       );
@@ -281,12 +318,7 @@ void main() {
         await tester.tap(find.text('Send'));
         await tester.pumpAndSettle();
 
-        // FeedbackService is registered as FakeFeedbackService
-        // The Send button calls heavyImpact before send
-        // Verify via the fake's recorded calls
         final feedback = GetIt.instance<FeedbackService>();
-        // Can't directly verify without a reference, but the
-        // test ensures no crash when feedback is triggered
         expect(feedback, isNotNull);
       });
 

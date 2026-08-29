@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
 import 'package:simply_morse/features/encoding/domain/models/transmission_state.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
@@ -36,6 +38,7 @@ void main() {
       test('loads settings and history', () async {
         settingsRepo.speed = 15.0;
         settingsRepo.tone = 800.0;
+        settingsRepo.initialDelay = 5.0;
         historyRepo.seed(['hello', 'sos']);
 
         await controller.init(EncodingMode.sound);
@@ -43,6 +46,7 @@ void main() {
         expect(controller.mode, EncodingMode.sound);
         expect(controller.speedWpm, 15.0);
         expect(controller.toneHz, 800.0);
+        expect(controller.initialDelaySec, 5.0);
         expect(controller.history, ['hello', 'sos']);
         expect(controller.text, isEmpty);
         expect(controller.isTransmitting, isFalse);
@@ -156,6 +160,58 @@ void main() {
       });
     });
 
+    group('updateInitialDelay', () {
+      test('updates initial delay value', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateInitialDelay(10.0);
+
+        expect(controller.initialDelaySec, 10.0);
+      });
+
+      test('persists to settings repository', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateInitialDelay(5.0);
+
+        expect(settingsRepo.saveInitialDelayCount, 1);
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        await controller.updateInitialDelay(3.0);
+
+        expect(notifyCount, 1);
+      });
+    });
+
+    group('updateLightMethod', () {
+      test('updates light method value', () async {
+        await controller.init(EncodingMode.flash);
+        controller.updateLightMethod(LightMethod.display);
+
+        expect(controller.lightMethod, LightMethod.display);
+      });
+
+      test('updates to both', () async {
+        await controller.init(EncodingMode.both);
+        controller.updateLightMethod(LightMethod.both);
+
+        expect(controller.lightMethod, LightMethod.both);
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.flash);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        controller.updateLightMethod(LightMethod.display);
+
+        expect(notifyCount, 1);
+      });
+    });
+
     group('send', () {
       test('does nothing when text is empty', () async {
         await controller.init(EncodingMode.sound);
@@ -167,9 +223,7 @@ void main() {
       test('does nothing when already transmitting', () async {
         await controller.init(EncodingMode.sound);
         controller.updateText('SOS');
-        // Simulate transmitting state
         await controller.send();
-        // First send should work
         expect(transmitter.transmitCount, 1);
       });
 
@@ -182,6 +236,27 @@ void main() {
         expect(transmitter.lastEvents, isNotNull);
         expect(transmitter.lastEvents!, isNotEmpty);
         expect(transmitter.lastSettings!.mode, EncodingMode.flash);
+      });
+
+      test('passes light method to settings', () async {
+        await controller.init(EncodingMode.flash);
+        controller.updateLightMethod(LightMethod.display);
+        controller.updateText('SOS');
+        await controller.send();
+
+        expect(
+          transmitter.lastSettings!.lightMethod,
+          LightMethod.display,
+        );
+      });
+
+      test('passes initial delay to settings', () async {
+        await controller.init(EncodingMode.sound);
+        await controller.updateInitialDelay(5.0);
+        controller.updateText('SOS');
+        await controller.send();
+
+        expect(transmitter.lastSettings!.initialDelaySec, 5.0);
       });
 
       test('saves text to history', () async {
@@ -200,7 +275,6 @@ void main() {
           controller.updateText('E');
           await controller.send();
 
-          // Fake transmitter calls onComplete immediately
           expect(
             controller.transmission.status,
             TransmissionStatus.completed,
@@ -243,10 +317,46 @@ void main() {
       });
     });
 
+    group('pause', () {
+      test('stops the transmitter', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('hello');
+        await controller.pause();
+
+        expect(transmitter.stopCount, 1);
+      });
+
+      test('resets transmission state to idle', () async {
+        await controller.init(EncodingMode.sound);
+        controller.updateText('hello');
+        await controller.pause();
+
+        expect(
+          controller.transmission.status,
+          TransmissionStatus.idle,
+        );
+      });
+
+      test('notifies listeners', () async {
+        await controller.init(EncodingMode.sound);
+        var notifyCount = 0;
+        controller.addListener(() => notifyCount++);
+
+        await controller.pause();
+
+        expect(notifyCount, greaterThan(0));
+      });
+    });
+
     group('defaults', () {
-      test('has default speed and tone before init', () {
+      test('has default speed, tone and delay before init', () {
         expect(controller.speedWpm, 7.0);
         expect(controller.toneHz, 700.0);
+        expect(controller.initialDelaySec, 1.0);
+      });
+
+      test('has default light method before init', () {
+        expect(controller.lightMethod, LightMethod.flashLed);
       });
 
       test(
@@ -259,6 +369,15 @@ void main() {
           expect(controller.isTransmitting, isFalse);
         },
       );
+    });
+
+    group('displayBlink', () {
+      test('exposes a ValueNotifier from transmitter', () async {
+        await controller.init(EncodingMode.sound);
+
+        expect(controller.displayBlink, isA<ValueNotifier<bool>>());
+        expect(controller.displayBlink.value, isFalse);
+      });
     });
   });
 }

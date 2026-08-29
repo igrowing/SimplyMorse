@@ -96,16 +96,54 @@ void main() {
       });
     });
 
-    test('speed and tone are independent', () async {
+    group('getInitialDelay', () {
+      test('returns default initial delay when not set', () async {
+        final delay = await repository.getInitialDelay();
+        expect(delay, AppConstants.defaultInitialDelaySec);
+      });
+
+      test('returns saved initial delay after saveInitialDelay', () async {
+        await repository.saveInitialDelay(5.0);
+        final delay = await repository.getInitialDelay();
+        expect(delay, 5.0);
+      });
+    });
+
+    group('saveInitialDelay', () {
+      test('persists zero delay', () async {
+        await repository.saveInitialDelay(0.0);
+        expect(await repository.getInitialDelay(), 0.0);
+      });
+
+      test('persists maximum delay', () async {
+        await repository.saveInitialDelay(
+          AppConstants.maxInitialDelaySec,
+        );
+        expect(
+          await repository.getInitialDelay(),
+          AppConstants.maxInitialDelaySec,
+        );
+      });
+
+      test('persists fractional delay', () async {
+        await repository.saveInitialDelay(3.5);
+        expect(await repository.getInitialDelay(), 3.5);
+      });
+    });
+
+    test('speed, tone and delay are independent', () async {
       await repository.saveSpeed(20.0);
       await repository.saveTone(450.0);
+      await repository.saveInitialDelay(10.0);
 
       expect(await repository.getSpeed(), 20.0);
       expect(await repository.getTone(), 450.0);
+      expect(await repository.getInitialDelay(), 10.0);
 
       await repository.saveSpeed(10.0);
       expect(await repository.getSpeed(), 10.0);
       expect(await repository.getTone(), 450.0);
+      expect(await repository.getInitialDelay(), 10.0);
     });
   });
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/core/utils/wav_generator.dart';
@@ -16,6 +17,10 @@ typedef ProgressCallback = void Function(int charIndex);
 typedef CompleteCallback = void Function();
 
 /// Handles audio, flash, and combined Morse transmission.
+///
+/// Exposes [displayBlink] as a [ValueNotifier<bool>] so the UI
+/// can blink the screen in sync with the Morse signal when the
+/// selected [LightMethod] includes display output.
 class MorseTransmitter {
   MorseTransmitter({required TorchService torchService})
     : _torchService = torchService;
@@ -33,6 +38,11 @@ class MorseTransmitter {
   /// Used in tests to verify lazy initialization.
   bool get hasAudioPlayer => _player != null;
 
+  /// Notifier that flips true/false in sync with the Morse
+  /// signal when the display blink method is active.
+  /// The UI watches this to blink the screen/panel.
+  final ValueNotifier<bool> displayBlink = ValueNotifier<bool>(false);
+
   Timer? _progressTimer;
   bool _isRunning = false;
 
@@ -47,12 +57,15 @@ class MorseTransmitter {
 
     _isRunning = true;
 
-    final needsAudio =
-        settings.mode == EncodingMode.sound ||
-        settings.mode == EncodingMode.both;
-    final needsFlash =
-        settings.mode == EncodingMode.flash ||
-        settings.mode == EncodingMode.both;
+    // Apply initial delay before starting anything.
+    if (settings.initialDelaySec > 0) {
+      await Future<void>.delayed(
+        Duration(
+          milliseconds: (settings.initialDelaySec * 1000).round(),
+        ),
+      );
+      if (!_isRunning) return;
+    }
 
     // Calculate cumulative time for progress tracking
     var elapsed = 0;
@@ -88,15 +101,15 @@ class MorseTransmitter {
     );
 
     // Audio transmission
-    if (needsAudio) {
+    if (settings.needsAudio) {
       final wav = _generateWav(events, settings.toneHz);
       await _audioPlayer.setReleaseMode(ReleaseMode.stop);
       await _audioPlayer.play(BytesSource(wav));
     }
 
-    // Flash transmission
-    if (needsFlash) {
-      await _runFlashSequence(events);
+    // Visual transmission (torch and/or display)
+    if (settings.needsTorch || settings.needsDisplay) {
+      await _runVisualSequence(events, settings);
     }
   }
 
@@ -107,12 +120,14 @@ class MorseTransmitter {
     _progressTimer = null;
     await _player?.stop();
     await _torchService.disable();
+    displayBlink.value = false;
   }
 
   /// Disposes all resources.
   void dispose() {
     _progressTimer?.cancel();
     _player?.dispose();
+    displayBlink.dispose();
   }
 
   Uint8List _generateWav(
@@ -131,18 +146,38 @@ class MorseTransmitter {
     return generator.generate(segments, toneHz);
   }
 
-  Future<void> _runFlashSequence(List<ToneEvent> events) async {
+  /// Runs the visual flash sequence, toggling both the
+  /// hardware torch and the display blink notifier as
+  /// needed based on [EncodingSettings.needsTorch] and
+  /// [EncodingSettings.needsDisplay].
+  Future<void> _runVisualSequence(
+    List<ToneEvent> events,
+    EncodingSettings settings,
+  ) async {
     for (final event in events) {
       if (!_isRunning) break;
       if (event.isOn) {
-        await _torchService.enable();
+        if (settings.needsTorch) {
+          await _torchService.enable();
+        }
+        if (settings.needsDisplay) {
+          displayBlink.value = true;
+        }
       } else {
-        await _torchService.disable();
+        if (settings.needsTorch) {
+          await _torchService.disable();
+        }
+        if (settings.needsDisplay) {
+          displayBlink.value = false;
+        }
       }
       await Future<void>.delayed(
         Duration(milliseconds: event.durationMs),
       );
     }
-    await _torchService.disable();
+    if (settings.needsTorch) {
+      await _torchService.disable();
+    }
+    displayBlink.value = false;
   }
 }

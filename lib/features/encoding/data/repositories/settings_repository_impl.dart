@@ -19,4 +19,11 @@ class SettingsRepositoryImpl implements SettingsRepository {
 
   @override
   Future<void> saveTone(double hz) => _dataSource.saveTone(hz);
+
+  @override
+  Future<double> getInitialDelay() => _dataSource.getInitialDelay();
+
+  @override
+  Future<void> saveInitialDelay(double seconds) =>
+      _dataSource.saveInitialDelay(seconds);
 }

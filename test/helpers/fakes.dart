@@ -31,8 +31,10 @@ class FakeTorchService implements TorchService {
 class FakeSettingsRepository implements SettingsRepository {
   double speed = 7.0;
   double tone = 700.0;
+  double initialDelay = 1.0;
   int saveSpeedCount = 0;
   int saveToneCount = 0;
+  int saveInitialDelayCount = 0;
 
   @override
   Future<double> getSpeed() async => speed;
@@ -50,6 +52,15 @@ class FakeSettingsRepository implements SettingsRepository {
   Future<void> saveTone(double hz) async {
     tone = hz;
     saveToneCount++;
+  }
+
+  @override
+  Future<double> getInitialDelay() async => initialDelay;
+
+  @override
+  Future<void> saveInitialDelay(double seconds) async {
+    initialDelay = seconds;
+    saveInitialDelayCount++;
   }
 }
 

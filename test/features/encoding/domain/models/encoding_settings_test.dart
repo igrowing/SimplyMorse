@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
 
 void main() {
   group('EncodingSettings timing', () {
@@ -10,7 +11,6 @@ void main() {
         speedWpm: 7,
         toneHz: 700,
       );
-      // 1200 / 7 ≈ 171.4286
       expect(settings7wpm.ditMs, closeTo(171.4286, 0.001));
 
       const settings1wpm = EncodingSettings(
@@ -35,7 +35,6 @@ void main() {
         toneHz: 700,
       );
       expect(settings.dahMs, 3 * settings.ditMs);
-      // 3 * (1200/10) = 360
       expect(settings.dahMs, 360);
     });
 
@@ -46,7 +45,6 @@ void main() {
         toneHz: 700,
       );
       expect(settings.intraGapMs, settings.ditMs);
-      // 1200 / 12 = 100
       expect(settings.intraGapMs, 100);
     });
 
@@ -103,6 +101,114 @@ void main() {
     });
   });
 
+  group('EncodingSettings lightMethod', () {
+    test('defaults to flashLed', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+      expect(settings.lightMethod, LightMethod.flashLed);
+    });
+
+    test('needsTorch is true for flash mode with flashLed', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+        lightMethod: LightMethod.flashLed,
+      );
+      expect(settings.needsTorch, isTrue);
+      expect(settings.needsDisplay, isFalse);
+    });
+
+    test('needsDisplay is true for flash mode with display', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+        lightMethod: LightMethod.display,
+      );
+      expect(settings.needsTorch, isFalse);
+      expect(settings.needsDisplay, isTrue);
+    });
+
+    test('both torch and display for both method', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+        lightMethod: LightMethod.both,
+      );
+      expect(settings.needsTorch, isTrue);
+      expect(settings.needsDisplay, isTrue);
+    });
+
+    test('sound mode does not need torch or display', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+        lightMethod: LightMethod.display,
+      );
+      expect(settings.needsTorch, isFalse);
+      expect(settings.needsDisplay, isFalse);
+    });
+
+    test('needsAudio is true for sound and both modes', () {
+      const sound = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+      const both = EncodingSettings(
+        mode: EncodingMode.both,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+      const flash = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+
+      expect(sound.needsAudio, isTrue);
+      expect(both.needsAudio, isTrue);
+      expect(flash.needsAudio, isFalse);
+    });
+  });
+
+  group('EncodingSettings initialDelaySec', () {
+    test('defaults to 1.0 second', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+      expect(settings.initialDelaySec, 1.0);
+    });
+
+    test('can be set to zero', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+        initialDelaySec: 0.0,
+      );
+      expect(settings.initialDelaySec, 0.0);
+    });
+
+    test('can be set to maximum', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+        initialDelaySec: 20.0,
+      );
+      expect(settings.initialDelaySec, 20.0);
+    });
+  });
+
   group('EncodingSettings.copyWith', () {
     test('preserves unchanged values', () {
       const original = EncodingSettings(
@@ -115,6 +221,8 @@ void main() {
       expect(copy.mode, original.mode);
       expect(copy.speedWpm, original.speedWpm);
       expect(copy.toneHz, original.toneHz);
+      expect(copy.lightMethod, original.lightMethod);
+      expect(copy.initialDelaySec, original.initialDelaySec);
     });
 
     test('overrides mode only', () {
@@ -156,6 +264,32 @@ void main() {
       expect(copy.toneHz, 850);
     });
 
+    test('overrides lightMethod only', () {
+      const original = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+      final copy = original.copyWith(lightMethod: LightMethod.display);
+
+      expect(copy.lightMethod, LightMethod.display);
+      expect(copy.mode, original.mode);
+      expect(copy.speedWpm, original.speedWpm);
+    });
+
+    test('overrides initialDelaySec only', () {
+      const original = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+      );
+      final copy = original.copyWith(initialDelaySec: 10.0);
+
+      expect(copy.initialDelaySec, 10.0);
+      expect(copy.mode, original.mode);
+      expect(copy.speedWpm, original.speedWpm);
+    });
+
     test('overrides all fields', () {
       const original = EncodingSettings(
         mode: EncodingMode.sound,
@@ -166,11 +300,15 @@ void main() {
         mode: EncodingMode.flash,
         speedWpm: 15,
         toneHz: 500,
+        lightMethod: LightMethod.display,
+        initialDelaySec: 5.0,
       );
 
       expect(copy.mode, EncodingMode.flash);
       expect(copy.speedWpm, 15);
       expect(copy.toneHz, 500);
+      expect(copy.lightMethod, LightMethod.display);
+      expect(copy.initialDelaySec, 5.0);
     });
   });
 
@@ -231,6 +369,40 @@ void main() {
         mode: EncodingMode.sound,
         speedWpm: 10,
         toneHz: 701,
+      );
+
+      expect(a, isNot(equals(b)));
+    });
+
+    test('different lightMethod is not equal', () {
+      const a = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+        lightMethod: LightMethod.flashLed,
+      );
+      const b = EncodingSettings(
+        mode: EncodingMode.flash,
+        speedWpm: 10,
+        toneHz: 700,
+        lightMethod: LightMethod.display,
+      );
+
+      expect(a, isNot(equals(b)));
+    });
+
+    test('different initialDelaySec is not equal', () {
+      const a = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+        initialDelaySec: 1.0,
+      );
+      const b = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+        initialDelaySec: 5.0,
       );
 
       expect(a, isNot(equals(b)));
