@@ -22,47 +22,35 @@ class MainScreen extends StatelessWidget {
         themeMode: themeMode,
         onThemeToggle: onThemeToggle,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth > 600;
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 500,
-              ),
-              child: isWide
-                  ? Row(children: _mainButtons(context))
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: _mainButtons(context),
-                    ),
-            ),
-          );
-        },
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            runSpacing: 16,
+            children: _mainButtons(context),
+          ),
+        ),
       ),
     );
   }
 
   List<Widget> _mainButtons(BuildContext context) {
     return [
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: _MainButton(
-            icon: Icons.send,
-            label: 'Send',
-            onTap: () => _navigateToSend(context),
-          ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: _MainButton(
+          icon: Icons.send,
+          label: 'Send',
+          onTap: () => _navigateToSend(context),
         ),
       ),
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: _MainButton(
-            icon: Icons.download,
-            label: 'Receive',
-            onTap: () => _navigateToReceive(context),
-          ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: _MainButton(
+          icon: Icons.download,
+          label: 'Receive',
+          onTap: () => _navigateToReceive(context),
         ),
       ),
     ];
@@ -104,19 +92,13 @@ class _MainButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return FilledButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 32),
-      label: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Text(
-          label,
-          style: theme.textTheme.titleLarge,
-        ),
-      ),
+      icon: Icon(icon, size: 24),
+      label: Text(label),
       style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(120),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        shape: const StadiumBorder(),
       ),
     );
   }

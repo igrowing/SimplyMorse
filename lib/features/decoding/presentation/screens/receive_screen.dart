@@ -28,62 +28,50 @@ class ReceiveScreen extends StatelessWidget {
         themeMode: themeMode,
         onThemeToggle: onThemeToggle,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth > 600;
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 500,
-              ),
-              child: isWide
-                  ? Row(children: _entryButtons(context))
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: _entryButtons(context),
-                    ),
-            ),
-          );
-        },
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            runSpacing: 16,
+            children: _entryButtons(context),
+          ),
+        ),
       ),
     );
   }
 
   List<Widget> _entryButtons(BuildContext context) {
     return [
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: _EntryButton(
-            icon: Icons.mic,
-            label: 'Hear',
-            onTap: () => _navigate(
-              context,
-              ListenScreen(
-                themeMode: themeMode,
-                onThemeToggle: onThemeToggle,
-              ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: _EntryButton(
+          icon: Icons.mic,
+          label: 'Hear',
+          onTap: () => _navigate(
+            context,
+            ListenScreen(
+              themeMode: themeMode,
+              onThemeToggle: onThemeToggle,
             ),
           ),
         ),
       ),
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: _EntryButton(
-            icon: Icons.camera_alt,
-            label: 'Watch',
-            disabledOnWeb: kIsWeb,
-            onTap: kIsWeb
-                ? null
-                : () => _navigate(
-                    context,
-                    SeeScreen(
-                      themeMode: themeMode,
-                      onThemeToggle: onThemeToggle,
-                    ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: _EntryButton(
+          icon: Icons.camera_alt,
+          label: 'Watch',
+          disabledOnWeb: kIsWeb,
+          onTap: kIsWeb
+              ? null
+              : () => _navigate(
+                  context,
+                  SeeScreen(
+                    themeMode: themeMode,
+                    onThemeToggle: onThemeToggle,
                   ),
-          ),
+                ),
         ),
       ),
     ];
@@ -114,28 +102,23 @@ class _EntryButton extends StatelessWidget {
     final theme = Theme.of(context);
     return FilledButton.tonalIcon(
       onPressed: onTap,
-      icon: Icon(icon, size: 32),
-      label: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      icon: Icon(icon, size: 24),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (disabledOnWeb)
             Text(
-              label,
-              style: theme.textTheme.titleMedium,
-            ),
-            if (disabledOnWeb)
-              Text(
-                'Not available on web',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
+              'Not available on web',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
               ),
-          ],
-        ),
+            ),
+        ],
       ),
       style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(100),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        shape: const StadiumBorder(),
       ),
     );
   }

@@ -25,36 +25,26 @@ class SendScreen extends StatelessWidget {
         themeMode: themeMode,
         onThemeToggle: onThemeToggle,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth > 600;
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 500,
-              ),
-              child: isWide
-                  ? Row(children: _modeButtons(context))
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: _modeButtons(context),
-                    ),
-            ),
-          );
-        },
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            runSpacing: 16,
+            children: _modeButtons(context),
+          ),
+        ),
       ),
     );
   }
 
   List<Widget> _modeButtons(BuildContext context) {
     return EncodingMode.values.map((mode) {
-      return Expanded(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: _ModeButton(
-            mode: mode,
-            onTap: () => _navigateToMode(context, mode),
-          ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: _ModeButton(
+          mode: mode,
+          onTap: () => _navigateToMode(context, mode),
         ),
       );
     }).toList();
@@ -84,19 +74,13 @@ class _ModeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return FilledButton.tonalIcon(
       onPressed: onTap,
-      icon: Icon(mode.icon, size: 32),
-      label: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(
-          mode.label,
-          style: theme.textTheme.titleMedium,
-        ),
-      ),
+      icon: Icon(mode.icon, size: 24),
+      label: Text(mode.label),
       style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(100),
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        shape: const StadiumBorder(),
       ),
     );
   }

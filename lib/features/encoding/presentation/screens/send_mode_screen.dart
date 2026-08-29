@@ -116,15 +116,13 @@ class _SendModeScreenState extends State<SendModeScreen> {
           themeMode: widget.themeMode,
           onThemeToggle: widget.onThemeToggle,
         ),
-        body: SafeArea(
-          child: Stack(
-            children: [
-              _showVisualPanel
-                  ? _buildSplitLayout(context)
-                  : _buildNormalLayout(context),
-              _buildCountdownOverlay(context),
-            ],
-          ),
+        body: Stack(
+          children: [
+            _showVisualPanel
+                ? _buildSplitLayout(context)
+                : _buildNormalLayout(context),
+            _buildCountdownOverlay(context),
+          ],
         ),
       ),
     );
@@ -178,11 +176,19 @@ class _SendModeScreenState extends State<SendModeScreen> {
                   const SizedBox(height: 32),
                   OutlinedButton.icon(
                     onPressed: _onPausePressed,
-                    icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('Cancel'),
+                    icon: const Icon(Icons.cancel_outlined, size: 28),
+                    label: const Text(
+                      'Cancel',
+                      style: TextStyle(fontSize: 20),
+                    ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white54),
+                      side: const BorderSide(color: Colors.white54, width: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 48,
+                        vertical: 24,
+                      ),
+                      shape: const StadiumBorder(),
                     ),
                   ),
                 ],
@@ -209,31 +215,33 @@ class _SendModeScreenState extends State<SendModeScreen> {
 
   /// Split layout for web light modes: left = UI, right = panel.
   Widget _buildSplitLayout(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          flex: 3,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 16,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 400),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: _buildControls(context),
+    return SafeArea(
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: _buildControls(context),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        Expanded(
-          flex: 2,
-          child: _buildVisualPanel(context),
-        ),
-      ],
+          Expanded(
+            flex: 2,
+            child: _buildVisualPanel(context),
+          ),
+        ],
+      ),
     );
   }
 
@@ -355,24 +363,26 @@ class _SendModeScreenState extends State<SendModeScreen> {
           return _buildDisplayOverlay(context);
         }
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: EdgeInsets.symmetric(
-                horizontal: constraints.maxWidth > 600 ? 48 : 16,
-                vertical: 16,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: _buildControls(context),
+        return SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: constraints.maxWidth > 600 ? 48 : 16,
+                  vertical: 16,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: _buildControls(context),
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
@@ -401,6 +411,11 @@ class _SendModeScreenState extends State<SendModeScreen> {
                   style: FilledButton.styleFrom(
                     backgroundColor: isBlinking ? Colors.black87 : Colors.white,
                     foregroundColor: isBlinking ? Colors.white : Colors.black87,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 48,
+                      vertical: 20,
+                    ),
+                    shape: const StadiumBorder(),
                   ),
                 ),
                 const Spacer(),
@@ -642,38 +657,53 @@ class _SendModeScreenState extends State<SendModeScreen> {
       builder: (context, ctrl, _) {
         if (ctrl.isTransmitting) {
           return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _onPausePressed,
-                  icon: const Icon(Icons.stop),
-                  label: const Text('Stop'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                    foregroundColor: Theme.of(context).colorScheme.onError,
+              FilledButton.icon(
+                onPressed: _onPausePressed,
+                icon: const Icon(Icons.stop),
+                label: const Text('Stop'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 16,
                   ),
+                  shape: const StadiumBorder(),
                 ),
               ),
             ],
           );
         }
         return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: ctrl.text.isEmpty ? null : _onSendPressed,
-                icon: const Icon(Icons.send),
-                label: const Text('Send'),
+            FilledButton.icon(
+              onPressed: ctrl.text.isEmpty ? null : _onSendPressed,
+              icon: const Icon(Icons.send),
+              label: const Text('Send'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                shape: const StadiumBorder(),
               ),
             ),
             const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: ctrl.text.isEmpty && !ctrl.transmission.isCompleted
-                    ? null
-                    : _onClearPressed,
-                icon: const Icon(Icons.clear),
-                label: const Text('Clear'),
+            OutlinedButton.icon(
+              onPressed: ctrl.text.isEmpty && !ctrl.transmission.isCompleted
+                  ? null
+                  : _onClearPressed,
+              icon: const Icon(Icons.clear),
+              label: const Text('Clear'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                shape: const StadiumBorder(),
               ),
             ),
           ],

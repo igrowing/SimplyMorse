@@ -269,20 +269,31 @@ class _ListenScreenState extends State<ListenScreen> {
       builder: (context, ctrl, _) {
         if (ctrl.decodedText.isEmpty) return const SizedBox.shrink();
         return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _onCopyPressed,
-                icon: const Icon(Icons.copy, size: 18),
-                label: const Text('Copy'),
+            OutlinedButton.icon(
+              onPressed: _onCopyPressed,
+              icon: const Icon(Icons.copy, size: 18),
+              label: const Text('Copy'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: const StadiumBorder(),
               ),
             ),
             const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _onSharePressed,
-                icon: const Icon(Icons.share, size: 18),
-                label: const Text('Share'),
+            OutlinedButton.icon(
+              onPressed: _onSharePressed,
+              icon: const Icon(Icons.share, size: 18),
+              label: const Text('Share'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: const StadiumBorder(),
               ),
             ),
           ],
@@ -300,32 +311,43 @@ class _ListenScreenState extends State<ListenScreen> {
         final isPause = ctrl.isListening;
 
         return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: isStart
-                    ? _onStartPressed
+            FilledButton.icon(
+              onPressed: isStart
+                  ? _onStartPressed
+                  : isPause
+                  ? _onPausePressed
+                  : _onResumePressed,
+              icon: Icon(isPause ? Icons.pause : Icons.play_arrow),
+              label: Text(
+                isStart
+                    ? 'Start'
                     : isPause
-                    ? _onPausePressed
-                    : _onResumePressed,
-                icon: Icon(isPause ? Icons.pause : Icons.play_arrow),
-                label: Text(
-                  isStart
-                      ? 'Start'
-                      : isPause
-                      ? 'Pause'
-                      : 'Resume',
+                    ? 'Pause'
+                    : 'Resume',
+              ),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
                 ),
+                shape: const StadiumBorder(),
               ),
             ),
             const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
-                    ? null
-                    : _onClearPressed,
-                icon: const Icon(Icons.clear),
-                label: const Text('Clear'),
+            OutlinedButton.icon(
+              onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
+                  ? null
+                  : _onClearPressed,
+              icon: const Icon(Icons.clear),
+              label: const Text('Clear'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                shape: const StadiumBorder(),
               ),
             ),
           ],
