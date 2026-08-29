@@ -86,7 +86,6 @@ class MorseTransmitter {
         final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
         if (elapsedMs >= totalDuration) {
           timer.cancel();
-          _isRunning = false;
           onComplete();
           return;
         }
@@ -111,6 +110,8 @@ class MorseTransmitter {
     if (settings.needsTorch || settings.needsDisplay) {
       await _runVisualSequence(events, settings);
     }
+
+    _isRunning = false;
   }
 
   /// Stops any ongoing transmission.
