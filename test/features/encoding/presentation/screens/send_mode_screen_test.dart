@@ -28,7 +28,7 @@ void main() {
           settingsRepository: settingsRepo,
           textHistoryRepository: historyRepo,
           morseEncoder: MorseEncoder(),
-          morseTransmitter: FakeMorseTransmitter(),
+          morseTransmitter: transmitter,
         ),
       )
       ..registerSingleton<FeedbackService>(FakeFeedbackService())
@@ -337,6 +337,220 @@ void main() {
         final feedback = GetIt.instance<FeedbackService>();
         expect(feedback, isNotNull);
       });
+    });
+
+    group('countdown overlay', () {
+      testWidgets(
+        'shows countdown when sending with initial delay > 0',
+        (tester) async {
+          settingsRepo.initialDelay = 3.0;
+          transmitter.autoComplete = false;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pump();
+
+          // Countdown overlay should be visible
+          expect(find.text('3'), findsOneWidget);
+          expect(find.text('Cancel'), findsOneWidget);
+
+          // Clean up: cancel and let the timer fire
+          await tester.tap(find.text('Cancel'));
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+        },
+      );
+
+      testWidgets(
+        'shows instruction label for Flash LED mode',
+        (tester) async {
+          settingsRepo.initialDelay = 2.0;
+          transmitter.autoComplete = false;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pump();
+
+          expect(
+            find.text('Point the flash LED toward your target'),
+            findsOneWidget,
+          );
+
+          // Clean up
+          await tester.tap(find.text('Cancel'));
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+        },
+      );
+
+      testWidgets(
+        'shows instruction label for Display mode',
+        (tester) async {
+          settingsRepo.initialDelay = 2.0;
+          transmitter.autoComplete = false;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          // Select Display light method
+          await tester.tap(find.text('Display'));
+          await tester.pumpAndSettle();
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pump();
+
+          expect(
+            find.text('Point the screen toward your target'),
+            findsOneWidget,
+          );
+
+          // Clean up
+          await tester.tap(find.text('Cancel'));
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+        },
+      );
+
+      testWidgets(
+        'shows instruction label for Both light method',
+        (tester) async {
+          settingsRepo.initialDelay = 2.0;
+          transmitter.autoComplete = false;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          // Select Both light method (last segment)
+          await tester.tap(find.text('Both'));
+          await tester.pumpAndSettle();
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pump();
+
+          expect(
+            find.text('Point the flash LED and screen toward your target'),
+            findsOneWidget,
+          );
+
+          // Clean up
+          await tester.tap(find.text('Cancel'));
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+        },
+      );
+
+      testWidgets(
+        'shows generic label for sound-only mode',
+        (tester) async {
+          settingsRepo.initialDelay = 2.0;
+          transmitter.autoComplete = false;
+          await pumpScreen(tester, mode: EncodingMode.sound);
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pump();
+
+          expect(find.text('Get ready to transmit'), findsOneWidget);
+
+          // Clean up
+          await tester.tap(find.text('Cancel'));
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+        },
+      );
+
+      testWidgets(
+        'Cancel button aborts the countdown',
+        (tester) async {
+          settingsRepo.initialDelay = 5.0;
+          transmitter.autoComplete = false;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pump();
+
+          // Countdown is showing
+          expect(find.text('Cancel'), findsOneWidget);
+
+          await tester.tap(find.text('Cancel'));
+          await tester.pump(const Duration(seconds: 5));
+          await tester.pumpAndSettle();
+
+          // Should be back to normal — Send button visible again
+          expect(find.text('Send'), findsOneWidget);
+          // Countdown should be gone
+          expect(find.text('Cancel'), findsNothing);
+        },
+      );
+    });
+
+    group('transmission controls', () {
+      testWidgets(
+        'shows Stop button when transmitting',
+        (tester) async {
+          transmitter.autoComplete = false;
+          settingsRepo.initialDelay = 0.0;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pumpAndSettle();
+
+          // Stop button should be visible
+          expect(find.text('Stop'), findsOneWidget);
+          // Send and Clear should be hidden
+          expect(find.text('Send'), findsNothing);
+          expect(find.text('Clear'), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'tapping Stop returns to Send button',
+        (tester) async {
+          transmitter.autoComplete = false;
+          settingsRepo.initialDelay = 0.0;
+          await pumpScreen(tester, mode: EncodingMode.flash);
+
+          await tester.enterText(find.byType(TextField), 'E');
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Send'));
+          await tester.pumpAndSettle();
+
+          // Verify Stop is showing
+          expect(find.text('Stop'), findsOneWidget);
+
+          // Ensure the button is visible and tap it
+          await tester.ensureVisible(
+            find.widgetWithText(FilledButton, 'Stop'),
+          );
+          await tester.tap(
+            find.widgetWithText(FilledButton, 'Stop'),
+          );
+          await tester.pump();
+          await tester.pumpAndSettle();
+
+          // Send and Clear should reappear
+          expect(find.text('Send'), findsOneWidget);
+          expect(find.text('Clear'), findsOneWidget);
+          expect(find.text('Stop'), findsNothing);
+        },
+      );
     });
   });
 }

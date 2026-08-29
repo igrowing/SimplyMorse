@@ -108,6 +108,10 @@ class FakeMorseTransmitter extends MorseTransmitter {
   int stopCount = 0;
   int disposeCount = 0;
 
+  /// When true (default), [transmit] calls [onComplete] immediately.
+  /// Set to false to keep the transmission in the "transmitting" state.
+  bool autoComplete = true;
+
   @override
   Future<void> transmit({
     required List<ToneEvent> events,
@@ -120,8 +124,9 @@ class FakeMorseTransmitter extends MorseTransmitter {
     lastSettings = settings;
     lastProgressCallback = onProgress;
     lastCompleteCallback = onComplete;
-    // Simulate immediate completion
-    onComplete();
+    if (autoComplete) {
+      onComplete();
+    }
   }
 
   @override
