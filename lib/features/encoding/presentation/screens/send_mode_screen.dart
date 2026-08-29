@@ -117,12 +117,84 @@ class _SendModeScreenState extends State<SendModeScreen> {
           onThemeToggle: widget.onThemeToggle,
         ),
         body: SafeArea(
-          child: _showVisualPanel
-              ? _buildSplitLayout(context)
-              : _buildNormalLayout(context),
+          child: Stack(
+            children: [
+              _showVisualPanel
+                  ? _buildSplitLayout(context)
+                  : _buildNormalLayout(context),
+              _buildCountdownOverlay(context),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Initial-delay countdown overlay.
+  ///
+  /// Shown while [EncodingController.countdownRemaining] is non-null.
+  /// Displays an instruction label adapted to the active light method
+  /// (or a generic message for sound-only mode) and a large
+  /// counting-down number.
+  Widget _buildCountdownOverlay(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: _controller.countdownRemaining,
+      builder: (context, remaining, _) {
+        if (remaining == null) return const SizedBox.shrink();
+
+        final label = _countdownLabel();
+
+        return Positioned.fill(
+          child: Container(
+            color: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.85),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.5, end: 1.0),
+                    duration: const Duration(milliseconds: 900),
+                    key: ValueKey(remaining),
+                    builder: (context, scale, child) {
+                      return Transform.scale(scale: scale, child: child);
+                    },
+                    child: Text(
+                      '$remaining',
+                      style: TextStyle(
+                        fontSize: 96,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Returns the instruction label shown during the countdown,
+  /// adapted to the current mode and light method.
+  String _countdownLabel() {
+    if (!widget.mode.needsLight) {
+      return 'Get ready to transmit';
+    }
+    return switch (_controller.lightMethod) {
+      LightMethod.flashLed => 'Point the flash LED toward your target',
+      LightMethod.display => 'Point the screen toward your target',
+      LightMethod.both => 'Point the flash LED and screen toward your target',
+    };
   }
 
   /// Split layout for web light modes: left = UI, right = panel.

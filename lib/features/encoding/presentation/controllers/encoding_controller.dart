@@ -38,6 +38,11 @@ class EncodingController extends ChangeNotifier {
   TransmissionState _transmission = const TransmissionState();
   bool _initialized = false;
 
+  /// Notifier for the initial-delay countdown.
+  /// Non-null while the countdown is active (value = seconds remaining).
+  /// Null when no countdown is running.
+  final ValueNotifier<int?> countdownRemaining = ValueNotifier<int?>(null);
+
   EncodingMode get mode => _mode;
   double get speedWpm => _speedWpm;
   double get toneHz => _toneHz;
@@ -102,17 +107,6 @@ class EncodingController extends ChangeNotifier {
   Future<void> send() async {
     if (_text.isEmpty || isTransmitting) return;
 
-    final settings = EncodingSettings(
-      mode: _mode,
-      speedWpm: _speedWpm,
-      toneHz: _toneHz,
-      lightMethod: _lightMethod,
-      initialDelaySec: _initialDelaySec,
-    );
-
-    final symbols = _encoder.encode(_text, settings);
-    final events = _encoder.buildTimeline(symbols, settings);
-
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.transmitting,
       currentCharIndex: -1,
@@ -121,6 +115,34 @@ class EncodingController extends ChangeNotifier {
 
     await _historyRepo.save(_text);
     _history = await _historyRepo.getAll();
+
+    // Run initial-delay countdown in the controller so the UI
+    // can show a countdown overlay. The transmitter receives
+    // settings with initialDelaySec = 0 (delay already consumed).
+    if (_initialDelaySec > 0) {
+      final seconds = _initialDelaySec.round();
+      for (var i = seconds; i >= 1; i--) {
+        if (!_transmission.isTransmitting) {
+          countdownRemaining.value = null;
+          return;
+        }
+        countdownRemaining.value = i;
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+      countdownRemaining.value = null;
+      if (!_transmission.isTransmitting) return;
+    }
+
+    final settings = EncodingSettings(
+      mode: _mode,
+      speedWpm: _speedWpm,
+      toneHz: _toneHz,
+      lightMethod: _lightMethod,
+      initialDelaySec: 0,
+    );
+
+    final symbols = _encoder.encode(_text, settings);
+    final events = _encoder.buildTimeline(symbols, settings);
 
     await _transmitter.transmit(
       events: events,
@@ -146,6 +168,7 @@ class EncodingController extends ChangeNotifier {
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.idle,
     );
+    countdownRemaining.value = null;
     notifyListeners();
   }
 
@@ -153,11 +176,13 @@ class EncodingController extends ChangeNotifier {
     await _transmitter.stop();
     _text = '';
     _transmission = const TransmissionState();
+    countdownRemaining.value = null;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    countdownRemaining.dispose();
     _transmitter.dispose();
     super.dispose();
   }

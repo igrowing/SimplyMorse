@@ -250,13 +250,32 @@ void main() {
         );
       });
 
-      test('passes initial delay to settings', () async {
+      test('runs countdown before transmit when delay > 0', () async {
         await controller.init(EncodingMode.sound);
-        await controller.updateInitialDelay(5.0);
+        await controller.updateInitialDelay(1.0);
+        controller.updateText('SOS');
+
+        // The countdown should fire during send()
+        final countdownValues = <int?>[];
+        controller.countdownRemaining.addListener(() {
+          countdownValues.add(controller.countdownRemaining.value);
+        });
+
+        await controller.send();
+
+        // Transmitter receives delay = 0 (countdown consumed it)
+        expect(transmitter.lastSettings!.initialDelaySec, 0);
+        // Countdown went through 1 -> null
+        expect(countdownValues, contains(1));
+        expect(controller.countdownRemaining.value, isNull);
+      });
+
+      test('transmits immediately when delay is 0', () async {
+        await controller.init(EncodingMode.sound);
         controller.updateText('SOS');
         await controller.send();
 
-        expect(transmitter.lastSettings!.initialDelaySec, 5.0);
+        expect(transmitter.lastSettings!.initialDelaySec, 0);
       });
 
       test('saves text to history', () async {
