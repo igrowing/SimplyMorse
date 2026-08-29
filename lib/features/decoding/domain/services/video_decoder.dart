@@ -5,6 +5,66 @@ import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/alpha_beta_filter.dart';
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
 
+/// Debug callback for scanning frames.
+typedef DebugVideoScanCallback =
+    void Function({
+      required int timestampMs,
+      required double maxVariance,
+      required double meanVariance,
+      required int frameCount,
+    });
+
+/// Debug callback for confirming frames.
+typedef DebugVideoConfirmCallback =
+    void Function({
+      required int timestampMs,
+      required double variance,
+      required int confirmCount,
+      required double filterX,
+      required double filterY,
+    });
+
+/// Debug callback for tracking frames.
+typedef DebugVideoTrackCallback =
+    void Function({
+      required int timestampMs,
+      required double variance,
+      required double brightness,
+      required double minBrightness,
+      required double maxBrightness,
+      required double range,
+      required double onThreshold,
+      required double offThreshold,
+      required bool isOn,
+      required int regionX,
+      required int regionY,
+      required int regionSize,
+      required double innovation,
+    });
+
+/// Debug callback for video transitions.
+typedef DebugVideoTransitionCallback =
+    void Function({
+      required int timestampMs,
+      required bool isOn,
+      required int durationMs,
+    });
+
+/// Debug callback for signal loss.
+typedef DebugVideoSignalLostCallback =
+    void Function({
+      required int timestampMs,
+      required int lostFrameCount,
+    });
+
+/// Debug callback for state changes.
+typedef DebugVideoStateChangeCallback =
+    void Function({
+      required int timestampMs,
+      required String newState,
+      String? detail,
+    });
+
 /// State of the video decoding pipeline.
 enum VideoDecoderState {
   /// Accumulating frames and computing temporal variance.
@@ -111,6 +171,19 @@ class VideoDecoder {
   // Output
   void Function(DecodedElement element)? onElement;
 
+  // -- Debug callbacks --
+  DebugVideoScanCallback? onDebugScan;
+  DebugVideoConfirmCallback? onDebugConfirm;
+  DebugVideoTrackCallback? onDebugTrack;
+  DebugVideoTransitionCallback? onDebugTransition;
+  DebugVideoSignalLostCallback? onDebugSignalLost;
+  DebugVideoStateChangeCallback? onDebugStateChange;
+
+  /// Exposes current brightness-threshold internals for logging.
+  double get _brightnessMin => _threshold.minBrightness;
+  double get _brightnessMax => _threshold.maxBrightness;
+  double get _brightnessRange => _threshold.range;
+
   /// Processes a single video frame.
   void processFrame(VideoFrame frame) {
     switch (_state) {
@@ -150,9 +223,24 @@ class VideoDecoder {
       }
     }
 
-    if (maxVariance < minVariance) return;
+    if (maxVariance < minVariance) {
+      onDebugScan?.call(
+        timestampMs: frame.timestampMs,
+        maxVariance: maxVariance,
+        meanVariance: 0,
+        frameCount: _history.length,
+      );
+      return;
+    }
 
     final meanVariance = variances.reduce((a, b) => a + b) / variances.length;
+
+    onDebugScan?.call(
+      timestampMs: frame.timestampMs,
+      maxVariance: maxVariance,
+      meanVariance: meanVariance,
+      frameCount: _history.length,
+    );
 
     if (maxVariance < meanVariance * 2) {
       _isFullFrame = true;
@@ -189,10 +277,21 @@ class VideoDecoder {
       _filter.update(result.centerX, result.centerY, dt);
       _lostFrameCount = 0;
       _confirmCount++;
+      onDebugConfirm?.call(
+        timestampMs: frame.timestampMs,
+        variance: result.variance,
+        confirmCount: _confirmCount,
+        filterX: _filter.x,
+        filterY: _filter.y,
+      );
       if (_confirmCount >= confirmFrames) {
         _state = VideoDecoderState.locked;
         _threshold.reset();
         _transitionMs = frame.timestampMs;
+        onDebugStateChange?.call(
+          timestampMs: frame.timestampMs,
+          newState: 'locked',
+        );
       }
     } else {
       _lostFrameCount++;
@@ -240,7 +339,25 @@ class VideoDecoder {
       );
 
       final wasOn = _threshold.isOn;
-      final isOn = _threshold.process(brightness);
+      final isOn = _threshold.process(
+        brightness,
+        timestampMs: frame.timestampMs,
+      );
+      onDebugTrack?.call(
+        timestampMs: frame.timestampMs,
+        variance: result.variance,
+        brightness: brightness,
+        minBrightness: _brightnessMin,
+        maxBrightness: _brightnessMax,
+        range: _brightnessRange,
+        onThreshold: _brightnessMin + _brightnessRange * _threshold.onFactor,
+        offThreshold: _brightnessMin + _brightnessRange * _threshold.offFactor,
+        isOn: isOn,
+        regionX: cx,
+        regionY: cy,
+        regionSize: regionSize,
+        innovation: _filter.innovation,
+      );
       if (isOn != wasOn) {
         _emitElement(wasOn, frame.timestampMs);
       }
@@ -260,6 +377,15 @@ class VideoDecoder {
     if (_threshold.isOn) {
       _emitElement(true, _lastFrameMs);
     }
+    onDebugSignalLost?.call(
+      timestampMs: _lastFrameMs,
+      lostFrameCount: _lostFrameCount,
+    );
+    onDebugStateChange?.call(
+      timestampMs: _lastFrameMs,
+      newState: 'scanning',
+      detail: 'signal_lost',
+    );
     _threshold.reset();
     _filter.reset();
     _state = VideoDecoderState.scanning;
@@ -382,6 +508,11 @@ class VideoDecoder {
   void _emitElement(bool isOn, int timestampMs) {
     final durationMs = timestampMs - _transitionMs;
     if (durationMs <= 0) return;
+    onDebugTransition?.call(
+      timestampMs: timestampMs,
+      isOn: isOn,
+      durationMs: durationMs,
+    );
     onElement?.call(
       DecodedElement(isOn: isOn, durationMs: durationMs),
     );

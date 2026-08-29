@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'package:simply_morse/features/decoding/data/audio_debug_logger.dart';
+import 'package:simply_morse/features/decoding/data/video_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
@@ -27,12 +28,14 @@ class DecodingController extends ChangeNotifier {
     VideoDecoder? videoDecoder,
     CameraCapture? cameraCapture,
     AudioDebugLogger? debugLogger,
+    VideoDebugLogger? videoDebugLogger,
   }) : _morseDecoder = morseDecoder,
        _audioDecoder = audioDecoder,
        _audioCapture = audioCapture,
        _videoDecoder = videoDecoder,
        _cameraCapture = cameraCapture,
-       _debugLogger = debugLogger;
+       _debugLogger = debugLogger,
+       _videoDebugLogger = videoDebugLogger;
 
   final MorseDecoder _morseDecoder;
   final AudioDecoder? _audioDecoder;
@@ -40,6 +43,7 @@ class DecodingController extends ChangeNotifier {
   final VideoDecoder? _videoDecoder;
   final CameraCapture? _cameraCapture;
   final AudioDebugLogger? _debugLogger;
+  final VideoDebugLogger? _videoDebugLogger;
 
   StreamSubscription<List<double>>? _audioSub;
   final List<DecodedElement> _elements = [];
@@ -52,8 +56,14 @@ class DecodingController extends ChangeNotifier {
   /// Whether debug logging is enabled.
   bool get isDebugLoggingEnabled => _debugLogger?.enabled ?? false;
 
-  /// Path to the current debug log file, if logging is active.
+  /// Path to the current audio debug log file, if logging is active.
   String? get debugLogPath => _debugLogger?.logFilePath;
+
+  /// Path to the current video debug log file, if logging is active.
+  String? get videoDebugLogPath => _videoDebugLogger?.logFilePath;
+
+  /// Whether video debug logging is enabled.
+  bool get isVideoDebugLoggingEnabled => _videoDebugLogger?.enabled ?? false;
 
   DecodingMode get mode => _mode;
   DecodingStatus get status => _status;
@@ -69,19 +79,30 @@ class DecodingController extends ChangeNotifier {
       _status == DecodingStatus.listening &&
       _audioDecoder?.isCalibrating == true;
 
+  /// Minimum element duration in ms — shorter elements are
+  /// likely noise/double-transitions at the camera frame rate.
+  static const _minElementMs = 40;
+
   /// Current estimated WPM based on decoded elements.
+  /// Uses the 25th-percentile on-element duration as the dit
+  /// estimate (robust against spurious short noise elements).
   /// Returns 0 when no elements have been decoded yet.
   int get currentWpm {
     if (_elements.isEmpty) return 0;
 
-    // Estimate dit from shortest on-element
     final onDurations = _elements
-        .where((e) => e.isOn && e.durationMs > 0)
+        .where((e) => e.isOn && e.durationMs >= _minElementMs)
         .map((e) => e.durationMs)
         .toList();
     if (onDurations.isEmpty) return 0;
     onDurations.sort();
-    final ditMs = onDurations.first.toDouble();
+
+    // Use 25th percentile instead of minimum for noise robustness
+    final idx = (onDurations.length * 0.25).floor().clamp(
+      0,
+      onDurations.length - 1,
+    );
+    final ditMs = onDurations[idx].toDouble();
     if (ditMs <= 0) return 0;
 
     // PARIS = 50 dits per word, so WPM = 60000 / (ditMs * 50) = 1200 / ditMs
@@ -98,9 +119,36 @@ class DecodingController extends ChangeNotifier {
       ? _cameraCapture?.isHighFrameRate ?? false
       : true;
 
-  /// Toggles debug logging on/off.
+  /// Returns a human-readable description of the camera capture
+  /// mode: 'High speed', 'High resolution', or 'Error: <reason>'.
+  String get cameraCaptureType {
+    if (_mode != DecodingMode.video) return '';
+    final cam = _cameraCapture;
+    if (cam == null) return 'Error: no camera';
+    if (!cam.isInitialized) return 'Error: not initialized';
+    return cam.isHighFrameRate ? 'High speed' : 'High resolution';
+  }
+
+  /// Returns camera error reason if any.
+  String? get cameraError {
+    if (_mode != DecodingMode.video) return null;
+    final cam = _cameraCapture;
+    if (cam == null) return 'no camera available';
+    if (!cam.isInitialized) return 'camera not initialized';
+    return null;
+  }
+
+  /// Toggles audio debug logging on/off.
   void toggleDebugLogging() {
     final logger = _debugLogger;
+    if (logger == null) return;
+    logger.enabled = !logger.enabled;
+    notifyListeners();
+  }
+
+  /// Toggles video debug logging on/off.
+  void toggleVideoDebugLogging() {
+    final logger = _videoDebugLogger;
     if (logger == null) return;
     logger.enabled = !logger.enabled;
     notifyListeners();
@@ -188,8 +236,9 @@ class DecodingController extends ChangeNotifier {
     _audioDecoder.reset();
 
     // Wire debug logger if enabled
-    if (_debugLogger != null && _debugLogger!.enabled) {
-      _debugLogger!.start();
+    final adl = _debugLogger;
+    if (adl != null && adl.enabled) {
+      adl.start();
       _audioDecoder.onDebugCalibration =
           ({
             required totalSamples,
@@ -199,7 +248,7 @@ class DecodingController extends ChangeNotifier {
             required calibrationFrames,
             required elapsedMs,
           }) {
-            _debugLogger!.logCalibration(
+            adl.logCalibration(
               totalSamples: totalSamples,
               sampleRate: sampleRate,
               avgPower: avgPower,
@@ -219,7 +268,7 @@ class DecodingController extends ChangeNotifier {
             required noiseFloor,
             required onThresholdFactor,
           }) {
-            _debugLogger!.logLock(
+            adl.logLock(
               totalSamples: totalSamples,
               sampleRate: sampleRate,
               freq: freq,
@@ -241,7 +290,7 @@ class DecodingController extends ChangeNotifier {
             required offThreshold,
             required isOn,
           }) {
-            _debugLogger!.logTracking(
+            adl.logTracking(
               totalSamples: totalSamples,
               sampleRate: sampleRate,
               freq: freq,
@@ -261,7 +310,7 @@ class DecodingController extends ChangeNotifier {
             required isOn,
             required durationMs,
           }) {
-            _debugLogger!.logTransition(
+            adl.logTransition(
               totalSamples: totalSamples,
               sampleRate: sampleRate,
               isOn: isOn,
@@ -282,6 +331,110 @@ class DecodingController extends ChangeNotifier {
   void _startVideo() {
     if (_videoDecoder == null || _cameraCapture == null) return;
     _videoDecoder.reset();
+
+    // Wire video debug logger if enabled
+    final vdl = _videoDebugLogger;
+    if (vdl != null && vdl.enabled) {
+      vdl.start();
+      final vd = _videoDecoder;
+      vd.onDebugScan =
+          ({
+            required timestampMs,
+            required maxVariance,
+            required meanVariance,
+            required frameCount,
+          }) {
+            vdl.logScanning(
+              timestampMs: timestampMs,
+              maxVariance: maxVariance,
+              meanVariance: meanVariance,
+              frameCount: frameCount,
+            );
+          };
+      vd.onDebugConfirm =
+          ({
+            required timestampMs,
+            required variance,
+            required confirmCount,
+            required filterX,
+            required filterY,
+          }) {
+            vdl.logConfirming(
+              timestampMs: timestampMs,
+              variance: variance,
+              confirmCount: confirmCount,
+              filterX: filterX,
+              filterY: filterY,
+            );
+          };
+      vd.onDebugTrack =
+          ({
+            required timestampMs,
+            required variance,
+            required brightness,
+            required minBrightness,
+            required maxBrightness,
+            required range,
+            required onThreshold,
+            required offThreshold,
+            required isOn,
+            required regionX,
+            required regionY,
+            required regionSize,
+            required innovation,
+          }) {
+            vdl.logTracking(
+              timestampMs: timestampMs,
+              variance: variance,
+              brightness: brightness,
+              minBrightness: minBrightness,
+              maxBrightness: maxBrightness,
+              range: range,
+              onThreshold: onThreshold,
+              offThreshold: offThreshold,
+              isOn: isOn,
+              regionX: regionX,
+              regionY: regionY,
+              regionSize: regionSize,
+              innovation: innovation,
+            );
+          };
+      vd.onDebugTransition =
+          ({
+            required timestampMs,
+            required isOn,
+            required durationMs,
+          }) {
+            vdl.logTransition(
+              timestampMs: timestampMs,
+              isOn: isOn,
+              durationMs: durationMs,
+            );
+          };
+      vd.onDebugSignalLost =
+          ({
+            required timestampMs,
+            required lostFrameCount,
+          }) {
+            vdl.logSignalLost(
+              timestampMs: timestampMs,
+              lostFrameCount: lostFrameCount,
+            );
+          };
+      vd.onDebugStateChange =
+          ({
+            required timestampMs,
+            required newState,
+            detail,
+          }) {
+            vdl.logStateChange(
+              timestampMs: timestampMs,
+              newState: newState,
+              detail: detail,
+            );
+          };
+    }
+
     _videoDecoder.onElement = _onElement;
     _cameraCapture.startImageStream((frame) {
       _videoDecoder.processFrame(frame);
@@ -305,6 +458,7 @@ class DecodingController extends ChangeNotifier {
     _audioCapture?.stop();
     _cameraCapture?.stop();
     _debugLogger?.stop();
+    _videoDebugLogger?.stop();
     _status = DecodingStatus.idle;
     super.dispose();
   }

@@ -47,7 +47,6 @@ class _SeeScreenState extends State<SeeScreen> {
   late final ShareService _shareService;
   late final FeedbackService _feedbackService;
   final _textController = TextEditingController();
-  bool _showLowFpsWarning = false;
 
   @override
   void initState() {
@@ -80,10 +79,6 @@ class _SeeScreenState extends State<SeeScreen> {
         ),
       );
       return;
-    }
-
-    if (!_controller.isHighFrameRate) {
-      setState(() => _showLowFpsWarning = true);
     }
 
     _controller.start();
@@ -119,10 +114,6 @@ class _SeeScreenState extends State<SeeScreen> {
     await _shareService.share(_controller.decodedText);
   }
 
-  void _dismissLowFpsWarning() {
-    setState(() => _showLowFpsWarning = false);
-  }
-
   @override
   Widget build(BuildContext context) {
     if (kIsWeb) {
@@ -137,9 +128,62 @@ class _SeeScreenState extends State<SeeScreen> {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 600;
+              if (isWide) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Camera preview on the left
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          children: [
+                            _buildHeader(context),
+                            const SizedBox(height: 16),
+                            _buildCameraPreview(context),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      // All other controls on the right
+                      Expanded(
+                        flex: 3,
+                        child: SingleChildScrollView(
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                maxWidth: 400,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _buildStatusIndicator(context),
+                                  const SizedBox(height: 8),
+                                  _buildWpmDisplay(context),
+                                  const SizedBox(height: 16),
+                                  _buildDecodedTextInput(context),
+                                  const SizedBox(height: 8),
+                                  _buildShareButtons(context),
+                                  const SizedBox(height: 16),
+                                  _buildActionButtons(context),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
               return SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth > 600 ? 48 : 16,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
                   vertical: 16,
                 ),
                 child: Center(
@@ -242,7 +286,9 @@ class _SeeScreenState extends State<SeeScreen> {
           ),
           DecodingStatus.listening => (
             theme.colorScheme.primary,
-            'Watching…',
+            ctrl.cameraError != null
+                ? 'Watching… (${ctrl.cameraError})'
+                : 'Watching… (${ctrl.cameraCaptureType})',
           ),
           DecodingStatus.paused => (
             theme.colorScheme.tertiary,
@@ -413,39 +459,12 @@ class _SeeScreenState extends State<SeeScreen> {
                         ),
                       ),
                     ),
-                  if (_showLowFpsWarning) _buildLowFpsWarning(context),
                 ],
               ),
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildLowFpsWarning(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      color: theme.colorScheme.scrim.withValues(alpha: 0.7),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: AlertDialog(
-            title: const Text('Camera info'),
-            content: const Text(
-              'Your phone camera supports only '
-              'decoding of 7 words per minute at '
-              'maximum.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: _dismissLowFpsWarning,
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 

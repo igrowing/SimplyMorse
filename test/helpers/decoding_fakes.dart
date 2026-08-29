@@ -48,7 +48,10 @@ class FakeCameraCapture implements CameraCapture {
   void Function(VideoFrame frame)? _onFrame;
 
   @override
-  Future<bool> hasPermission() async => hasPermissionValue;
+  Future<bool> hasPermission() async {
+    if (hasPermissionValue) _isInitialized = true;
+    return hasPermissionValue;
+  }
 
   @override
   Future<void> initialize() async {

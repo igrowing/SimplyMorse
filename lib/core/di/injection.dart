@@ -13,6 +13,7 @@ import 'package:simply_morse/features/decoding/data/camera_capture_service.dart'
 import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import "package:simply_morse/features/decoding/data/audio_debug_logger.dart";
+import "package:simply_morse/features/decoding/data/video_debug_logger.dart";
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
@@ -81,12 +82,14 @@ Future<void> configureDependencies() async {
     )
     ..registerFactory<AudioDecoder>(() => AudioDecoder())
     ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
+    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger())
     ..registerFactory<VideoDecoder>(() => VideoDecoder())
     ..registerFactory<DecodingController>(
       () => DecodingController(
         morseDecoder: getIt<MorseDecoder>(),
         audioDecoder: getIt<AudioDecoder>(),
         debugLogger: getIt<AudioDebugLogger>(),
+        videoDebugLogger: getIt<VideoDebugLogger>(),
         audioCapture: getIt<AudioCapture>(),
         videoDecoder: getIt<VideoDecoder>(),
         cameraCapture: getIt<CameraCapture>(),

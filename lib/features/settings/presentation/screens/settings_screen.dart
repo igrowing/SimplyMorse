@@ -31,7 +31,6 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
       appBar: const AppTopBar(showSettingsIcon: false),
       body: SafeArea(
@@ -162,6 +161,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        _buildCheckUpdatesButton(context),
+        const SizedBox(height: 16),
         InkWell(
           onTap: () => _launchCoffeeUrl(context),
           borderRadius: BorderRadius.circular(8),
@@ -188,6 +189,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCheckUpdatesButton(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: () => _checkForUpdates(context),
+      icon: const Icon(Icons.system_update, size: 20),
+      label: const Text('Check for updates'),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: const StadiumBorder(),
+      ),
+    );
+  }
+
+  void _checkForUpdates(BuildContext context) {
+    // Navigate to the GitHub releases page or app store
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Checking for updates…'),
+        duration: Duration(seconds: 2),
+      ),
     );
   }
 

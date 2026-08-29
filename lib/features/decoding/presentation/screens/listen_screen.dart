@@ -120,9 +120,51 @@ class _ListenScreenState extends State<ListenScreen> {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 600;
+              if (isWide) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 48,
+                    vertical: 16,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 700,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildHeader(context),
+                          const SizedBox(height: 16),
+                          _buildStatusBar(context),
+                          const SizedBox(height: 16),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: _buildDecodedTextInput(context),
+                              ),
+                              const SizedBox(width: 16),
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildActionButtons(context),
+                                  const SizedBox(height: 8),
+                                  _buildShareButtons(context),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
               return SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: constraints.maxWidth > 600 ? 48 : 16,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
                   vertical: 16,
                 ),
                 child: Center(

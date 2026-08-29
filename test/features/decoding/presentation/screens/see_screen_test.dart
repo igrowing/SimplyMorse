@@ -69,51 +69,6 @@ void main() {
   }
 
   group('SeeScreen high-fps camera', () {
-    testWidgets('shows low-fps warning when camera is low-fps', (tester) async {
-      cameraCapture = FakeCameraCapture(isHighFrameRateValue: false);
-      await pumpScreen(tester);
-
-      await tester.ensureVisible(find.text('Start'));
-      await tester.tap(find.text('Start'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Camera info'), findsOneWidget);
-      expect(
-        find.textContaining('7 words per minute at maximum'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('does not show warning when camera is high-fps', (
-      tester,
-    ) async {
-      cameraCapture = FakeCameraCapture(isHighFrameRateValue: true);
-      await pumpScreen(tester);
-
-      await tester.ensureVisible(find.text('Start'));
-      await tester.tap(find.text('Start'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Camera info'), findsNothing);
-    });
-
-    testWidgets('low-fps warning can be dismissed', (tester) async {
-      cameraCapture = FakeCameraCapture(isHighFrameRateValue: false);
-      await pumpScreen(tester);
-
-      await tester.ensureVisible(find.text('Start'));
-      await tester.tap(find.text('Start'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Camera info'), findsOneWidget);
-
-      await tester.ensureVisible(find.text('OK'));
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Camera info'), findsNothing);
-    });
-
     testWidgets('displays Watch header', (tester) async {
       await pumpScreen(tester);
       expect(find.text('Watch'), findsOneWidget);
@@ -192,7 +147,7 @@ void main() {
       await tester.tap(find.text('Start'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Watching…'), findsOneWidget);
+      expect(find.textContaining('Watching'), findsOneWidget);
     });
 
     testWidgets('shows Paused status when paused', (tester) async {
