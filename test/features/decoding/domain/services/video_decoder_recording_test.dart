@@ -1,3 +1,4 @@
+@Tags(['video-recording'])
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,8 +9,12 @@ import 'package:simply_morse/features/decoding/domain/services/brightness_thresh
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 
 /// Helper to load float32 brightness trace from test assets.
-List<double> _loadBrightnessTrace(String filename) {
+///
+/// Returns null if the file is not present (e.g. on CI or when the
+/// user has not downloaded the video recordings locally).
+List<double>? _loadBrightnessTrace(String filename) {
   final file = File('test/assets/recordings/video/$filename');
+  if (!file.existsSync()) return null;
   final bytes = file.readAsBytesSync();
   final float32 = bytes.buffer.asFloat32List(
     bytes.offsetInBytes,
@@ -58,8 +63,6 @@ List<VideoRecordingFixture> _loadVideoManifest() {
 
 /// Runs the brightness trace through BrightnessThreshold to detect
 /// on/off transitions, then decodes via MorseDecoder.
-///
-/// Returns the decoded elements, decoded text, and dit estimate.
 ({List<DecodedElement> elements, String text, double ditMs}) _decodeBrightness(
   VideoRecordingFixture fixture, {
   double onFactor = 0.4,
@@ -68,7 +71,7 @@ List<VideoRecordingFixture> _loadVideoManifest() {
   double minRange = 0.01,
   int minTransitionMs = 50,
 }) {
-  final trace = _loadBrightnessTrace(fixture.brightnessFile);
+  final trace = _loadBrightnessTrace(fixture.brightnessFile)!;
   final frameMs = (1000 / fixture.fps).round(); // ~33ms at 30fps
 
   final threshold = BrightnessThreshold(
@@ -128,6 +131,24 @@ List<VideoRecordingFixture> _loadVideoManifest() {
 }
 
 void main() {
+  // Skip all tests in this file if the brightness trace fixtures
+  // are not available locally.
+  final manifestFile = File('test/assets/recordings/video/manifest.json');
+  final manifestExists = manifestFile.existsSync();
+  final firstTraceExists = _loadBrightnessTrace('4wpm_brightness.f32') != null;
+
+  if (!manifestExists || !firstTraceExists) {
+    test('video recording fixtures not available — skipping', () {
+      // ignore: avoid_print
+      print(
+        '  Video recording tests skipped: brightness trace fixtures '
+        'not found locally. Download the video recordings and extract '
+        'traces to run these tests.',
+      );
+    });
+    return;
+  }
+
   final fixtures = _loadVideoManifest();
 
   group('VideoDecoder brightness traces from real recordings', () {
@@ -137,17 +158,9 @@ void main() {
       );
       final result = _decodeBrightness(fixture);
 
-      // Should detect a reasonable number of elements.
       expect(result.elements.length, greaterThan(20));
       expect(result.text, isNotEmpty);
-
-      // At 4 WPM, dit = 300ms. The 25th percentile estimate
-      // should be in the right ballpark.
       expect(result.ditMs, greaterThan(200));
-
-      // The 4wpm recording has lower contrast in the early
-      // frames, so we expect partial decoding of the message.
-      // "WORLD" → we should see "RLD" at minimum.
       expect(result.text, contains('RLD'));
 
       // ignore: avoid_print
@@ -165,12 +178,7 @@ void main() {
 
       expect(result.elements.length, greaterThan(30));
       expect(result.text, isNotEmpty);
-
-      // At 8 WPM, dit = 150ms.
       expect(result.ditMs, closeTo(150, 50));
-
-      // The 8wpm recording has good contrast. We expect to
-      // decode "HELLO" from the first word.
       expect(result.text, contains('ELLO'));
 
       // ignore: avoid_print
@@ -188,13 +196,7 @@ void main() {
 
       expect(result.elements.length, greaterThan(60));
       expect(result.text, isNotEmpty);
-
-      // At 20 WPM, dit = 60ms.
       expect(result.ditMs, closeTo(60, 20));
-
-      // The 20wpm recording has the best contrast. The message
-      // repeats ~3 times in 25 seconds. We should see "WORLD"
-      // or close variants in at least one repetition.
       expect(
         result.text,
         anyOf(
