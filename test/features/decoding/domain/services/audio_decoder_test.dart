@@ -86,7 +86,7 @@ void main() {
       });
 
       test('locks after calibration period with strong tone', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
@@ -103,7 +103,7 @@ void main() {
       });
 
       test('does not detect tone outside frequency range', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
 
         decoder.processSamples(generateNoise(256 * 6));
 
@@ -118,7 +118,7 @@ void main() {
 
     group('locked phase', () {
       test('emits on-element when tone starts', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
@@ -136,7 +136,7 @@ void main() {
       });
 
       test('emits off-element when tone stops', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
@@ -157,7 +157,7 @@ void main() {
       });
 
       test('emits elements with positive duration', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
@@ -176,7 +176,7 @@ void main() {
       });
 
       test('frequency does not drift after locking', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
         decoder.processSamples(generateNoise(256 * 6));
         decoder.processSamples(generateTone(700, 8000, 256 * 4));
         expect(decoder.state, DecoderState.locked);
@@ -190,7 +190,7 @@ void main() {
       });
 
       test('onLock callback is invoked when locked', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
         var lockedFreq = 0.0;
         decoder.onLock = (freq) => lockedFreq = freq;
 
@@ -203,7 +203,7 @@ void main() {
 
     group('reset', () {
       test('clears all state', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
 
         decoder.processSamples(generateNoise(256 * 6));
         decoder.processSamples(generateTone(700, 8000, 256 * 4));
@@ -215,7 +215,7 @@ void main() {
       });
 
       test('allows re-detection after reset', () {
-        final decoder = AudioDecoder(calibrationMs: 100);
+        final decoder = AudioDecoder(calibrationMs: 100, minElementMs: 0);
 
         decoder.processSamples(generateNoise(256 * 6));
         decoder.processSamples(generateTone(700, 8000, 256 * 4));

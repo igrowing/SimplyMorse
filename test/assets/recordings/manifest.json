@@ -1,0 +1,52 @@
+[
+  {
+    "file": "1000Hz_2times_8wpm.f32",
+    "sampleRate": 8000,
+    "nSamples": 473771,
+    "expectedFreq": 1000,
+    "expectedWpm": 8,
+    "repeatCount": 2,
+    "expectedText": "HELLO, WORLD! HELLO, WORLD!",
+    "durationSec": 59.221375
+  },
+  {
+    "file": "400Hz_2times_8wpm.f32",
+    "sampleRate": 8000,
+    "nSamples": 457899,
+    "expectedFreq": 400,
+    "expectedWpm": 8,
+    "repeatCount": 2,
+    "expectedText": "HELLO, WORLD! HELLO, WORLD!",
+    "durationSec": 57.237375
+  },
+  {
+    "file": "700Hz_1time_3wpm.f32",
+    "sampleRate": 8000,
+    "nSamples": 560299,
+    "expectedFreq": 700,
+    "expectedWpm": 3,
+    "repeatCount": 1,
+    "expectedText": "HELLO, WORLD!",
+    "durationSec": 70.037375
+  },
+  {
+    "file": "700Hz_2times_8wpm.f32",
+    "sampleRate": 8000,
+    "nSamples": 475307,
+    "expectedFreq": 700,
+    "expectedWpm": 8,
+    "repeatCount": 2,
+    "expectedText": "HELLO, WORLD! HELLO, WORLD!",
+    "durationSec": 59.413375
+  },
+  {
+    "file": "700Hz_3times_20wpm.f32",
+    "sampleRate": 8000,
+    "nSamples": 312320,
+    "expectedFreq": 700,
+    "expectedWpm": 20,
+    "repeatCount": 3,
+    "expectedText": "HELLO, WORLD! HELLO, WORLD! HELLO, WORLD!",
+    "durationSec": 39.04
+  }
+]

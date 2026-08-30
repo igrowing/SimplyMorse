@@ -67,16 +67,21 @@ enum DecoderState {
 ///
 /// 1. **Calibration** — listens for [calibrationMs] (2 s by
 ///    default) collecting FFT frames over 400-1000 Hz to
-///    find the dominant sustained tone.
+///    find the dominant sustained tone. Does not lock until
+///    a signal significantly above the noise floor is found.
 /// 2. **Lock** — switches to an efficient Goertzel filter at
 ///    the detected frequency.
-/// 3. **Track** — fast-attack / slow-release envelope with
-///    hysteresis detects on/off transitions.
+/// 3. **Track** — fast-attack / fast-release envelope with
+///    hysteresis detects on/off transitions. The noise floor
+///    is continuously updated from Goertzel power values
+///    during off periods so thresholds stay on the same
+///    scale as the tracked signal.
 /// 4. **No drift** — once locked, the frequency does not
 ///    change until [reset] is called (user clicks Clear).
 ///
 /// Emits [DecodedElement]s via [onElement] as on/off
-/// transitions are detected.
+/// transitions are detected. Elements shorter than
+/// [minElementMs] are filtered to suppress noise spikes.
 class AudioDecoder {
   AudioDecoder({
     this.sampleRate = 8000,
@@ -86,9 +91,10 @@ class AudioDecoder {
     this.goertzelBlockSize = 80,
     this.calibrationMs = 2000,
     this.attackMs = 2,
-    this.releaseMs = 50,
+    this.releaseMs = 20,
     this.onThresholdFactor = 4,
     this.offThresholdFactor = 2,
+    this.minElementMs = 30,
   }) {
     _fft = FFT(fftSize);
     _hopMs = goertzelBlockSize * 1000 / sampleRate;
@@ -105,6 +111,7 @@ class AudioDecoder {
   final double releaseMs;
   final double onThresholdFactor;
   final double offThresholdFactor;
+  final int minElementMs;
 
   // Internal components
   late final FFT _fft;
@@ -134,6 +141,8 @@ class AudioDecoder {
 
   // Envelope / on-off state
   bool _isOn = false;
+  double _peakEnvelope = 0;
+  double _minEnvelope = 0;
   int _transitionSample = 0;
   int _totalSamples = 0;
 
@@ -228,7 +237,7 @@ class AudioDecoder {
       return;
     }
 
-    // Find the bin with the highest average power
+    // Find the bin with the highest average power.
     var bestBin = -1;
     var bestAvgPower = 0.0;
     _binPowerAccum.forEach((bin, totalPower) {
@@ -240,19 +249,48 @@ class AudioDecoder {
     });
 
     if (bestBin < 0) {
-      // No signal found — restart calibration
       _binPowerAccum.clear();
       _calibrationFrames = 0;
       _calibrationStartSample = _totalSamples;
       return;
     }
 
-    final freq = _fft.binFrequency(bestBin, sampleRate);
-    final floor = _noiseFloor.noiseFloor;
+    // Compute noise floor as the average power of all bins
+    // EXCEPT the best bin. This gives a more accurate noise
+    // estimate than the band average, preventing a single
+    // noisy bin from triggering a lock.
+    double otherPower = 0;
+    var otherCount = 0;
+    _binPowerAccum.forEach((bin, totalPower) {
+      if (bin != bestBin) {
+        otherPower += totalPower / _calibrationFrames;
+        otherCount++;
+      }
+    });
+    final noiseAvg = otherCount > 0 ? otherPower / otherCount : 0.0;
 
-    // Verify the peak is significantly above noise floor
-    if (bestAvgPower <= floor * onThresholdFactor) {
-      // Signal too weak — restart calibration
+    // Check for fundamental frequency: if the best bin is near
+    // 2× another bin with significant power, prefer the lower
+    // bin (fundamental) to avoid locking on a harmonic.
+    {
+      final halfBin = bestBin ~/ 2;
+      final minBinIdx = _fft.frequencyToBin(minFreq, sampleRate);
+      if (halfBin >= minBinIdx) {
+        final halfPower = _binPowerAccum[halfBin] ?? 0;
+        final halfAvg = halfPower / _calibrationFrames;
+        if (halfAvg > bestAvgPower * 0.25) {
+          bestBin = halfBin;
+          bestAvgPower = halfAvg;
+        }
+      }
+    }
+
+    final freq = _fft.binFrequency(bestBin, sampleRate);
+
+    // Verify the peak is significantly above the noise floor
+    // (average of all other bins in the band).
+    if (bestAvgPower <= noiseAvg * onThresholdFactor) {
+      // Signal too weak — restart calibration.
       _binPowerAccum.clear();
       _calibrationFrames = 0;
       _calibrationStartSample = _totalSamples;
@@ -264,7 +302,7 @@ class AudioDecoder {
       sampleRate: sampleRate,
       freq: freq,
       bestAvgPower: bestAvgPower,
-      noiseFloor: floor,
+      noiseFloor: 0,
       onThresholdFactor: onThresholdFactor,
     );
 
@@ -279,7 +317,10 @@ class AudioDecoder {
       blockSize: goertzelBlockSize,
     );
     _envelope.reset();
+    _noiseFloor.reset();
     _isOn = false;
+    _peakEnvelope = 0;
+    _minEnvelope = 0;
     _state = DecoderState.locked;
     _transitionSample = _totalSamples;
     onLock?.call(freq);
@@ -291,9 +332,16 @@ class AudioDecoder {
     final power = _goertzel!.process(samples);
     final env = _envelope.process(power, hopMs: _hopMs);
 
-    final floor = _noiseFloor.noiseFloor;
-    final onThreshold = floor * onThresholdFactor;
-    final offThreshold = floor * offThresholdFactor;
+    // Track peak envelope for adaptive thresholding.
+    if (env > _peakEnvelope) {
+      _peakEnvelope = env;
+    }
+    if (env < _minEnvelope) {
+      _minEnvelope = env;
+    }
+    final range = _peakEnvelope - _minEnvelope;
+    final onThreshold = _minEnvelope + range * 0.4;
+    final offThreshold = _minEnvelope + range * 0.15;
 
     onDebugTracking?.call(
       totalSamples: _totalSamples,
@@ -301,7 +349,7 @@ class AudioDecoder {
       freq: _lockedFreq,
       power: power,
       envelope: env,
-      noiseFloor: floor,
+      noiseFloor: 0,
       onThreshold: onThreshold,
       offThreshold: offThreshold,
       isOn: _isOn,
@@ -326,6 +374,9 @@ class AudioDecoder {
 
     if (durationMs <= 0) return;
 
+    // Filter out very short elements (noise spikes)
+    if (durationMs < minElementMs) return;
+
     onDebugTransition?.call(
       totalSamples: _totalSamples,
       sampleRate: sampleRate,
@@ -346,6 +397,8 @@ class AudioDecoder {
     _noiseFloor.reset();
     _goertzel = null;
     _isOn = false;
+    _peakEnvelope = 0;
+    _minEnvelope = 0;
     _totalSamples = 0;
     _transitionSample = 0;
     _lockedFreq = 0;

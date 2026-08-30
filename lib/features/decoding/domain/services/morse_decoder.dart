@@ -7,14 +7,15 @@ import 'package:simply_morse/features/encoding/domain/models/morse_code_table.da
 /// This is pure domain logic with no platform dependencies.
 /// It takes a list of [DecodedElement]s (tone/gap durations)
 /// and produces decoded text by:
-/// 1. Estimating the dit duration from the shortest on-element.
+/// 1. Estimating the dit duration from the 25th-percentile
+///    on-element (robust against noise spikes).
 /// 2. Classifying on-elements as dit (short) or dah (long).
 /// 3. Classifying off-elements as intra-gap, char-gap, or
 ///    word-gap based on duration ratios.
 /// 4. Grouping dits/dahs into Morse symbols and looking them up
 ///    in the reverse Morse table.
 class MorseDecoder {
-  MorseDecoder({this.ditThreshold = 2.0, this.wordGapThreshold = 5.0});
+  MorseDecoder({this.ditThreshold = 2.0, this.wordGapThreshold = 4.0});
 
   /// Multiplier of dit duration below which an on-element is a
   /// dit, at or above which it is a dah.
@@ -34,7 +35,7 @@ class MorseDecoder {
   /// Decodes a list of [DecodedElement]s into text.
   ///
   /// If [ditMs] is not provided, it is estimated from the
-  /// shortest on-element duration.
+  /// 25th-percentile on-element duration.
   String decodeElements(
     List<DecodedElement> elements, {
     double? ditMs,
@@ -83,7 +84,9 @@ class MorseDecoder {
     }
   }
 
-  /// Estimates the dit duration as the shortest on-element.
+  /// Estimates the dit duration as the 25th-percentile
+  /// on-element duration, which is more robust against noise
+  /// spikes than using the minimum.
   double _estimateDitDuration(List<DecodedElement> elements) {
     final onDurations = elements
         .where((e) => e.isOn)
@@ -91,6 +94,9 @@ class MorseDecoder {
         .toList();
     if (onDurations.isEmpty) return 0;
     onDurations.sort();
-    return onDurations.first.toDouble();
+
+    // Use 25th percentile for dit estimation
+    final idx = (onDurations.length * 0.25).floor();
+    return onDurations[idx.clamp(0, onDurations.length - 1)].toDouble();
   }
 }
