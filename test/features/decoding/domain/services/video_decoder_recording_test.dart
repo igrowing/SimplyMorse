@@ -8,6 +8,7 @@ import 'package:simply_morse/features/decoding/domain/models/decoded_element.dar
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
 import 'package:simply_morse/features/decoding/domain/services/element_builder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
+import 'package:simply_morse/features/decoding/domain/services/morse_lock_gate.dart';
 
 import '../../../../support/cer.dart';
 
@@ -65,7 +66,9 @@ List<VideoRecordingFixture> _loadVideoManifest() {
 }
 
 /// Runs the brightness trace through BrightnessThreshold to detect
-/// on/off transitions, then decodes via MorseDecoder.
+/// on/off transitions, through [MorseLockGate] to confirm genuine
+/// Morse timing (for slow sending only — see that class), then
+/// decodes via MorseDecoder. Matches VideoDecoder's own pipeline.
 ({List<DecodedElement> elements, String text, double ditMs}) _decodeBrightness(
   VideoRecordingFixture fixture, {
   double onFactor = 0.4,
@@ -86,7 +89,8 @@ List<VideoRecordingFixture> _loadVideoManifest() {
   );
 
   final elements = <DecodedElement>[];
-  final builder = ElementBuilder(onElement: elements.add);
+  final gate = MorseLockGate(onElement: elements.add);
+  final builder = ElementBuilder(onElement: gate.add);
 
   for (var i = 0; i < trace.length; i++) {
     final ts = i * frameMs;
@@ -94,6 +98,7 @@ List<VideoRecordingFixture> _loadVideoManifest() {
     builder.transition(nowOn: isOn, timeMs: ts.toDouble());
   }
   builder.flush();
+  gate.flush();
 
   // Skip leading off-elements
   final filtered = elements.skipWhile((e) => !e.isOn).toList();
@@ -144,10 +149,13 @@ void main() {
       expect(result.text, isNotEmpty);
       expect(result.ditMs, greaterThan(200));
       // The 4 WPM recording spends its first ~10 s acquiring, which
-      // injects junk elements ahead of the message.
+      // injects junk elements ahead of the message. MorseLockGate
+      // (below fastUnitThresholdMs, sending here is slow enough to
+      // gate) drops most of it but not all — some junk still slips
+      // through close enough to the real unit to pass the fit check.
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(1.05),
+        lessThanOrEqualTo(0.75),
       );
 
       // ignore: avoid_print

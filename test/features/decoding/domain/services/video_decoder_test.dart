@@ -170,7 +170,9 @@ void main() {
           }
 
           // Should have emitted elements
-          expect(elements, isNotEmpty);
+          dec.flush();
+          dec.flush();
+        expect(elements, isNotEmpty);
         },
       );
 
@@ -223,7 +225,9 @@ void main() {
             dec.state,
             VideoDecoderState.locked,
           );
-          expect(elements, isNotEmpty);
+          dec.flush();
+          dec.flush();
+        expect(elements, isNotEmpty);
         },
       );
 
@@ -278,7 +282,9 @@ void main() {
             dec.state,
             VideoDecoderState.locked,
           );
-          expect(elements, isNotEmpty);
+          dec.flush();
+          dec.flush();
+        expect(elements, isNotEmpty);
         },
       );
 
@@ -333,6 +339,7 @@ void main() {
           dec.state,
           VideoDecoderState.locked,
         );
+        dec.flush();
         expect(elements, isNotEmpty);
       });
 

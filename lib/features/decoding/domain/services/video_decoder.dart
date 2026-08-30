@@ -5,6 +5,7 @@ import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/alpha_beta_filter.dart';
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
 import 'package:simply_morse/features/decoding/domain/services/element_builder.dart';
+import 'package:simply_morse/features/decoding/domain/services/morse_lock_gate.dart';
 
 /// Debug callback for scanning frames.
 typedef DebugVideoScanCallback =
@@ -171,10 +172,22 @@ class VideoDecoder {
   // Output
   void Function(DecodedElement element)? onElement;
 
+  /// Confirms genuinely Morse-timed elements before they reach
+  /// [_emit] — for slow sending only. Video's scan/confirm phase
+  /// checks that a source blinks with high temporal variance, not
+  /// that it blinks with *Morse* timing, so camera autoexposure
+  /// settling or a sender-side countdown UI locks on and reads just
+  /// as readily as a real beacon. See [MorseLockGate] for why this
+  /// only filters slow sending and passes fast sending straight
+  /// through untouched.
+  late final MorseLockGate _lockGate = MorseLockGate(onElement: _emit);
+
   /// Turns on/off transitions into elements, merging glitches and
   /// holding the last element until [flush]. Shared with the audio
   /// decoder so both paths treat short segments the same way.
-  late final ElementBuilder _builder = ElementBuilder(onElement: _emit);
+  late final ElementBuilder _builder = ElementBuilder(
+    onElement: _lockGate.add,
+  );
 
   void _emit(DecodedElement element) {
     onDebugTransition?.call(
@@ -302,6 +315,7 @@ class VideoDecoder {
         _state = VideoDecoderState.locked;
         _threshold.reset();
         _builder.reset();
+        _lockGate.reset();
         onDebugStateChange?.call(
           timestampMs: frame.timestampMs,
           newState: 'locked',
@@ -389,6 +403,7 @@ class VideoDecoder {
 
   void _signalLost() {
     _builder.flush();
+    _lockGate.flush();
     onDebugSignalLost?.call(
       timestampMs: _lastFrameMs,
       lostFrameCount: _lostFrameCount,
@@ -520,7 +535,10 @@ class VideoDecoder {
   /// Emits any element still held back by the merge lookahead.
   ///
   /// Call when the video stream ends so the final element is not lost.
-  void flush() => _builder.flush();
+  void flush() {
+    _builder.flush();
+    _lockGate.flush();
+  }
 
   /// Resets the decoder to the scanning state.
   void reset() {
@@ -529,6 +547,7 @@ class VideoDecoder {
     _threshold.reset();
     _filter.reset();
     _builder.reset();
+    _lockGate.reset();
     _confirmCount = 0;
     _lostFrameCount = 0;
     _lastFrameMs = 0;

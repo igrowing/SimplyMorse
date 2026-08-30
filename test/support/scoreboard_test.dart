@@ -10,6 +10,7 @@ import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dar
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
 import 'package:simply_morse/features/decoding/domain/services/element_builder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
+import 'package:simply_morse/features/decoding/domain/services/morse_lock_gate.dart';
 
 import 'cer.dart';
 
@@ -85,13 +86,15 @@ void main() {
       final frameMs = (1000 / (meta['fps'] as double)).round();
       final threshold = BrightnessThreshold();
       final elements = <DecodedElement>[];
-      final builder = ElementBuilder(onElement: elements.add);
+      final gate = MorseLockGate(onElement: elements.add);
+      final builder = ElementBuilder(onElement: gate.add);
       for (var i = 0; i < trace.length; i++) {
         final t = i * frameMs;
         final isOn = threshold.process(trace[i], timestampMs: t);
         builder.transition(nowOn: isOn, timeMs: t.toDouble());
       }
       builder.flush();
+      gate.flush();
 
       final text = MorseDecoder().decodeElements(
         elements.skipWhile((e) => !e.isOn).toList(),
