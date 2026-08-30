@@ -142,9 +142,9 @@ class AudioDecoder {
   // Envelope / on-off state
   bool _isOn = false;
   double _peakEnvelope = 0;
-  double _minEnvelope = 0;
   int _transitionSample = 0;
   int _totalSamples = 0;
+  bool _seenFirstOn = false;
 
   // Sample buffer
   final List<double> _buffer = [];
@@ -285,7 +285,19 @@ class AudioDecoder {
       }
     }
 
-    final freq = _fft.binFrequency(bestBin, sampleRate);
+    // Parabolic interpolation for sub-bin frequency accuracy.
+    // Fits a parabola to the peak bin and its neighbors to
+    // estimate the true peak frequency, reducing the Goertzel
+    // frequency mismatch that causes power oscillation.
+    final leftPower = _binPowerAccum[bestBin - 1] ?? 0;
+    final centerPower = _binPowerAccum[bestBin] ?? 0;
+    final rightPower = _binPowerAccum[bestBin + 1] ?? 0;
+    final denom = leftPower - 2 * centerPower + rightPower;
+    double subBinOffset = 0;
+    if (denom.abs() > 1e-10) {
+      subBinOffset = 0.5 * (leftPower - rightPower) / denom;
+    }
+    final freq = (bestBin + subBinOffset) * sampleRate / fftSize;
 
     // Verify the peak is significantly above the noise floor
     // (average of all other bins in the band).
@@ -320,7 +332,7 @@ class AudioDecoder {
     _noiseFloor.reset();
     _isOn = false;
     _peakEnvelope = 0;
-    _minEnvelope = 0;
+    _seenFirstOn = false;
     _state = DecoderState.locked;
     _transitionSample = _totalSamples;
     onLock?.call(freq);
@@ -332,16 +344,46 @@ class AudioDecoder {
     final power = _goertzel!.process(samples);
     final env = _envelope.process(power, hopMs: _hopMs);
 
-    // Track peak envelope for adaptive thresholding.
+    // Track peak envelope with slow decay so it adapts to
+    // decreasing signal levels over time.
+    _peakEnvelope *= 0.999;
     if (env > _peakEnvelope) {
       _peakEnvelope = env;
     }
-    if (env < _minEnvelope) {
-      _minEnvelope = env;
+
+    // Update noise floor using the raw Goertzel power (not the
+    // envelope) during confirmed off periods. The raw power
+    // drops immediately to the noise level when the tone ends,
+    // while the envelope has a release delay that would
+    // contaminate the noise floor estimate with decaying
+    // values during the first few off periods.
+    if (_seenFirstOn && !_isOn) {
+      _noiseFloor.update(power);
     }
-    final range = _peakEnvelope - _minEnvelope;
-    final onThreshold = _minEnvelope + range * 0.4;
-    final offThreshold = _minEnvelope + range * 0.15;
+
+    // Compute thresholds using two strategies:
+    // - Before noise floor is ready: peak-only thresholds
+    //   (on = 50% of peak, off = 5% of peak). Wide enough to
+    //   avoid false transitions from Goertzel power oscillation.
+    // - After noise floor is ready: noise-floor-relative thresholds
+    //   for tighter, adaptive detection.
+    final double onThreshold;
+    final double offThreshold;
+    final double debugNoiseFloor;
+
+    if (_noiseFloor.isReady) {
+      final minRef = _noiseFloor.noiseFloor;
+      final range = _peakEnvelope - minRef;
+      if (range <= 0) return;
+      onThreshold = minRef + range * 0.5;
+      offThreshold = minRef + range * 0.25;
+      debugNoiseFloor = minRef;
+    } else {
+      if (_peakEnvelope <= 0) return;
+      onThreshold = _peakEnvelope * 0.5;
+      offThreshold = _peakEnvelope * 0.25;
+      debugNoiseFloor = 0;
+    }
 
     onDebugTracking?.call(
       totalSamples: _totalSamples,
@@ -349,19 +391,20 @@ class AudioDecoder {
       freq: _lockedFreq,
       power: power,
       envelope: env,
-      noiseFloor: 0,
+      noiseFloor: debugNoiseFloor,
       onThreshold: onThreshold,
       offThreshold: offThreshold,
       isOn: _isOn,
     );
 
     if (!_isOn && env > onThreshold) {
-      // Off → On transition
+      // Off -> On transition
+      _seenFirstOn = true;
       _emitElement(false);
       _isOn = true;
       _transitionSample = _totalSamples;
     } else if (_isOn && env < offThreshold) {
-      // On → Off transition
+      // On -> Off transition
       _emitElement(true);
       _isOn = false;
       _transitionSample = _totalSamples;
@@ -398,7 +441,7 @@ class AudioDecoder {
     _goertzel = null;
     _isOn = false;
     _peakEnvelope = 0;
-    _minEnvelope = 0;
+    _seenFirstOn = false;
     _totalSamples = 0;
     _transitionSample = 0;
     _lockedFreq = 0;

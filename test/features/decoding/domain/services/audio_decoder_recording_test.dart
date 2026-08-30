@@ -134,7 +134,7 @@ void main() {
 
     test('700Hz 2times 8wpm decodes "HELLO, WORLD!"', () {
       final fixture = fixtures.firstWhere(
-        (f) => f.file.contains('2times_8wpm'),
+        (f) => f.file.contains('700Hz_2times_8wpm'),
       );
       final result = _decodeRecording(fixture);
 
@@ -154,7 +154,7 @@ void main() {
 
     test('700Hz 3times 20wpm decodes "HELLO, WORLD!"', () {
       final fixture = fixtures.firstWhere(
-        (f) => f.file.contains('3times_20wpm'),
+        (f) => f.file.contains('700Hz_3times_20wpm'),
       );
       final result = _decodeRecording(fixture);
 

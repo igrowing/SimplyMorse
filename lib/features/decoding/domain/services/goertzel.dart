@@ -23,10 +23,11 @@ class Goertzel {
   // late final double _coeff2;
 
   void _initCoefficients() {
-    final k = (blockSize * targetFreq / sampleRate).round();
-    final omega = 2 * pi * k / blockSize;
+    // Use the exact target frequency (not quantized to an
+    // integer bin) to avoid beat-frequency oscillation that
+    // occurs when the tone frequency doesn't match a DFT bin.
+    final omega = 2 * pi * targetFreq / sampleRate;
     _coeff = 2 * cos(omega);
-    // _coeff2 = 2 * cos(2 * pi * targetFreq / sampleRate);
   }
 
   /// Processes [samples] and returns the power at
