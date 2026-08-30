@@ -81,6 +81,7 @@ void main() {
       final b = make(minElementMs: 5, glitchRatio: 0.25);
       // Before any history the floor applies.
       expect(b.glitchThresholdMs, 5);
+      expect(b.currentUnitMs, isNull);
 
       // Feed eight 60 ms marks separated by 60 ms gaps.
       var t = 0.0;
@@ -90,6 +91,7 @@ void main() {
           ..transition(nowOn: true, timeMs: t += 60)
           ..transition(nowOn: false, timeMs: t += 60);
       }
+      expect(b.currentUnitMs, 60);
       // A 60 ms dit at ratio 0.25 gives a 15 ms threshold.
       expect(b.glitchThresholdMs, 15);
     });

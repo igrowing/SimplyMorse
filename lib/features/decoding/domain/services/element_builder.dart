@@ -64,10 +64,20 @@ class ElementBuilder {
 
   /// Current glitch threshold in ms.
   int get glitchThresholdMs {
-    if (_recentOnMs.length < 6) return minElementMs;
-    final sorted = List<int>.from(_recentOnMs)..sort();
-    final unit = sorted[(sorted.length * 0.25).floor()];
+    final unit = currentUnitMs;
+    if (unit == null) return minElementMs;
     return (unit * glitchRatio).round().clamp(minElementMs, maxGlitchMs);
+  }
+
+  /// Current dit estimate in ms — the 25th percentile of recent mark
+  /// durations — or null until enough history has accumulated to
+  /// trust it. Exposed (beyond [glitchThresholdMs]'s own use of it)
+  /// so callers can adapt other rate-dependent behaviour, such as the
+  /// depth of an on/off threshold, to the same estimate.
+  int? get currentUnitMs {
+    if (_recentOnMs.length < 6) return null;
+    final sorted = List<int>.from(_recentOnMs)..sort();
+    return sorted[(sorted.length * 0.25).floor()];
   }
 
   /// Records that the signal changed to [nowOn] at [timeMs].
