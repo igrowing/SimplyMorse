@@ -1,0 +1,6 @@
+tags:
+  # Tests that decode real audio/video recordings. They need the
+  # fixtures under test/assets/recordings and take longer than the
+  # unit tests.
+  video-recording:
+  scoreboard:

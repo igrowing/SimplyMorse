@@ -178,7 +178,7 @@ void main() {
       // speeds.
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.40),
+        lessThanOrEqualTo(0.32),
       );
 
       // ignore: avoid_print
@@ -219,7 +219,7 @@ void main() {
       expect(result.text, contains('WORLD'));
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.20),
+        lessThanOrEqualTo(0.06),
       );
 
       // ignore: avoid_print

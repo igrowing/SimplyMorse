@@ -135,7 +135,7 @@ class AudioDecoder {
     this.noiseMarginDb = 10.0,
     this.levelAttackMs = 120,
     this.levelReleaseMs = 150,
-    this.preLockBufferMs = 3000,
+    this.preLockBufferMs = 1200,
   }) {
     _fft = FFT(fftSize);
     _frameMs = fftSize * 1000 / sampleRate;
@@ -233,6 +233,14 @@ class AudioDecoder {
   /// How much audio to retain during scanning so that, on lock, the
   /// acquisition window can be re-decoded with converged levels
   /// instead of being lost. Set to 0 to disable.
+  ///
+  /// Measured on the reference recordings, 1200 ms beats the original
+  /// 3000 ms (23 vs 26 total errors) and is stable across roughly
+  /// 800-1600 ms — anything much larger starts including audio from
+  /// well before the message began, and seeding the level tracker
+  /// from that (mostly background, occasionally a stray transient)
+  /// percentile sample can leave the very first character worse off
+  /// than a shorter, more tightly-targeted replay window would.
   final int preLockBufferMs;
 
   // Derived scanning thresholds
