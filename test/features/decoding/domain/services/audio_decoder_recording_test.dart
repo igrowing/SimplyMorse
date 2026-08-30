@@ -70,7 +70,7 @@ _decodeRecording(RecordingFixture fixture) {
 
   final decoder = AudioDecoder(
     sampleRate: fixture.sampleRate,
-    bandwidth: 80,
+    bandwidth: 0,
     envelopeCutoffHz: 40,
     minElementMs: 30,
   );
@@ -229,7 +229,7 @@ void main() {
 
         final decoder = AudioDecoder(
           sampleRate: fixture.sampleRate,
-          bandwidth: 80,
+          bandwidth: 0,
           envelopeCutoffHz: 40,
           minElementMs: 30,
         );

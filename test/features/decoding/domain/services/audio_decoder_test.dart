@@ -36,6 +36,12 @@ List<double> generateSilence(int numSamples) {
   return List.filled(numSamples, 0.0);
 }
 
+/// Number of samples for one FFT frame (32 ms at 8 kHz).
+const frameSize = 256;
+
+/// Number of samples for one tracking block (10 ms at 8 kHz).
+const blockSize = 80;
+
 void main() {
   group('AudioDecoder', () {
     group('initial state', () {
@@ -61,7 +67,6 @@ void main() {
           maxFreq: 900,
           fftSize: 512,
           blockSize: 160,
-          scanPersistenceFrames: 5,
           signalTimeoutMs: 3000,
         );
         expect(decoder.sampleRate, 16000);
@@ -69,7 +74,6 @@ void main() {
         expect(decoder.maxFreq, 900);
         expect(decoder.fftSize, 512);
         expect(decoder.blockSize, 160);
-        expect(decoder.scanPersistenceFrames, 5);
         expect(decoder.signalTimeoutMs, 3000);
       });
     });
@@ -89,108 +93,119 @@ void main() {
         expect(decoder.state, DecoderState.scanning);
       });
 
-      test('locks after persistent tone with strong signal', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
+      test('locks after long continuous tone (>=500ms)', () {
+        final decoder = AudioDecoder(minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
-        // Feed a strong tone for enough frames to pass persistence
-        // 5 frames * 256 samples = 1280 samples = 160ms
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
+        // Feed 20 frames of tone (640ms) — exceeds 500ms long-tone
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
 
         expect(decoder.state, DecoderState.locked);
         expect(decoder.lockedFrequency, greaterThan(0));
         expect(decoder.isScanning, isFalse);
       });
 
-      test('does not lock on brief tone bursts', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 10,
-          minElementMs: 0,
-        );
+      test('locks after three short tone bursts at same frequency', () {
+        final decoder = AudioDecoder(minElementMs: 0);
 
-        // Feed 2 frames of tone, then silence, then 2 frames of tone
-        // Not enough consecutive frames to pass persistence
-        decoder.processSamples(generateTone(700, 8000, 256 * 2));
-        decoder.processSamples(generateSilence(256 * 5));
-        decoder.processSamples(generateTone(700, 8000, 256 * 2));
-        decoder.processSamples(generateSilence(256 * 5));
+        // Three bursts of 6 frames each (192ms > 160ms threshold)
+        // with short gaps (within 2000ms window)
+        for (var i = 0; i < 3; i++) {
+          decoder.processSamples(generateTone(700, 8000, frameSize * 6));
+          expect(
+            decoder.state,
+            DecoderState.scanning,
+            reason: 'should not lock before 3 detections',
+          );
+          decoder.processSamples(generateSilence(frameSize * 3));
+        }
+
+        // After 3 detections at the same frequency, should lock
+        // (the last silence frame triggers _endRun which checks count)
+        expect(decoder.state, DecoderState.locked);
+      });
+
+      test('does not lock on single brief tone burst with no repeat', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+
+        // 6 frames of tone (192ms > 160ms) — one detection event
+        decoder.processSamples(generateTone(700, 8000, frameSize * 6));
+        expect(decoder.state, DecoderState.scanning);
+
+        // Long silence (well beyond 2000ms repeat window)
+        decoder.processSamples(generateSilence(frameSize * 70));
+
+        expect(decoder.state, DecoderState.scanning);
+      });
+
+      test('does not lock on bursts at different frequencies', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+
+        // First burst at 700 Hz
+        decoder.processSamples(generateTone(700, 8000, frameSize * 6));
+        expect(decoder.state, DecoderState.scanning);
+
+        // Short gap
+        decoder.processSamples(generateSilence(frameSize * 3));
+
+        // Second burst at 500 Hz — different frequency, not a repeat
+        decoder.processSamples(generateTone(500, 8000, frameSize * 6));
 
         expect(decoder.state, DecoderState.scanning);
       });
 
       test('does not detect tone outside frequency range', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 3,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(minElementMs: 0);
 
         // 200 Hz is below minFreq (400 Hz)
+        // Add noise so the noise floor is non-zero (prevents
+        // SNR defaulting to 999 when avgOther is 0)
+        final tone200 = generateTone(
+          200,
+          8000,
+          frameSize * 20,
+          amplitude: 0.001,
+        );
+        final noise200 = generateNoise(frameSize * 20, amplitude: 0.01);
         decoder.processSamples(
-          generateTone(200, 8000, 256 * 10, amplitude: 0.001),
+          List.generate(tone200.length, (i) => tone200[i] + noise200[i]),
         );
 
-        expect(decoder.state, DecoderState.scanning);
-      });
-
-      test('noise between tone bursts resets persistence counter', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 10,
-          minElementMs: 0,
-        );
-
-        // 8 frames of tone (not enough for 10-frame persistence)
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
-        expect(decoder.state, DecoderState.scanning);
-
-        // Noise resets the counter
-        decoder.processSamples(generateNoise(256 * 3));
-
-        // 8 more frames — should still need 10 consecutive
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
         expect(decoder.state, DecoderState.scanning);
       });
     });
 
     group('locked phase', () {
       test('emits on-element when tone starts', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
-        // Lock with persistent tone
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
+        // Lock with long tone
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
         // Continue feeding tone (tracking blocks)
-        decoder.processSamples(generateTone(700, 8000, 80 * 5));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
 
         // Should have emitted transitions
         expect(elements, isNotEmpty);
       });
 
       test('emits off-element when tone stops', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
         // Tone on
-        decoder.processSamples(generateTone(700, 8000, 80 * 5));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
 
         // Tone off — need enough silence for envelope to decay
-        decoder.processSamples(generateSilence(80 * 100));
+        decoder.processSamples(generateSilence(blockSize * 100));
 
         // Should have at least one on-element (the tone itself)
         final onElements = elements.where((e) => e.isOn);
@@ -198,16 +213,13 @@ void main() {
       });
 
       test('emits elements with positive duration', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(minElementMs: 0);
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
-        decoder.processSamples(generateTone(700, 8000, 80 * 10));
-        decoder.processSamples(generateSilence(80 * 100));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 10));
+        decoder.processSamples(generateSilence(blockSize * 100));
 
         for (final el in elements) {
           expect(el.durationMs, greaterThan(0));
@@ -215,53 +227,59 @@ void main() {
       });
 
       test('frequency does not drift after locking', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
+        final decoder = AudioDecoder(minElementMs: 0);
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
         final lockedFreq = decoder.lockedFrequency;
 
         // Feed a different tone — should not drift
-        decoder.processSamples(generateTone(800, 8000, 80 * 20));
+        decoder.processSamples(generateTone(800, 8000, blockSize * 20));
 
         expect(decoder.lockedFrequency, lockedFreq);
       });
 
       test('onLock callback is invoked when locked', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(minElementMs: 0);
         var lockedFreq = 0.0;
         decoder.onLock = (freq) => lockedFreq = freq;
 
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
 
         expect(lockedFreq, greaterThan(0));
       });
+
+      test('does not unlock on silence (permanent lock by default)', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        expect(decoder.state, DecoderState.locked);
+
+        // Feed a very long silence — should stay locked
+        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
+        decoder.processSamples(generateSilence(8000 * 10));
+
+        expect(decoder.state, DecoderState.locked);
+        expect(decoder.lockedFrequency, greaterThan(0));
+      });
     });
 
-    group('signal timeout', () {
-      test('unlocks after prolonged silence', () {
+    group('signal timeout (opt-in)', () {
+      test('unlocks after prolonged silence when enabled', () {
         final decoder = AudioDecoder(
-          scanPersistenceFrames: 3,
           signalTimeoutMs: 500,
           minElementMs: 0,
         );
 
-        // Lock with tone
-        decoder.processSamples(generateTone(700, 8000, 256 * 6));
+        // Lock with long tone
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
         // Feed tone to trigger first on transition (sets _seenFirstOn)
-        decoder.processSamples(generateTone(700, 8000, 80 * 5));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
 
         // Feed silence long enough to exceed timeout
-        // 500ms at 8000 Hz = 4000 samples
-        decoder.processSamples(generateSilence(80 * 60));
+        decoder.processSamples(generateSilence(blockSize * 60));
 
         expect(decoder.state, DecoderState.scanning);
         expect(decoder.lockedFrequency, 0);
@@ -269,30 +287,28 @@ void main() {
 
       test('onUnlock callback is invoked on timeout', () {
         final decoder = AudioDecoder(
-          scanPersistenceFrames: 3,
           signalTimeoutMs: 500,
           minElementMs: 0,
         );
         var unlocked = false;
         decoder.onUnlock = () => unlocked = true;
 
-        decoder.processSamples(generateTone(700, 8000, 256 * 6));
-        decoder.processSamples(generateTone(700, 8000, 80 * 5));
-        decoder.processSamples(generateSilence(80 * 60));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
+        decoder.processSamples(generateSilence(blockSize * 60));
 
         expect(unlocked, isTrue);
       });
 
       test('does not unlock while tone is present', () {
         final decoder = AudioDecoder(
-          scanPersistenceFrames: 3,
           signalTimeoutMs: 1000,
           minElementMs: 0,
         );
 
         // Lock and keep feeding tone for a long time
-        decoder.processSamples(generateTone(700, 8000, 256 * 6));
-        decoder.processSamples(generateTone(700, 8000, 80 * 200));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 200));
 
         expect(decoder.state, DecoderState.locked);
       });
@@ -300,54 +316,36 @@ void main() {
 
     group('reset', () {
       test('clears all state', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(minElementMs: 0);
 
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
         decoder.reset();
         expect(decoder.state, DecoderState.scanning);
         expect(decoder.lockedFrequency, 0);
       });
-
-      test('allows re-detection after reset', () {
-        final decoder = AudioDecoder(
-          scanPersistenceFrames: 5,
-          minElementMs: 0,
-        );
-
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
-        expect(decoder.state, DecoderState.locked);
-
-        decoder.reset();
-
-        decoder.processSamples(generateTone(700, 8000, 256 * 8));
-        expect(decoder.state, DecoderState.locked);
-      });
     });
 
-    group('buffer handling', () {
-      test('processes samples in correct window sizes', () {
-        final decoder = AudioDecoder();
+    group('relative bandwidth', () {
+      test('uses relative bandwidth by default (bandwidth=0)', () {
+        // With bandwidth=0 and bandwidthRatio=0.16, the IIR bandwidth
+        // at 700 Hz should be 700*0.16 = 112 Hz.
+        final decoder = AudioDecoder(minElementMs: 0);
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
 
-        for (var i = 0; i < 10; i++) {
-          decoder.processSamples(generateSilence(256));
-        }
-
-        expect(decoder.state, DecoderState.scanning);
+        expect(decoder.state, DecoderState.locked);
+        expect(decoder.lockedFrequency, closeTo(700, 30));
       });
 
-      test('handles samples not aligned to window size', () {
-        final decoder = AudioDecoder();
+      test('uses fixed bandwidth when bandwidth > 0', () {
+        final decoder = AudioDecoder(
+          bandwidth: 80,
+          minElementMs: 0,
+        );
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
 
-        decoder.processSamples(generateSilence(300));
-        decoder.processSamples(generateSilence(200));
-        decoder.processSamples(generateSilence(256 * 4));
-
-        expect(decoder.state, DecoderState.scanning);
+        expect(decoder.state, DecoderState.locked);
       });
     });
   });

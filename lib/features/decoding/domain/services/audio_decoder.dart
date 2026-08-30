@@ -56,9 +56,8 @@ typedef DebugTransitionCallback =
 /// State of the audio decoding pipeline.
 enum DecoderState {
   /// Scanning phase — continuously analyzing FFT frames to
-  /// find a sustained monotonic tone. Locks when the same
-  /// frequency bin has been dominant and above the noise floor
-  /// for enough consecutive frames.
+  /// find a monotonic tone. Locks when the criteria for a
+  /// monotonic tone are met (see class docs).
   scanning,
 
   /// Locked on a frequency — tracking the on/off envelope.
@@ -67,27 +66,42 @@ enum DecoderState {
 
 /// Audio decoding pipeline using IIR bandpass filtering.
 ///
+/// **Monotonic tone definition** (the lock criteria):
+/// - One sharp tone: spectral peak-to-average ratio ≥
+///   [onThresholdFactor] (single dominant frequency)
+/// - Detected for at least 50 ms (~2 FFT frames at 32 ms/frame)
+/// - Either:
+///   - A single continuous tone lasting ≥ 500 ms (a long dah
+///     at stable power is sufficient evidence), OR
+///   - Two or more detections (each ≥ 50 ms) of the same
+///     frequency within 2000 ms (repeating tone pattern)
+///
 /// Pipeline:
 /// 1. **Scanning** — continuously runs FFT frames over 400–1000 Hz.
-///    Each frame, the dominant bin is identified. When the same bin
-///    (±1 tolerance) has been dominant and at least
-///    [onThresholdFactor]x above the noise floor for
-///    [scanPersistenceFrames] consecutive frames (~320 ms), the
-///    decoder locks. This rejects voice, music, and brief noise
-///    spikes that jump between frequency bins. There is no fixed
-///    timeout — the decoder scans indefinitely until a clear
-///    monotonic tone appears.
+///    Each frame checks if the dominant bin has SNR ≥ 4 (monotonic).
+///    Runs of consecutive monotonic frames are tracked as "detection
+///    events". The decoder locks when either:
+///    - A single run lasts ≥ 500 ms (15 frames), OR
+///    - Two detection events of the same frequency occur within 2000 ms
+///    This rejects voice (frequencies jump between bins, can't sustain
+///    a run), broadband noise (low SNR), and brief noise spikes
+///    (can't produce two detections at the same frequency).
 /// 2. **Lock** — creates an IIR bandpass filter (biquad) centered on
-///    the detected frequency with a configurable bandwidth (default
-///    80 Hz). Parabolic interpolation gives sub-bin frequency accuracy.
+///    the detected frequency. Bandwidth is relative: ±8% of the
+///    locked frequency (e.g. ±56 Hz at 700 Hz, ±80 Hz at 1000 Hz),
+///    giving a constant Q of 6.25 at all frequencies. This eliminates
+///    frequency-dependent ringing. Parabolic interpolation gives
+///    sub-bin frequency accuracy.
 /// 3. **Track** — processes audio sample-by-sample through the bandpass
 ///    filter, rectifies, and lowpass-filters to produce a smooth
 ///    envelope. Hysteresis thresholding detects on/off transitions.
 ///    The noise floor is continuously updated during confirmed off
-///    periods. If the envelope stays at the noise floor for more than
-///    [signalTimeoutMs], the decoder unlocks and returns to scanning.
-/// 4. **No drift** — once locked, the frequency does not change until
-///    the signal disappears or [reset] is called.
+///    periods.
+/// 4. **Permanent lock** — once locked, the frequency does not change
+///    until [reset] is called. The decoder does not unlock on silence;
+///    it simply produces long off-elements. This preserves word gaps
+///    and avoids re-locking artifacts. Set [signalTimeoutMs] > 0 to
+///    enable auto-unlock (legacy behavior).
 ///
 /// Emits [DecodedElement]s via [onElement] as transitions are detected.
 /// Elements shorter than [minElementMs] are filtered.
@@ -98,9 +112,9 @@ class AudioDecoder {
     this.maxFreq = 1000,
     this.fftSize = 256,
     this.blockSize = 80,
-    this.scanPersistenceFrames = 10,
-    this.signalTimeoutMs = 30000,
-    this.bandwidth = 80.0,
+    this.signalTimeoutMs = 0,
+    this.bandwidth = 0,
+    this.bandwidthRatio = 0.16,
     this.envelopeCutoffHz = 40.0,
     this.onThresholdFactor = 4,
     this.offThresholdFactor = 2,
@@ -109,6 +123,10 @@ class AudioDecoder {
     _fft = FFT(fftSize);
     _hopMs = blockSize * 1000 / sampleRate;
     _frameMs = fftSize * 1000 / sampleRate;
+    // Derived scanning thresholds (computed from frame rate).
+    _minToneFrames = (160 / _frameMs).ceil(); // ~5 frames = 160 ms
+    _longToneFrames = (500 / _frameMs).ceil(); // ~16 frames = 500 ms
+    _maxRepeatGapFrames = (2000 / _frameMs).round(); // ~62 frames = 2000 ms
   }
 
   // Configuration
@@ -118,24 +136,31 @@ class AudioDecoder {
   final int fftSize;
   final int blockSize;
 
-  /// Number of consecutive FFT frames where the same frequency bin
-  /// must be dominant (and above the noise floor) before locking.
-  /// At 8 kHz / 256-sample FFT, each frame is 32 ms, so 10 frames
-  /// is about 320 ms. Higher values reject voice/music better but
-  /// delay locking.
-  final int scanPersistenceFrames;
-
-  /// If the envelope stays at the noise floor for this many
+  /// If > 0 and the envelope stays at the noise floor for this many
   /// milliseconds during tracking, the decoder unlocks and returns
-  /// to scanning. Default 30 seconds — long enough for normal
-  /// Morse word gaps even at 3 WPM (2.8 s) plus thinking time.
+  /// to scanning. Default 0 = permanent lock (never auto-unlock).
+  /// Set to a positive value for legacy auto-unlock behavior.
   final int signalTimeoutMs;
 
+  /// Fixed IIR bandwidth in Hz. If > 0, used directly.
+  /// If 0 (default), [bandwidthRatio] is used instead.
   final double bandwidth;
+
+  /// IIR bandwidth as a fraction of the locked frequency (default
+  /// 0.16 = ±8%). Used when [bandwidth] == 0. This gives a constant
+  /// Q factor at all frequencies, eliminating frequency-dependent
+  /// ringing. Example: 700 Hz → 112 Hz wide, 1000 Hz → 160 Hz wide.
+  final double bandwidthRatio;
+
   final double envelopeCutoffHz;
   final double onThresholdFactor;
   final double offThresholdFactor;
   final int minElementMs;
+
+  // Derived scanning thresholds
+  late final int _minToneFrames;
+  late final int _longToneFrames;
+  late final int _maxRepeatGapFrames;
 
   // Internal components
   late final FFT _fft;
@@ -147,11 +172,16 @@ class AudioDecoder {
   DecoderState _state = DecoderState.scanning;
   DecoderState get state => _state;
 
-  // Scanning state
-  int _consecutiveFrames = 0;
-  int _lastDominantBin = -1;
+  // Scanning state — run-based monotonic detection
+  int? _runBin; // dominant bin of the current run
+  int _runLen = 0; // consecutive monotonic frames in this run
+  int? _lastDetectionBin; // bin of the last completed detection
+  int _lastDetectionEndFrame = 0; // frame index when last detection ended
+  int _detectionCount = 0; // number of detections at this frequency
+  static const int _requiredDetections = 3; // lock after 3 repeat detections
+  int _frameIndex = 0; // total scanning frames processed
   final Map<int, double> _binPowerAccum = {};
-  int _scanFrames = 0;
+  int _scanFrames = 0; // frames accumulated for parabolic interpolation
 
   // Tracking state
   IirEnvelopeDetector? _detector;
@@ -186,7 +216,7 @@ class AudioDecoder {
   void Function(double freq)? onLock;
 
   /// Optional callback invoked when the decoder unlocks and returns
-  /// to scanning (signal timeout).
+  /// to scanning (only fires if [signalTimeoutMs] > 0).
   void Function()? onUnlock;
 
   // -- Debug callbacks --
@@ -219,8 +249,18 @@ class AudioDecoder {
   }
 
   // -- Scanning phase --------------------------------------------
+  //
+  // Monotonic tone detection:
+  // - A "run" = consecutive FFT frames where the same bin (±1) is
+  //   dominant with SNR ≥ onThresholdFactor.
+  // - A "detection" = a run of ≥ _minToneFrames (50 ms).
+  // - Lock when: a single run ≥ _longToneFrames (500 ms), OR
+  //   two detections of the same frequency within _maxRepeatGapFrames
+  //   (2000 ms).
 
   void _scan(List<double> samples) {
+    _frameIndex++;
+
     final power = _fft.powerSpectrum(Float64List.fromList(samples));
 
     final minBin = _fft.frequencyToBin(minFreq, sampleRate);
@@ -251,33 +291,49 @@ class AudioDecoder {
 
     final avgOther = otherCount > 0 ? otherPower / otherCount : 0.0;
 
-    // Update noise floor estimator with band average (always,
-    // even during silence — this helps establish a baseline).
+    // Update noise floor estimator with band average.
     _noiseFloor.update(avgOther);
 
-    // Persistence check: the same bin (+/-1) must be dominant for
-    // N consecutive frames AND above the noise floor.
+    // Monotonic check: is this frame a single dominant tone?
     final snr = avgOther > 0 ? bestPower / avgOther : 999.0;
-    final isStrongEnough = snr >= onThresholdFactor;
+    // A frame is monotonic only if there's a real signal (bestBin >= 0)
+    // with sufficient peak-to-average ratio. Pure silence has
+    // avgOther=0 which makes snr default to 999 — reject it.
+    final isMonotonic = bestBin >= 0 && snr >= onThresholdFactor;
 
-    if (isStrongEnough) {
-      if (_lastDominantBin >= 0 && (bestBin - _lastDominantBin).abs() <= 1) {
-        _consecutiveFrames++;
+    if (isMonotonic) {
+      if (_runBin != null && (bestBin - _runBin!).abs() <= 1) {
+        // Continue current run at the same frequency.
+        _runLen++;
       } else {
-        // New streak — clear accumulation from any previous streak.
+        // Frequency changed (or first run). End previous run —
+        // this may trigger a lock via the repeat criterion.
+        _endRun();
+        if (_state == DecoderState.locked) return;
+
+        // Start new run.
+        _runBin = bestBin;
+        _runLen = 1;
+        // Fresh accumulation for this frequency.
         _binPowerAccum.clear();
         _scanFrames = 0;
-        _consecutiveFrames = 1;
       }
-      _lastDominantBin = bestBin;
 
-      // Accumulate power ONLY during the persistence streak so
-      // parabolic interpolation uses only tone frames, not noise.
+      // Accumulate power for parabolic interpolation.
       _binPowerAccum[bestBin] = (_binPowerAccum[bestBin] ?? 0) + bestPower;
       _scanFrames++;
+
+      // Check for immediate lock: single long stable tone (≥ 500 ms).
+      if (_runLen >= _longToneFrames) {
+        _lockFromScan();
+        return;
+      }
     } else {
-      _consecutiveFrames = 0;
-      _lastDominantBin = -1;
+      // Signal not monotonic — end current run.
+      _endRun();
+      if (_state == DecoderState.locked) return;
+      _runBin = null;
+      _runLen = 0;
     }
 
     onDebugScanning?.call(
@@ -287,14 +343,37 @@ class AudioDecoder {
       dominantPower: bestPower,
       avgOtherPower: avgOther,
       snr: snr,
-      consecutiveFrames: _consecutiveFrames,
-      persistenceNeeded: scanPersistenceFrames,
-      locked: false,
+      consecutiveFrames: _runLen,
+      persistenceNeeded: _minToneFrames,
+      locked: _state == DecoderState.locked,
     );
+  }
 
-    if (_consecutiveFrames >= scanPersistenceFrames && isStrongEnough) {
-      _lockFromScan();
+  /// Ends the current run. If the run was long enough (≥ _minToneFrames)
+  /// it counts as a "detection". If this detection matches a previous
+  /// one (same bin ±1, within _maxRepeatGapFrames), the decoder locks.
+  void _endRun() {
+    if (_runBin == null || _runLen < _minToneFrames) return;
+
+    // Check repeat criterion: same frequency, within 2000 ms.
+    if (_lastDetectionBin != null &&
+        (_runBin! - _lastDetectionBin!).abs() <= 1 &&
+        _frameIndex - _lastDetectionEndFrame <= _maxRepeatGapFrames) {
+      // Same frequency again → increment detection count.
+      _detectionCount++;
+      if (_detectionCount >= _requiredDetections) {
+        // Three detections at the same frequency → lock!
+        _lockFromScan();
+        return;
+      }
+    } else {
+      // Different frequency or too long since last detection.
+      _detectionCount = 1;
     }
+
+    // Record this detection for future repeat checks.
+    _lastDetectionBin = _runBin;
+    _lastDetectionEndFrame = _frameIndex;
   }
 
   void _lockFromScan() {
@@ -356,10 +435,13 @@ class AudioDecoder {
 
   void _lock(double freq) {
     _lockedFreq = freq;
+    // Compute bandwidth: fixed value if bandwidth > 0, otherwise
+    // relative (±8% of frequency → 16% total width → Q = 6.25).
+    final bw = bandwidth > 0 ? bandwidth : freq * bandwidthRatio;
     _detector = IirEnvelopeDetector(
       sampleRate: sampleRate,
       centerFreq: freq,
-      bandwidth: bandwidth,
+      bandwidth: bw,
       envelopeCutoffHz: envelopeCutoffHz,
     );
     _noiseFloor.reset();
@@ -393,17 +475,17 @@ class AudioDecoder {
       _noiseFloor.update(env);
     }
 
-    // Track when we last saw a signal above the noise floor.
-    // If we've been in silence for too long, unlock and return
-    // to scanning.
-    if (env > _peakEnvelope * 0.15) {
-      _lastSignalSample = _totalSamples;
-    }
-
-    final silenceMs = (_totalSamples - _lastSignalSample) * 1000 / sampleRate;
-    if (_seenFirstOn && silenceMs >= signalTimeoutMs) {
-      _unlock();
-      return;
+    // Auto-unlock (only if signalTimeoutMs > 0).
+    // Default: permanent lock, no unlock during listening.
+    if (signalTimeoutMs > 0) {
+      if (env > _peakEnvelope * 0.15) {
+        _lastSignalSample = _totalSamples;
+      }
+      final silenceMs = (_totalSamples - _lastSignalSample) * 1000 / sampleRate;
+      if (_seenFirstOn && silenceMs >= signalTimeoutMs) {
+        _unlock();
+        return;
+      }
     }
 
     // Compute thresholds using noise-floor-relative strategy
@@ -473,8 +555,11 @@ class AudioDecoder {
   }
 
   void _resetScan() {
-    _consecutiveFrames = 0;
-    _lastDominantBin = -1;
+    _runBin = null;
+    _runLen = 0;
+    _lastDetectionBin = null;
+    _lastDetectionEndFrame = 0;
+    _detectionCount = 0;
     _binPowerAccum.clear();
     _scanFrames = 0;
     _noiseFloor.reset();
@@ -512,6 +597,7 @@ class AudioDecoder {
     _transitionSample = 0;
     _lockedFreq = 0;
     _lastSignalSample = 0;
+    _frameIndex = 0;
     _resetScan();
   }
 }
