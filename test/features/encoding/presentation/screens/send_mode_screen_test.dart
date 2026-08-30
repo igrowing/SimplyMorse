@@ -45,6 +45,10 @@ void main() {
     WidgetTester tester, {
     EncodingMode mode = EncodingMode.sound,
   }) async {
+    // Use a taller surface so bottom buttons (Send, Clear)
+    // are within hit-test bounds.
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1.0;
     await tester.pumpWidget(
       MaterialApp(
         home: SendModeScreen(
