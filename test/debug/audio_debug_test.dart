@@ -1,9 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
-import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 
 List<double> loadF32(String filename) {
   final file = File('test/assets/recordings/$filename');
@@ -14,58 +11,30 @@ List<double> loadF32(String filename) {
 }
 
 void main() {
-  test('debug 1000Hz', () {
-    final samples = loadF32('1000Hz_2times_8wpm.f32');
-    final decoder = AudioDecoder(
-      sampleRate: 8000,
-      releaseMs: 20,
-      minElementMs: 30,
-    );
-    final elements = <DecodedElement>[];
-    decoder.onElement = (el) => elements.add(el);
-    decoder.onLock = (freq) => print('LOCKED ${freq.toStringAsFixed(1)}Hz');
-
-    var frame = 0;
-    decoder.onDebugTracking =
-        ({
-          required totalSamples,
-          required sampleRate,
-          required freq,
-          required power,
-          required envelope,
-          required noiseFloor,
-          required onThreshold,
-          required offThreshold,
-          required isOn,
-        }) {
-          frame++;
-          if (frame <= 30) {
-            print(
-              'f=$frame p=${power.toStringAsFixed(3)} env=${envelope.toStringAsFixed(3)} nf=${noiseFloor.toStringAsFixed(3)} onT=${onThreshold.toStringAsFixed(3)} offT=${offThreshold.toStringAsFixed(3)} isOn=$isOn',
-            );
-          }
-        };
-
-    const bs = 4096;
-    for (var i = 0; i < samples.length; i += bs) {
-      final end = i + bs < samples.length ? i + bs : samples.length;
-      decoder.processSamples(samples.sublist(i, end));
-    }
-
-    print('Elements: ${elements.length}');
-    for (var i = 0; i < elements.length && i < 20; i++) {
-      print(
-        '  el[$i] ${elements[i].isOn ? "ON" : "OFF"} ${elements[i].durationMs}ms',
+  test('lock freq for all recordings', () {
+    final recordings = [
+      '1000Hz_2times_8wpm.f32',
+      '400Hz_2times_8wpm.f32',
+      '700Hz_1time_3wpm.f32',
+      '700Hz_2times_8wpm.f32',
+      '700Hz_3times_20wpm.f32',
+    ];
+    for (final name in recordings) {
+      final samples = loadF32(name);
+      final decoder = AudioDecoder(
+        sampleRate: 8000,
+        bandwidth: 80,
+        envelopeCutoffHz: 40,
+        minElementMs: 30,
       );
+      var locked = 0.0;
+      decoder.onLock = (freq) => locked = freq;
+      const bs = 4096;
+      for (var i = 0; i < samples.length; i += bs) {
+        final end = i + bs < samples.length ? i + bs : samples.length;
+        decoder.processSamples(samples.sublist(i, end));
+      }
+      print('$name -> locked ${locked.toStringAsFixed(1)}Hz');
     }
-    final onD = elements.where((e) => e.isOn).map((e) => e.durationMs).toList()
-      ..sort();
-    final offD =
-        elements.where((e) => !e.isOn).map((e) => e.durationMs).toList()
-          ..sort();
-    print(
-      'On: ${onD.sublist(0, onD.length > 10 ? 10 : onD.length)} p25=${onD.isNotEmpty ? onD[onD.length ~/ 4] : 0}',
-    );
-    print('Off: ${offD.sublist(0, offD.length > 10 ? 10 : offD.length)}');
   });
 }

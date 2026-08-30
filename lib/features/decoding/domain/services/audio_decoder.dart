@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
-import 'package:simply_morse/features/decoding/domain/services/envelope_detector.dart';
 import 'package:simply_morse/features/decoding/domain/services/fft.dart';
-import 'package:simply_morse/features/decoding/domain/services/goertzel.dart';
+import 'package:simply_morse/features/decoding/domain/services/iir_envelope_detector.dart';
 import 'package:simply_morse/features/decoding/domain/services/noise_floor_estimator.dart';
 
 /// Debug log callback for calibration frames.
@@ -62,42 +61,42 @@ enum DecoderState {
   locked,
 }
 
-/// Audio decoding pipeline implementing the CW decoder
-/// technique:
+/// Audio decoding pipeline using IIR bandpass filtering.
 ///
-/// 1. **Calibration** — listens for [calibrationMs] (2 s by
-///    default) collecting FFT frames over 400-1000 Hz to
-///    find the dominant sustained tone. Does not lock until
-///    a signal significantly above the noise floor is found.
-/// 2. **Lock** — switches to an efficient Goertzel filter at
-///    the detected frequency.
-/// 3. **Track** — fast-attack / fast-release envelope with
-///    hysteresis detects on/off transitions. The noise floor
-///    is continuously updated from Goertzel power values
-///    during off periods so thresholds stay on the same
-///    scale as the tracked signal.
-/// 4. **No drift** — once locked, the frequency does not
-///    change until [reset] is called (user clicks Clear).
+/// Pipeline:
+/// 1. **Calibration** — collects FFT frames over 400–1000 Hz
+///    for [calibrationMs] (2 s) to find the dominant tone.
+/// 2. **Lock** — creates an IIR bandpass filter (biquad)
+///    centered on the detected frequency with a configurable
+///    bandwidth (default 80 Hz). This replaces the Goertzel
+///    single-frequency approach, which was sensitive to
+///    frequency mismatch, drift, and beating.
+/// 3. **Track** — processes audio sample-by-sample through the
+///    bandpass filter, rectifies, and lowpass-filters to produce
+///    a smooth envelope. Hysteresis thresholding detects on/off
+///    transitions. The noise floor is continuously updated from
+///    raw envelope values during confirmed off periods.
+/// 4. **No drift** — once locked, the frequency does not change
+///    until [reset] is called.
 ///
-/// Emits [DecodedElement]s via [onElement] as on/off
-/// transitions are detected. Elements shorter than
-/// [minElementMs] are filtered to suppress noise spikes.
+/// Emits [DecodedElement]s via [onElement] as transitions are
+/// detected. Elements shorter than [minElementMs] are filtered.
 class AudioDecoder {
   AudioDecoder({
     this.sampleRate = 8000,
     this.minFreq = 400,
     this.maxFreq = 1000,
     this.fftSize = 256,
-    this.goertzelBlockSize = 80,
+    this.blockSize = 80,
     this.calibrationMs = 2000,
-    this.attackMs = 2,
-    this.releaseMs = 20,
+    this.bandwidth = 80.0,
+    this.envelopeCutoffHz = 40.0,
     this.onThresholdFactor = 4,
     this.offThresholdFactor = 2,
     this.minElementMs = 30,
   }) {
     _fft = FFT(fftSize);
-    _hopMs = goertzelBlockSize * 1000 / sampleRate;
+    _hopMs = blockSize * 1000 / sampleRate;
   }
 
   // Configuration
@@ -105,10 +104,10 @@ class AudioDecoder {
   final double minFreq;
   final double maxFreq;
   final int fftSize;
-  final int goertzelBlockSize;
+  final int blockSize;
   final int calibrationMs;
-  final double attackMs;
-  final double releaseMs;
+  final double bandwidth;
+  final double envelopeCutoffHz;
   final double onThresholdFactor;
   final double offThresholdFactor;
   final int minElementMs;
@@ -116,7 +115,6 @@ class AudioDecoder {
   // Internal components
   late final FFT _fft;
   late final double _hopMs;
-  final _envelope = EnvelopeDetector();
   final _noiseFloor = NoiseFloorEstimator();
 
   // State machine
@@ -129,7 +127,7 @@ class AudioDecoder {
   int _calibrationFrames = 0;
 
   // Tracking state
-  Goertzel? _goertzel;
+  IirEnvelopeDetector? _detector;
   double _lockedFreq = 0;
 
   /// The frequency the decoder has locked onto, in Hz.
@@ -173,8 +171,7 @@ class AudioDecoder {
     }
   }
 
-  int get _windowSize =>
-      _state == DecoderState.locked ? goertzelBlockSize : fftSize;
+  int get _windowSize => _state == DecoderState.locked ? blockSize : fftSize;
 
   void _processWindow(List<double> samples) {
     switch (_state) {
@@ -195,12 +192,10 @@ class AudioDecoder {
         .frequencyToBin(maxFreq, sampleRate)
         .clamp(0, power.length - 1);
 
-    // Accumulate power per bin across all calibration frames
     for (var i = minBin; i <= maxBin; i++) {
       _binPowerAccum[i] = (_binPowerAccum[i] ?? 0) + power[i];
     }
 
-    // Also update noise floor with band average
     double bandEnergy = 0;
     var bandCount = 0;
     for (var i = minBin; i <= maxBin; i++) {
@@ -224,7 +219,6 @@ class AudioDecoder {
       elapsedMs: elapsedMs,
     );
 
-    // Check if calibration period is over
     if (elapsedMs >= calibrationMs) {
       _lockFromCalibration();
     }
@@ -232,12 +226,10 @@ class AudioDecoder {
 
   void _lockFromCalibration() {
     if (_binPowerAccum.isEmpty || !_noiseFloor.isReady) {
-      // Not enough data — extend calibration
       _calibrationStartSample = _totalSamples;
       return;
     }
 
-    // Find the bin with the highest average power.
     var bestBin = -1;
     var bestAvgPower = 0.0;
     _binPowerAccum.forEach((bin, totalPower) {
@@ -255,10 +247,7 @@ class AudioDecoder {
       return;
     }
 
-    // Compute noise floor as the average power of all bins
-    // EXCEPT the best bin. This gives a more accurate noise
-    // estimate than the band average, preventing a single
-    // noisy bin from triggering a lock.
+    // Noise floor from all non-peak bins
     double otherPower = 0;
     var otherCount = 0;
     _binPowerAccum.forEach((bin, totalPower) {
@@ -269,9 +258,8 @@ class AudioDecoder {
     });
     final noiseAvg = otherCount > 0 ? otherPower / otherCount : 0.0;
 
-    // Check for fundamental frequency: if the best bin is near
-    // 2× another bin with significant power, prefer the lower
-    // bin (fundamental) to avoid locking on a harmonic.
+    // Harmonic rejection: if best bin is near 2× another
+    // significant bin, prefer the lower (fundamental).
     {
       final halfBin = bestBin ~/ 2;
       final minBinIdx = _fft.frequencyToBin(minFreq, sampleRate);
@@ -286,9 +274,6 @@ class AudioDecoder {
     }
 
     // Parabolic interpolation for sub-bin frequency accuracy.
-    // Fits a parabola to the peak bin and its neighbors to
-    // estimate the true peak frequency, reducing the Goertzel
-    // frequency mismatch that causes power oscillation.
     final leftPower = _binPowerAccum[bestBin - 1] ?? 0;
     final centerPower = _binPowerAccum[bestBin] ?? 0;
     final rightPower = _binPowerAccum[bestBin + 1] ?? 0;
@@ -299,10 +284,8 @@ class AudioDecoder {
     }
     final freq = (bestBin + subBinOffset) * sampleRate / fftSize;
 
-    // Verify the peak is significantly above the noise floor
-    // (average of all other bins in the band).
+    // Verify signal is strong enough.
     if (bestAvgPower <= noiseAvg * onThresholdFactor) {
-      // Signal too weak — restart calibration.
       _binPowerAccum.clear();
       _calibrationFrames = 0;
       _calibrationStartSample = _totalSamples;
@@ -323,12 +306,12 @@ class AudioDecoder {
 
   void _lock(double freq) {
     _lockedFreq = freq;
-    _goertzel = Goertzel(
+    _detector = IirEnvelopeDetector(
       sampleRate: sampleRate,
-      targetFreq: freq,
-      blockSize: goertzelBlockSize,
+      centerFreq: freq,
+      bandwidth: bandwidth,
+      envelopeCutoffHz: envelopeCutoffHz,
     );
-    _envelope.reset();
     _noiseFloor.reset();
     _isOn = false;
     _peakEnvelope = 0;
@@ -341,32 +324,28 @@ class AudioDecoder {
   // -- Tracking phase --------------------------------------------
 
   void _track(List<double> samples) {
-    final power = _goertzel!.process(samples);
-    final env = _envelope.process(power, hopMs: _hopMs);
+    // Process all samples through the IIR bandpass + envelope.
+    final env = _detector!.processBlock(samples);
 
-    // Track peak envelope with slow decay so it adapts to
-    // decreasing signal levels over time.
+    // Peak envelope with slow decay for adaptive thresholding.
     _peakEnvelope *= 0.999;
     if (env > _peakEnvelope) {
       _peakEnvelope = env;
     }
 
-    // Update noise floor using the raw Goertzel power (not the
-    // envelope) during confirmed off periods. The raw power
-    // drops immediately to the noise level when the tone ends,
-    // while the envelope has a release delay that would
-    // contaminate the noise floor estimate with decaying
-    // values during the first few off periods.
-    if (_seenFirstOn && !_isOn) {
-      _noiseFloor.update(power);
+    // Collect noise floor only when the envelope is clearly
+    // below the signal level (< 30% of peak). This prevents
+    // tone-on frames (where the envelope is high but the
+    // ON transition hasn't fired yet) from contaminating the
+    // noise floor estimate.
+    if (env < _peakEnvelope * 0.3) {
+      _noiseFloor.update(env);
     }
 
-    // Compute thresholds using two strategies:
-    // - Before noise floor is ready: peak-only thresholds
-    //   (on = 50% of peak, off = 5% of peak). Wide enough to
-    //   avoid false transitions from Goertzel power oscillation.
-    // - After noise floor is ready: noise-floor-relative thresholds
-    //   for tighter, adaptive detection.
+    // Compute thresholds using noise-floor-relative strategy
+    // once enough data is collected; fall back to peak-only
+    // thresholds (with a higher off ratio to avoid getting
+    // stuck) for the first few frames.
     final double onThreshold;
     final double offThreshold;
     final double debugNoiseFloor;
@@ -381,7 +360,7 @@ class AudioDecoder {
     } else {
       if (_peakEnvelope <= 0) return;
       onThreshold = _peakEnvelope * 0.5;
-      offThreshold = _peakEnvelope * 0.25;
+      offThreshold = _peakEnvelope * 0.40;
       debugNoiseFloor = 0;
     }
 
@@ -389,7 +368,7 @@ class AudioDecoder {
       totalSamples: _totalSamples,
       sampleRate: sampleRate,
       freq: _lockedFreq,
-      power: power,
+      power: env,
       envelope: env,
       noiseFloor: debugNoiseFloor,
       onThreshold: onThreshold,
@@ -417,7 +396,6 @@ class AudioDecoder {
 
     if (durationMs <= 0) return;
 
-    // Filter out very short elements (noise spikes)
     if (durationMs < minElementMs) return;
 
     onDebugTransition?.call(
@@ -436,9 +414,8 @@ class AudioDecoder {
   void reset() {
     _state = DecoderState.calibrating;
     _buffer.clear();
-    _envelope.reset();
+    _detector = null;
     _noiseFloor.reset();
-    _goertzel = null;
     _isOn = false;
     _peakEnvelope = 0;
     _seenFirstOn = false;

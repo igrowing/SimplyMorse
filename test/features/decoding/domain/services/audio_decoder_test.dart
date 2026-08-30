@@ -59,14 +59,14 @@ void main() {
           minFreq: 500,
           maxFreq: 900,
           fftSize: 512,
-          goertzelBlockSize: 160,
+          blockSize: 160,
           calibrationMs: 1000,
         );
         expect(decoder.sampleRate, 16000);
         expect(decoder.minFreq, 500);
         expect(decoder.maxFreq, 900);
         expect(decoder.fftSize, 512);
-        expect(decoder.goertzelBlockSize, 160);
+        expect(decoder.blockSize, 160);
         expect(decoder.calibrationMs, 1000);
       });
     });
