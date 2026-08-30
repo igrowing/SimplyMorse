@@ -6,7 +6,7 @@ import 'package:path_provider/path_provider.dart';
 /// Writes audio-decoder debug data to a timestamped log file.
 ///
 /// Logs calibration FFT bins, noise-floor values, lock events,
-/// Goertzel power, envelope values, and on/off transitions.
+/// IIR envelope values, and on/off transitions.
 /// The log file can be shared via the share sheet for debugging.
 class AudioDebugLogger {
   AudioDebugLogger({this.enabled = false});

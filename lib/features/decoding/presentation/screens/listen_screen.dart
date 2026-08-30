@@ -15,7 +15,7 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 /// Screen for audio-based Morse decoding via microphone.
 ///
 /// Implements the audio decoding pipeline:
-/// AudioCapture → AudioDecoder (calibration → Goertzel lock →
+/// AudioCapture → AudioDecoder (calibration → IIR lock →
 /// envelope → timing) → MorseDecoder → text output.
 ///
 /// When listening starts, the decoder calibrates for ~2 s to
