@@ -15,7 +15,7 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 /// Screen for audio-based Morse decoding via microphone.
 ///
 /// Implements the audio decoding pipeline:
-/// AudioCapture → AudioDecoder (calibration → IIR lock →
+/// AudioCapture → AudioDecoder (scanning → IIR lock →
 /// envelope → timing) → MorseDecoder → text output.
 ///
 /// When listening starts, the decoder calibrates for ~2 s to
@@ -222,7 +222,7 @@ class _ListenScreenState extends State<ListenScreen> {
             ctrl.isCalibrating
                 ? theme.colorScheme.tertiary
                 : theme.colorScheme.primary,
-            ctrl.isCalibrating ? 'Calibrating…' : 'Listening…',
+            ctrl.isCalibrating ? 'Scanning…' : 'Listening…',
           ),
           DecodingStatus.paused => (
             theme.colorScheme.tertiary,

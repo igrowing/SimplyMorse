@@ -70,10 +70,10 @@ class DecodingController extends ChangeNotifier {
   String get decodedText => _decodedText;
 
   /// The frequency the audio decoder has locked onto (Hz).
-  /// Returns 0 while calibrating or in video mode.
+  /// Returns 0 while scanning or in video mode.
   double get lockedFrequency => _lockedFrequency;
 
-  /// Whether the audio decoder is in the calibration phase.
+  /// Whether the audio decoder is in the scanning phase.
   bool get isCalibrating =>
       _mode == DecodingMode.audio &&
       _status == DecodingStatus.listening &&
@@ -239,23 +239,27 @@ class DecodingController extends ChangeNotifier {
     final adl = _debugLogger;
     if (adl != null && adl.enabled) {
       adl.start();
-      _audioDecoder.onDebugCalibration =
+      _audioDecoder.onDebugScanning =
           ({
             required totalSamples,
             required sampleRate,
-            required avgPower,
-            required noiseFloor,
-            required calibrationFrames,
-            required elapsedMs,
+            required dominantBin,
+            required dominantPower,
+            required avgOtherPower,
+            required snr,
+            required consecutiveFrames,
+            required persistenceNeeded,
+            required locked,
           }) {
-            adl.logCalibration(
+            adl.logScanning(
               totalSamples: totalSamples,
               sampleRate: sampleRate,
-              avgPower: avgPower,
-              noiseFloor: noiseFloor,
-              binPower: const {},
-              calibrationFrames: calibrationFrames,
-              elapsedMs: elapsedMs,
+              dominantBin: dominantBin,
+              dominantPower: dominantPower,
+              avgOtherPower: avgOtherPower,
+              snr: snr,
+              consecutiveFrames: consecutiveFrames,
+              persistenceNeeded: persistenceNeeded,
             );
           };
 
@@ -321,6 +325,14 @@ class DecodingController extends ChangeNotifier {
 
     _audioDecoder.onElement = _onElement;
     _audioDecoder.onLock = _onLock;
+    _audioDecoder.onUnlock = () {
+      adl?.logUnlock(
+        totalSamples: 0,
+        sampleRate: 8000,
+      );
+      _lockedFrequency = 0;
+      notifyListeners();
+    };
     _lockedFrequency = 0;
     final stream = _audioCapture.start();
     _audioSub = stream.listen((samples) {

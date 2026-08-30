@@ -122,14 +122,14 @@ void main() {
       expect(find.text('Resume'), findsOneWidget);
     });
 
-    testWidgets('shows Calibrating status when active', (tester) async {
+    testWidgets('shows Scanning status when active', (tester) async {
       await pumpScreen(tester);
 
       await tester.ensureVisible(find.text('Start'));
       await tester.tap(find.text('Start'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Calibrating…'), findsOneWidget);
+      expect(find.text('Scanning…'), findsOneWidget);
     });
 
     testWidgets('shows Paused status when paused', (tester) async {

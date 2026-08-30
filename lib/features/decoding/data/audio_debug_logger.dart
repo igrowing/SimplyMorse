@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 /// Writes audio-decoder debug data to a timestamped log file.
 ///
-/// Logs calibration FFT bins, noise-floor values, lock events,
+/// Logs scanning FFT bins, noise-floor values, lock events,
 /// IIR envelope values, and on/off transitions.
 /// The log file can be shared via the share sheet for debugging.
 class AudioDebugLogger {
@@ -41,25 +41,27 @@ class AudioDebugLogger {
     );
   }
 
-  /// Logs a calibration frame.
-  void logCalibration({
+  /// Logs a scanning frame.
+  void logScanning({
     required int totalSamples,
     required int sampleRate,
-    required double avgPower,
-    required double noiseFloor,
-    required Map<int, double> binPower,
-    required int calibrationFrames,
-    required double elapsedMs,
+    required int dominantBin,
+    required double dominantPower,
+    required double avgOtherPower,
+    required double snr,
+    required int consecutiveFrames,
+    required int persistenceNeeded,
     String? detail,
   }) {
     if (!enabled || _sink == null) return;
     final ts = (totalSamples * 1000 / sampleRate).round();
     _writeln(
-      '$ts,calibrating,fft_frame,0,$avgPower,0,$noiseFloor,0,0,0,0,'
-      'frames=$calibrationFrames,elapsed_ms=${elapsedMs.round()}',
+      '$ts,scanning,fft_frame,$dominantBin,$dominantPower,0,'
+      '$avgOtherPower,0,0,0,0,'
+      'snr=${snr.toStringAsFixed(1)},consecutive=$consecutiveFrames',
     );
     if (detail != null) {
-      _writeln('$ts,calibrating,detail,0,0,0,0,0,0,0,0,$detail');
+      _writeln('$ts,scanning,detail,0,0,0,0,0,0,0,0,$detail');
     }
   }
 
@@ -115,6 +117,16 @@ class AudioDebugLogger {
       '$ts,tracking,transition,0,0,0,0,0,0,${isOn ? 1 : 0},'
       '$durationMs,${isOn ? "on_to_off" : "off_to_on"}',
     );
+  }
+
+  /// Logs an unlock event (signal timeout).
+  void logUnlock({
+    required int totalSamples,
+    required int sampleRate,
+  }) {
+    if (!enabled || _sink == null) return;
+    final ts = (totalSamples * 1000 / sampleRate).round();
+    _writeln('$ts,unlock,scanning,0,0,0,0,0,0,0,0,signal_timeout');
   }
 
   /// Returns the path to the current log file, if any.

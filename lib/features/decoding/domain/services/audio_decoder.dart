@@ -5,15 +5,18 @@ import 'package:simply_morse/features/decoding/domain/services/fft.dart';
 import 'package:simply_morse/features/decoding/domain/services/iir_envelope_detector.dart';
 import 'package:simply_morse/features/decoding/domain/services/noise_floor_estimator.dart';
 
-/// Debug log callback for calibration frames.
-typedef DebugCalibrationCallback =
+/// Debug log callback for scanning frames.
+typedef DebugScanningCallback =
     void Function({
       required int totalSamples,
       required int sampleRate,
-      required double avgPower,
-      required double noiseFloor,
-      required int calibrationFrames,
-      required double elapsedMs,
+      required int dominantBin,
+      required double dominantPower,
+      required double avgOtherPower,
+      required double snr,
+      required int consecutiveFrames,
+      required int persistenceNeeded,
+      required bool locked,
     });
 
 /// Debug log callback for lock events.
@@ -52,10 +55,11 @@ typedef DebugTransitionCallback =
 
 /// State of the audio decoding pipeline.
 enum DecoderState {
-  /// Calibration phase — collecting FFT frames for
-  /// [AudioDecoder.calibrationMs] to find the dominant
-  /// tone frequency in the target band.
-  calibrating,
+  /// Scanning phase — continuously analyzing FFT frames to
+  /// find a sustained monotonic tone. Locks when the same
+  /// frequency bin has been dominant and above the noise floor
+  /// for enough consecutive frames.
+  scanning,
 
   /// Locked on a frequency — tracking the on/off envelope.
   locked,
@@ -64,23 +68,29 @@ enum DecoderState {
 /// Audio decoding pipeline using IIR bandpass filtering.
 ///
 /// Pipeline:
-/// 1. **Calibration** — collects FFT frames over 400–1000 Hz
-///    for [calibrationMs] (2 s) to find the dominant tone.
-/// 2. **Lock** — creates an IIR bandpass filter (biquad)
-///    centered on the detected frequency with a configurable
-///    bandwidth (default 80 Hz). This replaces the Goertzel
-///    single-frequency approach, which was sensitive to
-///    frequency mismatch, drift, and beating.
-/// 3. **Track** — processes audio sample-by-sample through the
-///    bandpass filter, rectifies, and lowpass-filters to produce
-///    a smooth envelope. Hysteresis thresholding detects on/off
-///    transitions. The noise floor is continuously updated from
-///    raw envelope values during confirmed off periods.
-/// 4. **No drift** — once locked, the frequency does not change
-///    until [reset] is called.
+/// 1. **Scanning** — continuously runs FFT frames over 400–1000 Hz.
+///    Each frame, the dominant bin is identified. When the same bin
+///    (±1 tolerance) has been dominant and at least
+///    [onThresholdFactor]x above the noise floor for
+///    [scanPersistenceFrames] consecutive frames (~320 ms), the
+///    decoder locks. This rejects voice, music, and brief noise
+///    spikes that jump between frequency bins. There is no fixed
+///    timeout — the decoder scans indefinitely until a clear
+///    monotonic tone appears.
+/// 2. **Lock** — creates an IIR bandpass filter (biquad) centered on
+///    the detected frequency with a configurable bandwidth (default
+///    80 Hz). Parabolic interpolation gives sub-bin frequency accuracy.
+/// 3. **Track** — processes audio sample-by-sample through the bandpass
+///    filter, rectifies, and lowpass-filters to produce a smooth
+///    envelope. Hysteresis thresholding detects on/off transitions.
+///    The noise floor is continuously updated during confirmed off
+///    periods. If the envelope stays at the noise floor for more than
+///    [signalTimeoutMs], the decoder unlocks and returns to scanning.
+/// 4. **No drift** — once locked, the frequency does not change until
+///    the signal disappears or [reset] is called.
 ///
-/// Emits [DecodedElement]s via [onElement] as transitions are
-/// detected. Elements shorter than [minElementMs] are filtered.
+/// Emits [DecodedElement]s via [onElement] as transitions are detected.
+/// Elements shorter than [minElementMs] are filtered.
 class AudioDecoder {
   AudioDecoder({
     this.sampleRate = 8000,
@@ -88,7 +98,8 @@ class AudioDecoder {
     this.maxFreq = 1000,
     this.fftSize = 256,
     this.blockSize = 80,
-    this.calibrationMs = 2000,
+    this.scanPersistenceFrames = 10,
+    this.signalTimeoutMs = 30000,
     this.bandwidth = 80.0,
     this.envelopeCutoffHz = 40.0,
     this.onThresholdFactor = 4,
@@ -97,6 +108,7 @@ class AudioDecoder {
   }) {
     _fft = FFT(fftSize);
     _hopMs = blockSize * 1000 / sampleRate;
+    _frameMs = fftSize * 1000 / sampleRate;
   }
 
   // Configuration
@@ -105,7 +117,20 @@ class AudioDecoder {
   final double maxFreq;
   final int fftSize;
   final int blockSize;
-  final int calibrationMs;
+
+  /// Number of consecutive FFT frames where the same frequency bin
+  /// must be dominant (and above the noise floor) before locking.
+  /// At 8 kHz / 256-sample FFT, each frame is 32 ms, so 10 frames
+  /// is about 320 ms. Higher values reject voice/music better but
+  /// delay locking.
+  final int scanPersistenceFrames;
+
+  /// If the envelope stays at the noise floor for this many
+  /// milliseconds during tracking, the decoder unlocks and returns
+  /// to scanning. Default 30 seconds — long enough for normal
+  /// Morse word gaps even at 3 WPM (2.8 s) plus thinking time.
+  final int signalTimeoutMs;
+
   final double bandwidth;
   final double envelopeCutoffHz;
   final double onThresholdFactor;
@@ -115,27 +140,34 @@ class AudioDecoder {
   // Internal components
   late final FFT _fft;
   late final double _hopMs;
+  late final double _frameMs;
   final _noiseFloor = NoiseFloorEstimator();
 
   // State machine
-  DecoderState _state = DecoderState.calibrating;
+  DecoderState _state = DecoderState.scanning;
   DecoderState get state => _state;
 
-  // Calibration tracking
+  // Scanning state
+  int _consecutiveFrames = 0;
+  int _lastDominantBin = -1;
   final Map<int, double> _binPowerAccum = {};
-  int _calibrationStartSample = 0;
-  int _calibrationFrames = 0;
+  int _scanFrames = 0;
 
   // Tracking state
   IirEnvelopeDetector? _detector;
   double _lockedFreq = 0;
+  int _lastSignalSample = 0;
 
   /// The frequency the decoder has locked onto, in Hz.
-  /// Returns 0 while calibrating.
+  /// Returns 0 while scanning.
   double get lockedFrequency => _lockedFreq;
 
-  /// Whether the decoder is currently in the calibration phase.
-  bool get isCalibrating => _state == DecoderState.calibrating;
+  /// Whether the decoder is currently in the scanning phase.
+  bool get isScanning => _state == DecoderState.scanning;
+
+  /// Whether the decoder is currently in the scanning phase.
+  /// Alias for [isScanning] for backward compatibility.
+  bool get isCalibrating => isScanning;
 
   // Envelope / on-off state
   bool _isOn = false;
@@ -153,8 +185,12 @@ class AudioDecoder {
   /// Optional callback invoked when the frequency is locked.
   void Function(double freq)? onLock;
 
+  /// Optional callback invoked when the decoder unlocks and returns
+  /// to scanning (signal timeout).
+  void Function()? onUnlock;
+
   // -- Debug callbacks --
-  DebugCalibrationCallback? onDebugCalibration;
+  DebugScanningCallback? onDebugScanning;
   DebugLockCallback? onDebugLock;
   DebugTrackingCallback? onDebugTracking;
   DebugTransitionCallback? onDebugTransition;
@@ -175,16 +211,16 @@ class AudioDecoder {
 
   void _processWindow(List<double> samples) {
     switch (_state) {
-      case DecoderState.calibrating:
-        _calibrate(samples);
+      case DecoderState.scanning:
+        _scan(samples);
       case DecoderState.locked:
         _track(samples);
     }
   }
 
-  // -- Calibration phase -----------------------------------------
+  // -- Scanning phase --------------------------------------------
 
-  void _calibrate(List<double> samples) {
+  void _scan(List<double> samples) {
     final power = _fft.powerSpectrum(Float64List.fromList(samples));
 
     final minBin = _fft.frequencyToBin(minFreq, sampleRate);
@@ -192,48 +228,83 @@ class AudioDecoder {
         .frequencyToBin(maxFreq, sampleRate)
         .clamp(0, power.length - 1);
 
+    // Find the dominant bin and compute noise floor (avg of all
+    // other bins in the band).
+    var bestBin = -1;
+    var bestPower = 0.0;
+    double otherPower = 0;
+    var otherCount = 0;
+
     for (var i = minBin; i <= maxBin; i++) {
-      _binPowerAccum[i] = (_binPowerAccum[i] ?? 0) + power[i];
+      if (power[i] > bestPower) {
+        if (bestBin >= 0) {
+          otherPower += bestPower;
+          otherCount++;
+        }
+        bestPower = power[i];
+        bestBin = i;
+      } else {
+        otherPower += power[i];
+        otherCount++;
+      }
     }
 
-    double bandEnergy = 0;
-    var bandCount = 0;
-    for (var i = minBin; i <= maxBin; i++) {
-      bandEnergy += power[i];
-      bandCount++;
+    final avgOther = otherCount > 0 ? otherPower / otherCount : 0.0;
+
+    // Update noise floor estimator with band average (always,
+    // even during silence — this helps establish a baseline).
+    _noiseFloor.update(avgOther);
+
+    // Persistence check: the same bin (+/-1) must be dominant for
+    // N consecutive frames AND above the noise floor.
+    final snr = avgOther > 0 ? bestPower / avgOther : 999.0;
+    final isStrongEnough = snr >= onThresholdFactor;
+
+    if (isStrongEnough) {
+      if (_lastDominantBin >= 0 && (bestBin - _lastDominantBin).abs() <= 1) {
+        _consecutiveFrames++;
+      } else {
+        // New streak — clear accumulation from any previous streak.
+        _binPowerAccum.clear();
+        _scanFrames = 0;
+        _consecutiveFrames = 1;
+      }
+      _lastDominantBin = bestBin;
+
+      // Accumulate power ONLY during the persistence streak so
+      // parabolic interpolation uses only tone frames, not noise.
+      _binPowerAccum[bestBin] = (_binPowerAccum[bestBin] ?? 0) + bestPower;
+      _scanFrames++;
+    } else {
+      _consecutiveFrames = 0;
+      _lastDominantBin = -1;
     }
-    final avgPower = bandCount > 0 ? bandEnergy / bandCount : 0.0;
-    _noiseFloor.update(avgPower);
 
-    _calibrationFrames++;
-
-    final elapsedMs =
-        (_totalSamples - _calibrationStartSample) * 1000 / sampleRate;
-
-    onDebugCalibration?.call(
+    onDebugScanning?.call(
       totalSamples: _totalSamples,
       sampleRate: sampleRate,
-      avgPower: avgPower,
-      noiseFloor: _noiseFloor.noiseFloor,
-      calibrationFrames: _calibrationFrames,
-      elapsedMs: elapsedMs,
+      dominantBin: bestBin,
+      dominantPower: bestPower,
+      avgOtherPower: avgOther,
+      snr: snr,
+      consecutiveFrames: _consecutiveFrames,
+      persistenceNeeded: scanPersistenceFrames,
+      locked: false,
     );
 
-    if (elapsedMs >= calibrationMs) {
-      _lockFromCalibration();
+    if (_consecutiveFrames >= scanPersistenceFrames && isStrongEnough) {
+      _lockFromScan();
     }
   }
 
-  void _lockFromCalibration() {
-    if (_binPowerAccum.isEmpty || !_noiseFloor.isReady) {
-      _calibrationStartSample = _totalSamples;
-      return;
-    }
+  void _lockFromScan() {
+    if (_binPowerAccum.isEmpty || _scanFrames == 0) return;
 
+    // Find the best accumulated bin.
     var bestBin = -1;
     var bestAvgPower = 0.0;
     _binPowerAccum.forEach((bin, totalPower) {
-      final avg = totalPower / _calibrationFrames;
+      final avg = totalPower / _scanFrames;
       if (avg > bestAvgPower) {
         bestAvgPower = avg;
         bestBin = bin;
@@ -241,31 +312,18 @@ class AudioDecoder {
     });
 
     if (bestBin < 0) {
-      _binPowerAccum.clear();
-      _calibrationFrames = 0;
-      _calibrationStartSample = _totalSamples;
+      _resetScan();
       return;
     }
 
-    // Noise floor from all non-peak bins
-    double otherPower = 0;
-    var otherCount = 0;
-    _binPowerAccum.forEach((bin, totalPower) {
-      if (bin != bestBin) {
-        otherPower += totalPower / _calibrationFrames;
-        otherCount++;
-      }
-    });
-    final noiseAvg = otherCount > 0 ? otherPower / otherCount : 0.0;
-
-    // Harmonic rejection: if best bin is near 2× another
+    // Harmonic rejection: if best bin is near 2x another
     // significant bin, prefer the lower (fundamental).
     {
       final halfBin = bestBin ~/ 2;
       final minBinIdx = _fft.frequencyToBin(minFreq, sampleRate);
       if (halfBin >= minBinIdx) {
         final halfPower = _binPowerAccum[halfBin] ?? 0;
-        final halfAvg = halfPower / _calibrationFrames;
+        final halfAvg = halfPower / _scanFrames;
         if (halfAvg > bestAvgPower * 0.25) {
           bestBin = halfBin;
           bestAvgPower = halfAvg;
@@ -283,14 +341,6 @@ class AudioDecoder {
       subBinOffset = 0.5 * (leftPower - rightPower) / denom;
     }
     final freq = (bestBin + subBinOffset) * sampleRate / fftSize;
-
-    // Verify signal is strong enough.
-    if (bestAvgPower <= noiseAvg * onThresholdFactor) {
-      _binPowerAccum.clear();
-      _calibrationFrames = 0;
-      _calibrationStartSample = _totalSamples;
-      return;
-    }
 
     onDebugLock?.call(
       totalSamples: _totalSamples,
@@ -316,6 +366,7 @@ class AudioDecoder {
     _isOn = false;
     _peakEnvelope = 0;
     _seenFirstOn = false;
+    _lastSignalSample = _totalSamples;
     _state = DecoderState.locked;
     _transitionSample = _totalSamples;
     onLock?.call(freq);
@@ -340,6 +391,19 @@ class AudioDecoder {
     // noise floor estimate.
     if (env < _peakEnvelope * 0.3) {
       _noiseFloor.update(env);
+    }
+
+    // Track when we last saw a signal above the noise floor.
+    // If we've been in silence for too long, unlock and return
+    // to scanning.
+    if (env > _peakEnvelope * 0.15) {
+      _lastSignalSample = _totalSamples;
+    }
+
+    final silenceMs = (_totalSamples - _lastSignalSample) * 1000 / sampleRate;
+    if (_seenFirstOn && silenceMs >= signalTimeoutMs) {
+      _unlock();
+      return;
     }
 
     // Compute thresholds using noise-floor-relative strategy
@@ -390,6 +454,32 @@ class AudioDecoder {
     }
   }
 
+  void _unlock() {
+    // Emit the final off-element so the MorseDecoder sees the gap
+    // as a word boundary rather than losing it entirely.
+    if (!_isOn) {
+      _emitElement(false);
+    }
+    onUnlock?.call();
+    _state = DecoderState.scanning;
+    _detector = null;
+    _isOn = false;
+    _peakEnvelope = 0;
+    _seenFirstOn = false;
+    _lockedFreq = 0;
+    _transitionSample = 0;
+    _lastSignalSample = 0;
+    _resetScan();
+  }
+
+  void _resetScan() {
+    _consecutiveFrames = 0;
+    _lastDominantBin = -1;
+    _binPowerAccum.clear();
+    _scanFrames = 0;
+    _noiseFloor.reset();
+  }
+
   void _emitElement(bool isOn) {
     final durationSamples = _totalSamples - _transitionSample;
     final durationMs = (durationSamples * 1000 / sampleRate).round();
@@ -410,20 +500,18 @@ class AudioDecoder {
     );
   }
 
-  /// Resets the decoder to the calibration state.
+  /// Resets the decoder to the scanning state.
   void reset() {
-    _state = DecoderState.calibrating;
+    _state = DecoderState.scanning;
     _buffer.clear();
     _detector = null;
-    _noiseFloor.reset();
     _isOn = false;
     _peakEnvelope = 0;
     _seenFirstOn = false;
     _totalSamples = 0;
     _transitionSample = 0;
     _lockedFreq = 0;
-    _binPowerAccum.clear();
-    _calibrationFrames = 0;
-    _calibrationStartSample = 0;
+    _lastSignalSample = 0;
+    _resetScan();
   }
 }
