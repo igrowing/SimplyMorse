@@ -7,14 +7,14 @@
 /// derived from the current range.
 class BrightnessThreshold {
   BrightnessThreshold({
-    this.onFactor = 0.7,
-    this.offFactor = 0.3,
+    this.onFactor = 0.4,
+    this.offFactor = 0.4,
     this.decayFactor = 0.995,
     this.minRange = 0.01,
     this.minTransitionMs = 50,
   }) : assert(
-         onFactor > offFactor,
-         'onFactor must be greater than offFactor',
+         onFactor >= offFactor,
+         'onFactor must be greater than or equal to offFactor',
        ),
        assert(
          decayFactor > 0 && decayFactor <= 1,

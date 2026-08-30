@@ -47,3 +47,6 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 android/key.properties
+
+# Video recording fixtures (large, kept locally only)
+test/assets/recordings/video/*.mp4
