@@ -4,6 +4,7 @@ import 'package:simply_morse/features/decoding/domain/models/decoded_element.dar
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/alpha_beta_filter.dart';
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
+import 'package:simply_morse/features/decoding/domain/services/element_builder.dart';
 
 /// Debug callback for scanning frames.
 typedef DebugVideoScanCallback =
@@ -162,7 +163,6 @@ class VideoDecoder {
   int _confirmCount = 0;
 
   // Timing
-  int _transitionMs = 0;
   int _lastFrameMs = 0;
 
   // Signal loss counter
@@ -170,6 +170,20 @@ class VideoDecoder {
 
   // Output
   void Function(DecodedElement element)? onElement;
+
+  /// Turns on/off transitions into elements, merging glitches and
+  /// holding the last element until [flush]. Shared with the audio
+  /// decoder so both paths treat short segments the same way.
+  late final ElementBuilder _builder = ElementBuilder(onElement: _emit);
+
+  void _emit(DecodedElement element) {
+    onDebugTransition?.call(
+      timestampMs: _lastFrameMs,
+      isOn: element.isOn,
+      durationMs: element.durationMs,
+    );
+    onElement?.call(element);
+  }
 
   // -- Debug callbacks --
   DebugVideoScanCallback? onDebugScan;
@@ -287,7 +301,7 @@ class VideoDecoder {
       if (_confirmCount >= confirmFrames) {
         _state = VideoDecoderState.locked;
         _threshold.reset();
-        _transitionMs = frame.timestampMs;
+        _builder.reset();
         onDebugStateChange?.call(
           timestampMs: frame.timestampMs,
           newState: 'locked',
@@ -338,7 +352,6 @@ class VideoDecoder {
         regionSize,
       );
 
-      final wasOn = _threshold.isOn;
       final isOn = _threshold.process(
         brightness,
         timestampMs: frame.timestampMs,
@@ -358,9 +371,10 @@ class VideoDecoder {
         regionSize: regionSize,
         innovation: _filter.innovation,
       );
-      if (isOn != wasOn) {
-        _emitElement(wasOn, frame.timestampMs);
-      }
+      _builder.transition(
+        nowOn: isOn,
+        timeMs: frame.timestampMs.toDouble(),
+      );
     } else {
       _lostFrameCount++;
       if (_lostFrameCount >= lostFrameLimit) {
@@ -374,9 +388,7 @@ class VideoDecoder {
   // -- Signal loss -----------------------------------------------
 
   void _signalLost() {
-    if (_threshold.isOn) {
-      _emitElement(true, _lastFrameMs);
-    }
+    _builder.flush();
     onDebugSignalLost?.call(
       timestampMs: _lastFrameMs,
       lostFrameCount: _lostFrameCount,
@@ -505,19 +517,10 @@ class VideoDecoder {
     return varSum / totalWeight;
   }
 
-  void _emitElement(bool isOn, int timestampMs) {
-    final durationMs = timestampMs - _transitionMs;
-    if (durationMs <= 0) return;
-    onDebugTransition?.call(
-      timestampMs: timestampMs,
-      isOn: isOn,
-      durationMs: durationMs,
-    );
-    onElement?.call(
-      DecodedElement(isOn: isOn, durationMs: durationMs),
-    );
-    _transitionMs = timestampMs;
-  }
+  /// Emits any element still held back by the merge lookahead.
+  ///
+  /// Call when the video stream ends so the final element is not lost.
+  void flush() => _builder.flush();
 
   /// Resets the decoder to the scanning state.
   void reset() {
@@ -525,9 +528,9 @@ class VideoDecoder {
     _history.clear();
     _threshold.reset();
     _filter.reset();
+    _builder.reset();
     _confirmCount = 0;
     _lostFrameCount = 0;
-    _transitionMs = 0;
     _lastFrameMs = 0;
     _isFullFrame = false;
   }

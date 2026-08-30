@@ -21,6 +21,7 @@ class CameraCaptureImpl implements CameraCapture {
   CameraController? _controller;
   bool _isActive = false;
   bool _isHighFrameRate = false;
+  int _frameRate = _defaultFrameRate;
 
   /// The underlying [CameraController], exposed so the
   /// presentation layer can render the live preview via
@@ -36,6 +37,9 @@ class CameraCaptureImpl implements CameraCapture {
 
   @override
   bool get isHighFrameRate => _isHighFrameRate;
+
+  /// Capture rate actually in use, in frames per second.
+  int get frameRate => _frameRate;
 
   @override
   Future<bool> hasPermission() async {
@@ -57,14 +61,33 @@ class CameraCaptureImpl implements CameraCapture {
     final cameras = await availableCameras();
     if (cameras.isEmpty) return;
 
-    _controller = CameraController(
-      cameras.first,
-      ResolutionPreset.low,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
-    );
+    // Try progressively lower capture rates.
+    //
+    // Frame rate, not thresholding, is what limits the video decoder
+    // at speed: at 30 fps a 20 WPM dit is 1.8 frames, which leaves the
+    // dah and character-gap duration clusters overlapping so no
+    // classifier can separate them. Doubling the rate halves that
+    // quantisation. Not every device offers every rate, and asking for
+    // an unsupported one fails at initialize(), so fall back in order.
+    for (final fps in _preferredFrameRates) {
+      final controller = CameraController(
+        cameras.first,
+        ResolutionPreset.low,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+        fps: fps,
+      );
+      try {
+        await controller.initialize();
+        _controller = controller;
+        _frameRate = fps ?? _defaultFrameRate;
+        break;
+      } on CameraException {
+        await controller.dispose();
+      }
+    }
 
-    await _controller!.initialize();
+    if (_controller == null) return;
 
     // Lock exposure for consistent brightness detection.
     try {
@@ -76,10 +99,14 @@ class CameraCaptureImpl implements CameraCapture {
       // continue with auto exposure.
     }
 
-    // The camera package does not expose high-frame-rate
-    // modes for image streams, so we use standard ~30fps.
-    _isHighFrameRate = false;
+    _isHighFrameRate = _frameRate > _defaultFrameRate;
   }
+
+  /// Capture rates to try, best first. `null` asks for the platform
+  /// default rather than a specific rate.
+  static const List<int?> _preferredFrameRates = [120, 60, null];
+
+  static const int _defaultFrameRate = 30;
 
   @override
   void startImageStream(

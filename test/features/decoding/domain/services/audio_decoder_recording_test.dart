@@ -7,6 +7,8 @@ import 'package:simply_morse/features/decoding/domain/models/decoded_element.dar
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 
+import '../../../../support/cer.dart';
+
 /// Helper to load float32 binary audio samples from test assets.
 List<double> _loadFloat32Samples(String filename) {
   final assetDir = Directory('test/assets/recordings');
@@ -72,7 +74,6 @@ _decodeRecording(RecordingFixture fixture) {
     sampleRate: fixture.sampleRate,
     bandwidth: 0,
     envelopeCutoffHz: 40,
-    minElementMs: 30,
   );
 
   final elements = <DecodedElement>[];
@@ -85,6 +86,7 @@ _decodeRecording(RecordingFixture fixture) {
         : samples.length;
     decoder.processSamples(samples.sublist(i, end));
   }
+  decoder.flush();
 
   var filtered = elements.skipWhile((e) => !e.isOn).toList();
   final morseDecoder = MorseDecoder();
@@ -121,14 +123,15 @@ void main() {
       expect(result.elements.length, greaterThan(70));
       // Dit estimate should be close to 400ms
       expect(result.ditMs, closeTo(400, 80));
-      // Decoded text should contain recognizable words
-      expect(result.text, contains('WORLD'));
+      // Accuracy budget rather than a `contains` check, so that a
+      // change of a few percent either way is visible.
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.05),
+      );
 
       // ignore: avoid_print
-      print(
-        '  Decoded: "${result.text}" (dit=${result.ditMs}ms, '
-        '${result.elements.length} elements)',
-      );
+      print(cerReport('3wpm', result.text, fixture.expectedText));
     });
 
     // ── 700Hz 8wpm ──────────────────────────────────────────────
@@ -147,12 +150,13 @@ void main() {
       expect(wpm, inExclusiveRange(5, 12));
       // At least one repetition should decode correctly
       expect(result.text, contains('HELLO, WORLD!'));
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.20),
+      );
 
       // ignore: avoid_print
-      print(
-        '  Decoded: "${result.text}" (dit=${result.ditMs}ms, '
-        '${result.elements.length} elements, ${wpm.toStringAsFixed(1)} WPM)',
-      );
+      print(cerReport('8wpm/700Hz', result.text, fixture.expectedText));
     });
 
     // ── 700Hz 20wpm ─────────────────────────────────────────────
@@ -169,17 +173,16 @@ void main() {
       // WPM should be close to 20
       final wpm = result.ditMs > 0 ? 1200 / result.ditMs : 0;
       expect(wpm, inExclusiveRange(15, 25));
-      // Text should contain at least partially recognizable content
+      // 20 WPM is the hardest case: at a 5 ms decision grid a dit is
+      // only 12 samples, so the budget is looser than the slower
+      // speeds.
       expect(
-        result.text,
-        anyOf(contains('WORLD'), contains('WORLDE'), contains('MORLD')),
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.40),
       );
 
       // ignore: avoid_print
-      print(
-        '  Decoded: "${result.text}" (dit=${result.ditMs}ms, '
-        '${result.elements.length} elements, ${wpm.toStringAsFixed(1)} WPM)',
-      );
+      print(cerReport('20wpm', result.text, fixture.expectedText));
     });
 
     // ── 1000Hz 8wpm ─────────────────────────────────────────────
@@ -191,13 +194,15 @@ void main() {
       expect(result.lockedFreq, closeTo(1000, 20));
       // Should detect a significant number of elements
       expect(result.elements.length, greaterThan(50));
-      expect(result.text, isNotEmpty);
+      // The hardest recording: the tone loses 11 dB while the
+      // background gains 14 dB, taking SNR from 26 dB to 8 dB.
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.35),
+      );
 
       // ignore: avoid_print
-      print(
-        '  Locked: ${result.lockedFreq.toStringAsFixed(1)}Hz, '
-        'Decoded: "${result.text}" (${result.elements.length} elements)',
-      );
+      print(cerReport('8wpm/1000Hz', result.text, fixture.expectedText));
     });
 
     // ── 400Hz 8wpm ──────────────────────────────────────────────
@@ -211,14 +216,14 @@ void main() {
       // 2 repetitions should produce many elements
       expect(result.elements.length, greaterThan(100));
       // Should decode recognizable text
-      expect(result.text, contains('HELLO'));
       expect(result.text, contains('WORLD'));
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.20),
+      );
 
       // ignore: avoid_print
-      print(
-        '  Locked: ${result.lockedFreq.toStringAsFixed(1)}Hz, '
-        'Decoded: "${result.text}" (${result.elements.length} elements)',
-      );
+      print(cerReport('8wpm/400Hz', result.text, fixture.expectedText));
     });
   });
 
@@ -231,7 +236,6 @@ void main() {
           sampleRate: fixture.sampleRate,
           bandwidth: 0,
           envelopeCutoffHz: 40,
-          minElementMs: 30,
         );
 
         final batchSize = 4096;

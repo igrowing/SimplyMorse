@@ -191,6 +191,11 @@ class DecodingController extends ChangeNotifier {
     _audioSub = null;
     _audioCapture?.stop();
     _cameraCapture?.stop();
+    // Decoders hold the last element back by one transition so a
+    // glitch can be merged with its neighbours; release it, or the
+    // final character of the transmission is lost.
+    _audioDecoder?.flush();
+    _videoDecoder?.flush();
     _status = DecodingStatus.paused;
     notifyListeners();
   }

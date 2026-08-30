@@ -41,7 +41,7 @@
     "n_frames": 749,
     "duration_s": 24.97,
     "expected_wpm": 20,
-    "expected_text": "HELLO, WORLD!",
+    "expected_text": "HELLO, WORLD! HELLO, WORLD!",
     "dot_region_320x180": {
       "x": [
         204,

@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
+import 'package:simply_morse/features/decoding/domain/services/element_builder.dart';
 import 'package:simply_morse/features/decoding/domain/services/fft.dart';
 import 'package:simply_morse/features/decoding/domain/services/iir_envelope_detector.dart';
+import 'package:simply_morse/features/decoding/domain/services/level_tracker.dart';
 import 'package:simply_morse/features/decoding/domain/services/noise_floor_estimator.dart';
 
 /// Debug log callback for scanning frames.
@@ -69,20 +71,24 @@ enum DecoderState {
 /// **Monotonic tone definition** (the lock criteria):
 /// - One sharp tone: spectral peak-to-average ratio ≥
 ///   [onThresholdFactor] (single dominant frequency)
-/// - Detected for at least 50 ms (~2 FFT frames at 32 ms/frame)
+/// - Detected for at least [minToneMs] (160 ms, ~5 FFT frames at
+///   32 ms/frame — see that field for why the 50 ms in the spec is
+///   not attainable)
 /// - Either:
-///   - A single continuous tone lasting ≥ 500 ms (a long dah
-///     at stable power is sufficient evidence), OR
-///   - Two or more detections (each ≥ 50 ms) of the same
-///     frequency within 2000 ms (repeating tone pattern)
+///   - A single continuous tone lasting ≥ [longToneMs] (500 ms — a
+///     long dah at stable power is sufficient evidence on its own,
+///     which is what makes the repeat criterion conditional), OR
+///   - [requiredDetections] detections of the same frequency within
+///     2000 ms (repeating tone pattern)
 ///
 /// Pipeline:
 /// 1. **Scanning** — continuously runs FFT frames over 400–1000 Hz.
 ///    Each frame checks if the dominant bin has SNR ≥ 4 (monotonic).
 ///    Runs of consecutive monotonic frames are tracked as "detection
 ///    events". The decoder locks when either:
-///    - A single run lasts ≥ 500 ms (15 frames), OR
-///    - Two detection events of the same frequency occur within 2000 ms
+///    - A single run lasts ≥ [longToneMs], OR
+///    - [requiredDetections] detection events of the same frequency
+///      occur within 2000 ms
 ///    This rejects voice (frequencies jump between bins, can't sustain
 ///    a run), broadband noise (low SNR), and brief noise spikes
 ///    (can't produce two detections at the same frequency).
@@ -111,21 +117,31 @@ class AudioDecoder {
     this.minFreq = 400,
     this.maxFreq = 1000,
     this.fftSize = 256,
-    this.blockSize = 80,
+    this.blockSize = 40,
     this.signalTimeoutMs = 0,
     this.bandwidth = 0,
     this.bandwidthRatio = 0.16,
     this.envelopeCutoffHz = 40.0,
     this.onThresholdFactor = 4,
     this.offThresholdFactor = 2,
-    this.minElementMs = 30,
+    this.minElementMs = 10,
+    this.glitchRatio = 0.25,
+    this.minToneMs = 160,
+    this.longToneMs = 500,
+    this.requiredDetections = 3,
+    this.hysteresisDb = 2.5,
+    this.minSeparationDb = 6.0,
+    this.thresholdOffsetDb = 3.0,
+    this.noiseMarginDb = 10.0,
+    this.levelAttackMs = 120,
+    this.levelReleaseMs = 150,
+    this.preLockBufferMs = 3000,
   }) {
     _fft = FFT(fftSize);
-    _hopMs = blockSize * 1000 / sampleRate;
     _frameMs = fftSize * 1000 / sampleRate;
     // Derived scanning thresholds (computed from frame rate).
-    _minToneFrames = (160 / _frameMs).ceil(); // ~5 frames = 160 ms
-    _longToneFrames = (500 / _frameMs).ceil(); // ~16 frames = 500 ms
+    _minToneFrames = (minToneMs / _frameMs).ceil();
+    _longToneFrames = (longToneMs / _frameMs).ceil();
     _maxRepeatGapFrames = (2000 / _frameMs).round(); // ~62 frames = 2000 ms
   }
 
@@ -155,7 +171,69 @@ class AudioDecoder {
   final double envelopeCutoffHz;
   final double onThresholdFactor;
   final double offThresholdFactor;
+  /// Absolute floor for the glitch-merge threshold, in ms.
   final int minElementMs;
+
+  /// Shortest run of monotonic frames that counts as a detection.
+  ///
+  /// The spec calls for 50 ms (~2 frames at 32 ms per frame), but that
+  /// is not attainable at the SNRs in the reference recordings:
+  /// measured over them, 50 ms locks onto the wrong frequency
+  /// (700 Hz material locking at 413–568 Hz) and roughly triples the
+  /// character error rate. Two frames of agreement is simply not
+  /// enough evidence to reject a noise peak. 160 ms — five frames —
+  /// is the shortest value that still locks correctly on all five.
+  final int minToneMs;
+
+  /// A single continuous tone this long is on its own sufficient
+  /// evidence to lock, which makes the repeat criterion conditional:
+  /// one steady dah is enough.
+  final int longToneMs;
+
+  /// How many detections of the same frequency within
+  /// [_maxRepeatGapFrames] are needed to lock when no single run is
+  /// long enough.
+  ///
+  /// The spec says "repeats", i.e. two. Measured, two is not enough to
+  /// reject a false frequency: it costs a correct lock on two of the
+  /// five reference recordings. Three is used instead.
+  final int requiredDetections;
+
+  /// Glitch-merge threshold as a fraction of the estimated dit, once
+  /// enough elements have been seen to estimate one.
+  ///
+  /// A fixed threshold cannot serve the whole speed range: 30 ms is a
+  /// fifth of a dit at 8 WPM, where it usefully swallows noise
+  /// transitions, but half a dit at 20 WPM, where it merges genuine
+  /// dits into dahs. Scaling with the observed element rate keeps its
+  /// meaning constant.
+  final double glitchRatio;
+
+  /// Half-width in dB of the symmetric hysteresis band used when
+  /// tracking. Symmetric thresholds remove the mark/space duration
+  /// bias of the old 50 % / 25 % linear thresholds.
+  final double hysteresisDb;
+
+  /// Minimum mark-to-space separation in dB below which the tracker
+  /// squelches instead of emitting elements from noise.
+  final double minSeparationDb;
+
+  /// How far below the tracked mark level the on/off threshold sits.
+  final double thresholdOffsetDb;
+
+  /// How far above the tracked space level the threshold is kept.
+  final double noiseMarginDb;
+
+  /// Attack time constant of the two level estimates, in ms.
+  final double levelAttackMs;
+
+  /// Release time constant of the two level estimates, in ms.
+  final double levelReleaseMs;
+
+  /// How much audio to retain during scanning so that, on lock, the
+  /// acquisition window can be re-decoded with converged levels
+  /// instead of being lost. Set to 0 to disable.
+  final int preLockBufferMs;
 
   // Derived scanning thresholds
   late final int _minToneFrames;
@@ -164,7 +242,6 @@ class AudioDecoder {
 
   // Internal components
   late final FFT _fft;
-  late final double _hopMs;
   late final double _frameMs;
   final _noiseFloor = NoiseFloorEstimator();
 
@@ -178,13 +255,25 @@ class AudioDecoder {
   int? _lastDetectionBin; // bin of the last completed detection
   int _lastDetectionEndFrame = 0; // frame index when last detection ended
   int _detectionCount = 0; // number of detections at this frequency
-  static const int _requiredDetections = 3; // lock after 3 repeat detections
   int _frameIndex = 0; // total scanning frames processed
   final Map<int, double> _binPowerAccum = {};
   int _scanFrames = 0; // frames accumulated for parabolic interpolation
 
   // Tracking state
   IirEnvelopeDetector? _detector;
+  late final LevelTracker _levels = LevelTracker(
+    attackMs: levelAttackMs,
+    releaseMs: levelReleaseMs,
+    hysteresisDb: hysteresisDb,
+    minSeparationDb: minSeparationDb,
+    thresholdOffsetDb: thresholdOffsetDb,
+    noiseMarginDb: noiseMarginDb,
+  );
+
+  /// Raw samples retained during scanning, replayed on lock.
+  final List<double> _preLock = [];
+  int get _preLockCapacity =>
+      (preLockBufferMs * sampleRate / 1000).round();
   double _lockedFreq = 0;
   int _lastSignalSample = 0;
 
@@ -201,10 +290,15 @@ class AudioDecoder {
 
   // Envelope / on-off state
   bool _isOn = false;
-  double _peakEnvelope = 0;
-  int _transitionSample = 0;
   int _totalSamples = 0;
   bool _seenFirstOn = false;
+
+  /// Turns on/off transitions into elements, merging glitches.
+  late final ElementBuilder _elements = ElementBuilder(
+    onElement: _emit,
+    minElementMs: minElementMs,
+    glitchRatio: glitchRatio,
+  );
 
   // Sample buffer
   final List<double> _buffer = [];
@@ -253,13 +347,19 @@ class AudioDecoder {
   // Monotonic tone detection:
   // - A "run" = consecutive FFT frames where the same bin (±1) is
   //   dominant with SNR ≥ onThresholdFactor.
-  // - A "detection" = a run of ≥ _minToneFrames (50 ms).
+  // - A "detection" = a run of ≥ _minToneFrames ([minToneMs]).
   // - Lock when: a single run ≥ _longToneFrames (500 ms), OR
   //   two detections of the same frequency within _maxRepeatGapFrames
   //   (2000 ms).
 
   void _scan(List<double> samples) {
     _frameIndex++;
+
+    if (preLockBufferMs > 0) {
+      _preLock.addAll(samples);
+      final overflow = _preLock.length - _preLockCapacity;
+      if (overflow > 0) _preLock.removeRange(0, overflow);
+    }
 
     final power = _fft.powerSpectrum(Float64List.fromList(samples));
 
@@ -361,8 +461,8 @@ class AudioDecoder {
         _frameIndex - _lastDetectionEndFrame <= _maxRepeatGapFrames) {
       // Same frequency again → increment detection count.
       _detectionCount++;
-      if (_detectionCount >= _requiredDetections) {
-        // Three detections at the same frequency → lock!
+      if (_detectionCount >= requiredDetections) {
+        // Enough detections at the same frequency → lock.
         _lockFromScan();
         return;
       }
@@ -445,42 +545,76 @@ class AudioDecoder {
       envelopeCutoffHz: envelopeCutoffHz,
     );
     _noiseFloor.reset();
+    _levels.reset();
+    _elements.reset();
     _isOn = false;
-    _peakEnvelope = 0;
     _seenFirstOn = false;
     _lastSignalSample = _totalSamples;
     _state = DecoderState.locked;
-    _transitionSample = _totalSamples;
     onLock?.call(freq);
+
+    _replayPreLock();
+  }
+
+  /// Re-decodes the audio captured while the decoder was still
+  /// scanning.
+  ///
+  /// Locking takes a few hundred milliseconds, and until the level
+  /// tracker converges the first thresholds are wrong — which is why
+  /// the leading character of a transmission was previously lost in
+  /// every reference recording (`HELLO` decoding as `SELLO`, `IELLO`,
+  /// `EELLO`). The retained audio is filtered once to measure the
+  /// mark and space levels, the tracker is seeded with them, and the
+  /// same audio is then decoded with converged levels, so the
+  /// acquisition window produces real elements instead of fragments.
+  void _replayPreLock() {
+    if (preLockBufferMs <= 0 || _preLock.length < blockSize * 4) {
+      _preLock.clear();
+      return;
+    }
+
+    final blocks = _preLock.length ~/ blockSize;
+
+    // Pass 1 — filter the retained audio to obtain its envelope. This
+    // also leaves the biquad primed with real signal history.
+    final envelopes = <double>[];
+    for (var i = 0; i < blocks; i++) {
+      envelopes.add(
+        _detector!.processBlock(
+          _preLock.sublist(i * blockSize, (i + 1) * blockSize),
+        ),
+      );
+    }
+    _levels.seedFromEnvelopes(envelopes);
+
+    // Pass 2 — rewind the clock and decode those envelopes with the
+    // seeded levels, emitting the elements that were missed.
+    _totalSamples -= blocks * blockSize;
+    _preLock.clear();
+
+    for (final env in envelopes) {
+      _totalSamples += blockSize;
+      _trackEnvelope(env);
+    }
   }
 
   // -- Tracking phase --------------------------------------------
 
   void _track(List<double> samples) {
     // Process all samples through the IIR bandpass + envelope.
-    final env = _detector!.processBlock(samples);
+    _trackEnvelope(_detector!.processBlock(samples));
+  }
 
-    // Peak envelope with slow decay for adaptive thresholding.
-    _peakEnvelope *= 0.999;
-    if (env > _peakEnvelope) {
-      _peakEnvelope = env;
-    }
+  /// Thresholds one envelope value and records any transition.
+  void _trackEnvelope(double env) {
 
-    // Collect noise floor only when the envelope is clearly
-    // below the signal level (< 30% of peak). This prevents
-    // tone-on frames (where the envelope is high but the
-    // ON transition hasn't fired yet) from contaminating the
-    // noise floor estimate.
-    if (env < _peakEnvelope * 0.3) {
-      _noiseFloor.update(env);
-    }
+    final blockMs = blockSize * 1000 / sampleRate;
+    final wantOn = _levels.process(env, blockMs);
 
     // Auto-unlock (only if signalTimeoutMs > 0).
     // Default: permanent lock, no unlock during listening.
     if (signalTimeoutMs > 0) {
-      if (env > _peakEnvelope * 0.15) {
-        _lastSignalSample = _totalSamples;
-      }
+      if (wantOn) _lastSignalSample = _totalSamples;
       final silenceMs = (_totalSamples - _lastSignalSample) * 1000 / sampleRate;
       if (_seenFirstOn && silenceMs >= signalTimeoutMs) {
         _unlock();
@@ -488,27 +622,7 @@ class AudioDecoder {
       }
     }
 
-    // Compute thresholds using noise-floor-relative strategy
-    // once enough data is collected; fall back to peak-only
-    // thresholds (with a higher off ratio to avoid getting
-    // stuck) for the first few frames.
-    final double onThreshold;
-    final double offThreshold;
-    final double debugNoiseFloor;
-
-    if (_noiseFloor.isReady) {
-      final minRef = _noiseFloor.noiseFloor;
-      final range = _peakEnvelope - minRef;
-      if (range <= 0) return;
-      onThreshold = minRef + range * 0.5;
-      offThreshold = minRef + range * 0.25;
-      debugNoiseFloor = minRef;
-    } else {
-      if (_peakEnvelope <= 0) return;
-      onThreshold = _peakEnvelope * 0.5;
-      offThreshold = _peakEnvelope * 0.40;
-      debugNoiseFloor = 0;
-    }
+    if (!_levels.isReady) return;
 
     onDebugTracking?.call(
       totalSamples: _totalSamples,
@@ -516,41 +630,32 @@ class AudioDecoder {
       freq: _lockedFreq,
       power: env,
       envelope: env,
-      noiseFloor: debugNoiseFloor,
-      onThreshold: onThreshold,
-      offThreshold: offThreshold,
+      noiseFloor: _levels.markDb ?? 0,
+      onThreshold: _levels.thresholdDb + hysteresisDb,
+      offThreshold: _levels.thresholdDb - hysteresisDb,
       isOn: _isOn,
     );
 
-    if (!_isOn && env > onThreshold) {
-      // Off -> On transition
-      _seenFirstOn = true;
-      _emitElement(false);
-      _isOn = true;
-      _transitionSample = _totalSamples;
-    } else if (_isOn && env < offThreshold) {
-      // On -> Off transition
-      _emitElement(true);
-      _isOn = false;
-      _transitionSample = _totalSamples;
+    if (wantOn != _isOn) {
+      _isOn = wantOn;
+      if (wantOn) _seenFirstOn = true;
+      _onTransition();
     }
   }
 
   void _unlock() {
     // Emit the final off-element so the MorseDecoder sees the gap
     // as a word boundary rather than losing it entirely.
-    if (!_isOn) {
-      _emitElement(false);
-    }
+    _elements.flush();
     onUnlock?.call();
     _state = DecoderState.scanning;
     _detector = null;
     _isOn = false;
-    _peakEnvelope = 0;
     _seenFirstOn = false;
     _lockedFreq = 0;
-    _transitionSample = 0;
     _lastSignalSample = 0;
+    _levels.reset();
+    _elements.reset();
     _resetScan();
   }
 
@@ -565,25 +670,28 @@ class AudioDecoder {
     _noiseFloor.reset();
   }
 
-  void _emitElement(bool isOn) {
-    final durationSamples = _totalSamples - _transitionSample;
-    final durationMs = (durationSamples * 1000 / sampleRate).round();
+  void _onTransition() {
+    _elements.transition(
+      nowOn: _isOn,
+      timeMs: _totalSamples * 1000 / sampleRate,
+    );
+  }
 
-    if (durationMs <= 0) return;
-
-    if (durationMs < minElementMs) return;
-
+  void _emit(DecodedElement element) {
     onDebugTransition?.call(
       totalSamples: _totalSamples,
       sampleRate: sampleRate,
-      isOn: isOn,
-      durationMs: durationMs,
+      isOn: element.isOn,
+      durationMs: element.durationMs,
     );
-
-    onElement?.call(
-      DecodedElement(isOn: isOn, durationMs: durationMs),
-    );
+    onElement?.call(element);
   }
+
+  /// Emits any element still held back by the merge lookahead.
+  ///
+  /// Call when the audio stream ends so the final element is not lost.
+  /// Safe to call repeatedly.
+  void flush() => _elements.flush();
 
   /// Resets the decoder to the scanning state.
   void reset() {
@@ -591,10 +699,11 @@ class AudioDecoder {
     _buffer.clear();
     _detector = null;
     _isOn = false;
-    _peakEnvelope = 0;
     _seenFirstOn = false;
+    _levels.reset();
+    _elements.reset();
+    _preLock.clear();
     _totalSamples = 0;
-    _transitionSample = 0;
     _lockedFreq = 0;
     _lastSignalSample = 0;
     _frameIndex = 0;

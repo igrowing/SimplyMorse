@@ -35,10 +35,15 @@ class BrightnessThreshold {
   /// Minimum range to produce a valid on/off decision.
   final double minRange;
 
-  /// Minimum duration (ms) between transitions to filter
-  /// noise at the camera frame rate. At 30fps each frame is
-  /// ~33ms; requiring at least 50ms eliminates single-frame
-  /// glitches.
+  /// Minimum duration (ms) between transitions, to filter noise at
+  /// the camera frame rate. At 30 fps each frame is ~33 ms;
+  /// requiring at least 50 ms eliminates single-frame glitches.
+  ///
+  /// This is deliberately *not* delegated to the shared
+  /// `ElementBuilder`'s rate-relative threshold. Measured over the
+  /// reference recordings, suppressing the transition outright beats
+  /// merging it afterwards for video, because at 30 fps a single bad
+  /// frame is already a third of a 20 WPM dit.
   final int minTransitionMs;
 
   double _min = 1;
@@ -46,6 +51,26 @@ class BrightnessThreshold {
   bool _isOn = false;
   bool _initialized = false;
   int _lastTransitionMs = 0;
+
+  double _prevBrightness = 0;
+  int _prevTimestampMs = 0;
+  double _lastEdgeMs = 0;
+
+  /// Timestamp of the most recent transition, interpolated between
+  /// the two frames that straddled the threshold.
+  ///
+  /// A 30 fps camera samples every 33 ms while a dit is only 60 ms at
+  /// 20 WPM, so quantising edges to frame boundaries blurs the mark
+  /// and gap durations. Linear interpolation of the brightness ramp
+  /// recovers sub-frame precision.
+  ///
+  /// Measured over the 30 fps reference recordings this makes no
+  /// difference — the light saturates within a single frame, so there
+  /// is usually no intermediate sample to interpolate from. It is kept
+  /// for higher capture rates, where transitions do straddle frames.
+  /// Callers that want it must use it explicitly; the decoders time
+  /// elements from frame timestamps.
+  double get lastEdgeMs => _lastEdgeMs;
 
   /// Whether the signal is currently "on".
   bool get isOn => _isOn;
@@ -62,10 +87,15 @@ class BrightnessThreshold {
   /// Processes a brightness sample and returns the on/off
   /// state.
   bool process(double brightness, {int? timestampMs}) {
+    final t = timestampMs ?? _prevTimestampMs;
+
     if (!_initialized) {
       _min = brightness;
       _max = brightness;
       _initialized = true;
+      _prevBrightness = brightness;
+      _prevTimestampMs = t;
+      _lastEdgeMs = t.toDouble();
       return _isOn;
     }
 
@@ -87,27 +117,43 @@ class BrightnessThreshold {
     }
 
     final r = _max - _min;
-    if (r < minRange) return _isOn;
+    if (r < minRange) {
+      _prevBrightness = brightness;
+      _prevTimestampMs = t;
+      return _isOn;
+    }
 
     final onThreshold = _min + r * onFactor;
     final offThreshold = _min + r * offFactor;
 
-    if (!_isOn && brightness >= onThreshold) {
-      // Only transition if enough time has passed since last transition
-      if (timestampMs == null ||
-          timestampMs - _lastTransitionMs >= minTransitionMs) {
-        _isOn = true;
-        _lastTransitionMs = timestampMs ?? _lastTransitionMs;
-      }
-    } else if (_isOn && brightness <= offThreshold) {
-      if (timestampMs == null ||
-          timestampMs - _lastTransitionMs >= minTransitionMs) {
-        _isOn = false;
-        _lastTransitionMs = timestampMs ?? _lastTransitionMs;
-      }
+    final crossed = !_isOn
+        ? brightness >= onThreshold
+        : brightness <= offThreshold;
+
+    if (crossed &&
+        (timestampMs == null || t - _lastTransitionMs >= minTransitionMs)) {
+      _lastEdgeMs = _interpolateEdge(
+        _isOn ? offThreshold : onThreshold,
+        brightness,
+        t,
+      );
+      _isOn = !_isOn;
+      _lastTransitionMs = t;
     }
 
+    _prevBrightness = brightness;
+    _prevTimestampMs = t;
     return _isOn;
+  }
+
+  /// Places the edge between the previous and current frame at the
+  /// point where the brightness ramp crosses [threshold].
+  double _interpolateEdge(double threshold, double brightness, int t) {
+    final span = brightness - _prevBrightness;
+    final dt = (t - _prevTimestampMs).toDouble();
+    if (span.abs() < 1e-9 || dt <= 0) return t.toDouble();
+    final f = ((threshold - _prevBrightness) / span).clamp(0.0, 1.0);
+    return _prevTimestampMs + f * dt;
   }
 
   /// Resets the threshold state.
@@ -117,5 +163,8 @@ class BrightnessThreshold {
     _isOn = false;
     _initialized = false;
     _lastTransitionMs = 0;
+    _prevBrightness = 0;
+    _prevTimestampMs = 0;
+    _lastEdgeMs = 0;
   }
 }

@@ -186,10 +186,17 @@ void main() {
         decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
-        // Continue feeding tone (tracking blocks)
-        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
+        // Keying: the level tracker needs both a mark and a space
+        // level to separate, so an unbroken carrier is squelched by
+        // design — feed a gap and another tone.
+        decoder.processSamples(generateSilence(blockSize * 40));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
+        decoder.processSamples(generateSilence(blockSize * 40));
 
-        // Should have emitted transitions
+        // Elements are held back one transition so a glitch can be
+        // merged with its neighbours; flush releases the last one.
+        decoder.flush();
+
         expect(elements, isNotEmpty);
       });
 
@@ -201,11 +208,15 @@ void main() {
         decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
-        // Tone on
-        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
+        // Tone off — need enough silence for envelope to decay
+        decoder.processSamples(generateSilence(blockSize * 100));
+
+        // Tone on again
+        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
 
         // Tone off — need enough silence for envelope to decay
         decoder.processSamples(generateSilence(blockSize * 100));
+        decoder.flush();
 
         // Should have at least one on-element (the tone itself)
         final onElements = elements.where((e) => e.isOn);
@@ -275,11 +286,11 @@ void main() {
         decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
 
-        // Feed tone to trigger first on transition (sets _seenFirstOn)
-        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
-
-        // Feed silence long enough to exceed timeout
-        decoder.processSamples(generateSilence(blockSize * 60));
+        // Key the tone so the level tracker separates and registers a
+        // first mark, then go quiet for longer than the timeout.
+        decoder.processSamples(generateSilence(blockSize * 40));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
+        decoder.processSamples(generateSilence(blockSize * 200));
 
         expect(decoder.state, DecoderState.scanning);
         expect(decoder.lockedFrequency, 0);
@@ -294,8 +305,9 @@ void main() {
         decoder.onUnlock = () => unlocked = true;
 
         decoder.processSamples(generateTone(700, 8000, frameSize * 20));
-        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
-        decoder.processSamples(generateSilence(blockSize * 60));
+        decoder.processSamples(generateSilence(blockSize * 40));
+        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
+        decoder.processSamples(generateSilence(blockSize * 200));
 
         expect(unlocked, isTrue);
       });
