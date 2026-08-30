@@ -52,6 +52,55 @@ It's free, it's fast, and it turns the phone you already carry into a two-way Mo
 - **Puzzle makers & escape-room builders** encoding and decoding clues
 - **Anyone curious** who's ever wanted to hear a word turned into dots and dashes
 
+## Morse Code Reference
+
+The app encodes and decodes the full International Morse Code character set. Here's every symbol it supports:
+
+### Letters
+
+| Letter | Code | | Letter | Code | | Letter | Code |
+|--------|------|-|--------|------|-|--------|------|
+| A | `.-` | | J | `.---` | | S | `...` |
+| B | `-...` | | K | `-.-` | | T | `-` |
+| C | `-.-.` | | L | `.-..` | | U | `..-` |
+| D | `-..` | | M | `--` | | V | `...-` |
+| E | `.` | | N | `-.` | | W | `.--` |
+| F | `..-.` | | O | `---` | | X | `-..-` |
+| G | `--.` | | P | `.--.` | | Y | `-.--` |
+| H | `....` | | Q | `--.-` | | Z | `--..` |
+| I | `..` | | R | `.-.` | | | |
+
+### Numbers
+
+| Digit | Code |
+|-------|------|
+| 0 | `-----` |
+| 1 | `.----` |
+| 2 | `..---` |
+| 3 | `...--` |
+| 4 | `....-` |
+| 5 | `.....` |
+| 6 | `-....` |
+| 7 | `--...` |
+| 8 | `---..` |
+| 9 | `----.` |
+
+### Punctuation & Special Symbols
+
+| Symbol | Code | | Symbol | Code |
+|--------|------|-|--------|------|
+| `.` (period) | `.-.-.-` | | `+` (plus) | `.-.-.` |
+| `,` (comma) | `--..--` | | `-` (hyphen) | `-....-` |
+| `?` (question) | `..--..` | | `_` (underscore) | `..--.-` |
+| `'` (apostrophe) | `.----.` | | `"` (quote) | `.-..-.` |
+| `!` (exclamation) | `-.-.--` | | `$` (dollar) | `...-..-` |
+| `/` (slash) | `-..-.` | | `@` (at sign) | `.--.-.` |
+| `(` (open paren) | `-.--.` | | `&` (ampersand) | `.-...` |
+| `)` (close paren) | `-.--.-` | | `:` (colon) | `---...` |
+| `;` (semicolon) | `-.-.-.` | | `=` (equals) | `-...-` |
+
+> **Space** between words is represented as a pause — no code symbol, just a gap longer than a normal letter break.
+
 ## How to contribute
 
 * [Open an issue](https://github.com/igrowing/SimplyMorse/issues) if you found a bug or want a new feature.
