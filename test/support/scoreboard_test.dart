@@ -41,7 +41,6 @@ void main() {
       final decoder = AudioDecoder(
         sampleRate: entry['sampleRate'] as int,
         bandwidth: 0,
-        envelopeCutoffHz: 40,
       );
       final elements = <DecodedElement>[];
       decoder.onElement = elements.add;
