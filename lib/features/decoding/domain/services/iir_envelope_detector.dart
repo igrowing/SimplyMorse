@@ -2,6 +2,21 @@ import 'dart:math';
 
 import 'package:simply_morse/features/decoding/domain/services/biquad_bandpass.dart';
 
+/// Default 3 dB cutoff of the envelope lowpass, in Hz.
+///
+/// Shared between [IirEnvelopeDetector] and `AudioDecoder` (which always
+/// passes its own [IirEnvelopeDetector.envelopeCutoffHz] through
+/// explicitly) so the two constructors' defaults can't drift apart —
+/// they previously did, silently, because editing one didn't touch
+/// the other.
+///
+/// 30 Hz beats the original 40 Hz on the reference recordings (25.9 %
+/// → 11.1 % CER on the 1000 Hz / 8 WPM one, unchanged on the other
+/// four) — the wider 40 Hz smoothing let noise cross the on/off
+/// threshold during the envelope's decay tail on that recording's
+/// weaker signal-to-noise ratio.
+const double kDefaultEnvelopeCutoffHz = 30;
+
 /// IIR bandpass + rectify + lowpass envelope detector.
 ///
 /// Replaces the Goertzel + EnvelopeDetector combination with a
@@ -25,7 +40,7 @@ class IirEnvelopeDetector {
     required this.sampleRate,
     required this.centerFreq,
     this.bandwidth = 80.0,
-    this.envelopeCutoffHz = 40.0,
+    this.envelopeCutoffHz = kDefaultEnvelopeCutoffHz,
   }) {
     _bandpass = BiquadBandpass(
       sampleRate: sampleRate,

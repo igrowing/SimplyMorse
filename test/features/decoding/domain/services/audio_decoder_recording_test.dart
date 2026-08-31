@@ -73,7 +73,6 @@ _decodeRecording(RecordingFixture fixture) {
   final decoder = AudioDecoder(
     sampleRate: fixture.sampleRate,
     bandwidth: 0,
-    envelopeCutoffHz: 40,
   );
 
   final elements = <DecodedElement>[];
@@ -152,7 +151,7 @@ void main() {
       expect(result.text, contains('HELLO, WORLD!'));
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.20),
+        lessThanOrEqualTo(0.15),
       );
 
       // ignore: avoid_print
@@ -175,10 +174,12 @@ void main() {
       expect(wpm, inExclusiveRange(15, 25));
       // 20 WPM is the hardest case: at a 5 ms decision grid a dit is
       // only 12 samples, so the budget is looser than the slower
-      // speeds.
+      // speeds — even with the speed-gated level tracker (see
+      // AudioDecoder.fastDitThresholdMs) engaging its fast profile
+      // for this recording's ~60 ms dit.
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.32),
+        lessThanOrEqualTo(0.25),
       );
 
       // ignore: avoid_print
@@ -194,11 +195,13 @@ void main() {
       expect(result.lockedFreq, closeTo(1000, 20));
       // Should detect a significant number of elements
       expect(result.elements.length, greaterThan(50));
-      // The hardest recording: the tone loses 11 dB while the
-      // background gains 14 dB, taking SNR from 26 dB to 8 dB.
+      // The tone loses 11 dB while the background gains 14 dB, taking
+      // SNR from 26 dB to 8 dB — used to be the hardest recording
+      // before the envelope lowpass cutoff was tightened (see
+      // kDefaultEnvelopeCutoffHz).
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.35),
+        lessThanOrEqualTo(0.20),
       );
 
       // ignore: avoid_print
@@ -235,7 +238,6 @@ void main() {
         final decoder = AudioDecoder(
           sampleRate: fixture.sampleRate,
           bandwidth: 0,
-          envelopeCutoffHz: 40,
         );
 
         final batchSize = 4096;

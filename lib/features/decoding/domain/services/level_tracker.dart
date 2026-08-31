@@ -38,6 +38,7 @@ class LevelTracker {
     this.minSeparationDb = 6.0,
     this.thresholdOffsetDb = 3.0,
     this.noiseMarginDb = 10.0,
+    this.maxSpaceDropDb = 8.0,
     this.bootstrapSamples = 100,
   });
 
@@ -47,15 +48,16 @@ class LevelTracker {
   /// Must be short compared with the shortest element the decoder has
   /// to serve: a dit is 60 ms at 20 WPM, so an attack of tens of
   /// milliseconds would leave the mark level still climbing when the
-  /// dit ends.
-  final double attackMs;
+  /// dit ends. Mutable — see [reconfigure].
+  double attackMs;
 
   /// Time constant for a level relaxing *away* from its extreme.
   ///
   /// Long enough that the two levels stay apart across normal keying,
   /// short enough to follow genuine drift — the 1000 Hz reference
   /// recording loses 11 dB of signal while its background gains 14 dB.
-  final double releaseMs;
+  /// Mutable — see [reconfigure].
+  double releaseMs;
 
   /// Half-width of the symmetric hysteresis band around the midpoint.
   final double hysteresisDb;
@@ -72,14 +74,19 @@ class LevelTracker {
   /// signal is strong (a 47 dB swing puts the midpoint 23 dB below the
   /// tone), stretching every mark and swallowing the gaps between
   /// them. The offset is capped at half the separation so a weak
-  /// signal still thresholds in the middle.
-  final double thresholdOffsetDb;
+  /// signal still thresholds in the middle. Mutable — see [reconfigure].
+  double thresholdOffsetDb;
 
   /// How far above the space level the decision threshold is kept, in
   /// dB, so that background fluctuation cannot trigger marks. Capped
   /// at 60 % of the current separation so a weak but real signal is
   /// still decoded rather than squelched by its own margin.
   final double noiseMarginDb;
+
+  /// Bound, in dB, on how far the space level is allowed to fall below
+  /// its value at the start of a single uninterrupted gap. See
+  /// `AudioDecoder.maxSpaceDropDb` for the failure this prevents.
+  final double maxSpaceDropDb;
 
   /// Envelope samples collected before the levels are first estimated.
   final int bootstrapSamples;
@@ -91,6 +98,10 @@ class LevelTracker {
   double? _spaceDb;
   bool _isOn = false;
   final List<double> _bootstrap = [];
+
+  /// Space level as of the start of the current uninterrupted gap, or
+  /// null while on (or before the first gap). Anchors [maxSpaceDropDb].
+  double? _spaceDbGapAnchor;
 
 
   /// Whether both levels have been estimated.
@@ -133,6 +144,20 @@ class LevelTracker {
   static double toDb(double envelope) =>
       20 * (log(max(envelope, _eps)) / ln10);
 
+  /// Changes the attack/release time constants and the mark-anchor
+  /// offset without resetting the tracked levels — for switching to a
+  /// speed-appropriate profile once the keying rate is known, without
+  /// losing the convergence already reached.
+  void reconfigure({
+    double? attackMs,
+    double? releaseMs,
+    double? thresholdOffsetDb,
+  }) {
+    if (attackMs != null) this.attackMs = attackMs;
+    if (releaseMs != null) this.releaseMs = releaseMs;
+    if (thresholdOffsetDb != null) this.thresholdOffsetDb = thresholdOffsetDb;
+  }
+
   /// Seeds both levels directly, e.g. from statistics gathered during
   /// the frequency-scanning phase, so tracking starts already
   /// converged instead of spending the first seconds adapting.
@@ -169,6 +194,7 @@ class LevelTracker {
     final mid = (_markDb! + _spaceDb!) / 2;
     final threshold = thresholdDb;
 
+    final wasOn = _isOn;
     if (separationDb >= minSeparationDb) {
       if (!_isOn && db > threshold + hysteresisDb) {
         _isOn = true;
@@ -177,6 +203,15 @@ class LevelTracker {
       }
     } else {
       _isOn = false;
+    }
+
+    if (_isOn) {
+      // No cap while on — only a gap's own space level is bounded.
+      _spaceDbGapAnchor = null;
+    } else if (wasOn) {
+      // Just entered a gap: remember where the space level stood, so
+      // this gap (however long) can't pull it down without bound.
+      _spaceDbGapAnchor = _spaceDb;
     }
 
     // Assign the sample to a class by the midpoint of the two levels,
@@ -191,8 +226,11 @@ class LevelTracker {
     if (db >= mid) {
       _markDb = _markDb! + (db - _markDb!) * (db > _markDb! ? attack : release);
     } else {
-      _spaceDb =
+      var next =
           _spaceDb! + (db - _spaceDb!) * (db < _spaceDb! ? attack : release);
+      final anchor = _spaceDbGapAnchor;
+      if (anchor != null) next = max(next, anchor - maxSpaceDropDb);
+      _spaceDb = next;
     }
 
     return _isOn;
@@ -204,5 +242,6 @@ class LevelTracker {
     _spaceDb = null;
     _isOn = false;
     _bootstrap.clear();
+    _spaceDbGapAnchor = null;
   }
 }

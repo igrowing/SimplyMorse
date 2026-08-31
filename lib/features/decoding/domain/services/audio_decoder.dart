@@ -121,7 +121,7 @@ class AudioDecoder {
     this.signalTimeoutMs = 0,
     this.bandwidth = 0,
     this.bandwidthRatio = 0.16,
-    this.envelopeCutoffHz = 40.0,
+    this.envelopeCutoffHz = kDefaultEnvelopeCutoffHz,
     this.onThresholdFactor = 4,
     this.offThresholdFactor = 2,
     this.minElementMs = 10,
@@ -135,6 +135,14 @@ class AudioDecoder {
     this.noiseMarginDb = 10.0,
     this.levelAttackMs = 120,
     this.levelReleaseMs = 150,
+    this.maxSpaceDropDb = 8.0,
+    this.fastDitThresholdMs = 85,
+    this.normalLevelAttackMs = 120,
+    this.normalLevelReleaseMs = 150,
+    this.normalThresholdOffsetDb = 4.0,
+    this.fastLevelAttackMs = 30,
+    this.fastLevelReleaseMs = 220,
+    this.fastThresholdOffsetDb = 3.0,
     this.preLockBufferMs = 1200,
   }) {
     _fft = FFT(fftSize);
@@ -224,11 +232,78 @@ class AudioDecoder {
   /// How far above the tracked space level the threshold is kept.
   final double noiseMarginDb;
 
-  /// Attack time constant of the two level estimates, in ms.
+  /// Attack time constant of the two level estimates, in ms, used
+  /// until a keying speed has been estimated (see [fastDitThresholdMs]).
+  /// Also the permanent fallback if a speed estimate never becomes
+  /// available — e.g. [preLockBufferMs] disabled.
   final double levelAttackMs;
 
-  /// Release time constant of the two level estimates, in ms.
+  /// Release time constant of the two level estimates, in ms. See
+  /// [levelAttackMs].
   final double levelReleaseMs;
+
+  /// Bound, in dB, on how far the tracked space (background) level is
+  /// allowed to fall below its value at the start of a single
+  /// uninterrupted gap.
+  ///
+  /// Without this, a long silence (the 2.4–2.9 s gaps between
+  /// repetitions in the reference recordings) lets the space level
+  /// drift down to whatever the background happens to measure during
+  /// that particular quiet stretch. If the background then rises once
+  /// keying resumes — which the 1000 Hz reference recording's
+  /// documented 14 dB rise shows really happens — the stale, too-low
+  /// space level drags the threshold down with it, and genuine
+  /// intra-word gaps stop crossing back below threshold, merging
+  /// characters together. Clamping the fall bounds the damage without
+  /// preventing the space level from tracking real drift during
+  /// normal (short) inter-element gaps.
+  final double maxSpaceDropDb;
+
+  /// Estimated dit duration, in ms, below which the tracker switches
+  /// to [fastLevelAttackMs]/[fastLevelReleaseMs]/[fastThresholdOffsetDb]
+  /// instead of the [normalLevelAttackMs]/[normalLevelReleaseMs]/
+  /// [normalThresholdOffsetDb] profile.
+  ///
+  /// Default 85 ms ≈ 14 WPM (1200 / 14 ≈ 85.7 ms). Below this speed
+  /// [levelAttackMs]'s 120 ms default attack time is comparable to or
+  /// longer than a single dit, so the mark level never converges
+  /// within it — measured on the 20 WPM reference recording (60 ms
+  /// dit), the first repetition decodes as "EM DO," garbage before
+  /// the tracker catches up.
+  final double fastDitThresholdMs;
+
+  /// Attack time constant used once the keying speed is known to be
+  /// at or above [fastDitThresholdMs]'s boundary. Same value as
+  /// [levelAttackMs]'s default — listed separately because the two
+  /// are tuned independently.
+  final double normalLevelAttackMs;
+
+  /// Release time constant paired with [normalLevelAttackMs].
+  final double normalLevelReleaseMs;
+
+  /// [LevelTracker.thresholdOffsetDb] used at normal speed. Measured
+  /// 4.0 dB (vs. the class's un-gated 3.0 dB default) trims the 8 WPM
+  /// / 700 Hz CER from 11.1 % to 7.4 %; the same value costs the
+  /// 20 WPM recording badly (29.3 % → 73.2 %), which is why it's only
+  /// applied once the tracker knows the speed isn't fast.
+  final double normalThresholdOffsetDb;
+
+  /// Attack time constant used once the estimated dit falls below
+  /// [fastDitThresholdMs] — short enough to converge within a single
+  /// dit at 20 WPM.
+  final double fastLevelAttackMs;
+
+  /// Release time constant paired with [fastLevelAttackMs]. Longer
+  /// than the attack (asymmetric) so the level doesn't relax away
+  /// from a genuine mark/space before the next element arrives, given
+  /// how little time there is between them at this speed.
+  final double fastLevelReleaseMs;
+
+  /// [LevelTracker.thresholdOffsetDb] used once fast keying is
+  /// detected — equal to the class's un-gated default; see
+  /// [normalThresholdOffsetDb] for why the normal-speed profile uses
+  /// a different value instead of sharing this one.
+  final double fastThresholdOffsetDb;
 
   /// How much audio to retain during scanning so that, on lock, the
   /// acquisition window can be re-decoded with converged levels
@@ -276,6 +351,7 @@ class AudioDecoder {
     minSeparationDb: minSeparationDb,
     thresholdOffsetDb: thresholdOffsetDb,
     noiseMarginDb: noiseMarginDb,
+    maxSpaceDropDb: maxSpaceDropDb,
   );
 
   /// Raw samples retained during scanning, replayed on lock.
@@ -427,8 +503,19 @@ class AudioDecoder {
         _scanFrames = 0;
       }
 
-      // Accumulate power for parabolic interpolation.
-      _binPowerAccum[bestBin] = (_binPowerAccum[bestBin] ?? 0) + bestPower;
+      // Accumulate power for parabolic interpolation — the peak bin
+      // and both its neighbours, every frame, not just whichever bin
+      // happened to win. Recording only the winner left the neighbour
+      // entries empty whenever one bin consistently dominated (the
+      // common case), which silently zeroed the interpolation below
+      // and left every lock snapped to the 31.25 Hz FFT bin grid
+      // instead of the true frequency (e.g. 700 Hz landing at
+      // 687.5 Hz, bin 22 — confirmed against reference recordings).
+      for (final b in [bestBin - 1, bestBin, bestBin + 1]) {
+        if (b >= 0 && b < power.length) {
+          _binPowerAccum[b] = (_binPowerAccum[b] ?? 0) + power[b];
+        }
+      }
       _scanFrames++;
 
       // Check for immediate lock: single long stable tone (≥ 500 ms).
@@ -595,6 +682,24 @@ class AudioDecoder {
     }
     _levels.seedFromEnvelopes(envelopes);
 
+    // Pick the level-tracking profile from the keying speed found in
+    // this same buffer, before spending it on the real decode. See
+    // [fastDitThresholdMs] for why a single fixed profile can't serve
+    // both ends of the WPM range.
+    final ditEstimateMs = _estimateDitMs(envelopes);
+    if (ditEstimateMs != null) {
+      final fast = ditEstimateMs < fastDitThresholdMs;
+      _levels.reconfigure(
+        attackMs: fast ? fastLevelAttackMs : normalLevelAttackMs,
+        releaseMs: fast ? fastLevelReleaseMs : normalLevelReleaseMs,
+        thresholdOffsetDb:
+            fast ? fastThresholdOffsetDb : normalThresholdOffsetDb,
+      );
+    }
+    // If no estimate could be made (too few elements in the buffer),
+    // _levels keeps running with levelAttackMs/levelReleaseMs/
+    // thresholdOffsetDb — the un-gated constructor defaults.
+
     // Pass 2 — rewind the clock and decode those envelopes with the
     // seeded levels, emitting the elements that were missed.
     _totalSamples -= blocks * blockSize;
@@ -604,6 +709,41 @@ class AudioDecoder {
       _totalSamples += blockSize;
       _trackEnvelope(env);
     }
+  }
+
+  /// Rough dit-duration estimate from a batch of already-filtered
+  /// envelope values, used only to pick a level-tracking profile.
+  ///
+  /// Thresholds each sample against a single fixed snapshot of
+  /// [LevelTracker.thresholdDb] (no hysteresis, no adaptation) rather
+  /// than feeding them through [LevelTracker.process] — that would
+  /// perturb the freshly seeded mark/space levels before the real
+  /// pass 2 decode gets to use them. A coarse estimate is all a
+  /// fast/normal decision needs.
+  ///
+  /// Returns the 25th-percentile on-run duration in ms, or null if
+  /// there aren't at least 3 on-runs to estimate from.
+  int? _estimateDitMs(List<double> envelopes) {
+    if (!_levels.isReady) return null;
+    final threshold = _levels.thresholdDb;
+    final blockMs = blockSize * 1000 / sampleRate;
+
+    final onRunsMs = <double>[];
+    var isOnLocal = false;
+    var runStartBlock = 0;
+    for (var i = 0; i < envelopes.length; i++) {
+      final wantOn = LevelTracker.toDb(envelopes[i]) > threshold;
+      if (wantOn != isOnLocal) {
+        if (isOnLocal) onRunsMs.add((i - runStartBlock) * blockMs);
+        isOnLocal = wantOn;
+        runStartBlock = i;
+      }
+    }
+    if (isOnLocal) onRunsMs.add((envelopes.length - runStartBlock) * blockMs);
+
+    if (onRunsMs.length < 3) return null;
+    onRunsMs.sort();
+    return onRunsMs[(onRunsMs.length * 0.25).floor()].round();
   }
 
   // -- Tracking phase --------------------------------------------
