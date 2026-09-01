@@ -23,6 +23,7 @@ class MorseDecoder {
     this.ditThreshold = 2.2,
     this.gapThreshold = 2.0,
     this.wordGapThreshold = 6.0,
+    this.priority = 3,
   });
 
   /// Multiplier of dit duration below which an on-element is a
@@ -52,6 +53,16 @@ class MorseDecoder {
   /// jitter without splitting words prematurely.
   final double wordGapThreshold;
 
+  /// Character set priority for decoding.
+  ///
+  /// * 3 (default): ASCII only — letters, numbers, punctuation.
+  /// * 4: Adds Latin Extended (European characters: Ä, Ö, Ü, É,
+  ///   etc.). These have short Morse codes that can match
+  ///   misclassified sequences, so they are opt-in only.
+  ///
+  /// See [MorseCodeTable.reverseLookup] for details.
+  final int priority;
+
   /// Maximum dits/dahs per character before the buffer is
   /// discarded as a timing error. The longest standard Morse
   /// symbol is 6 elements; anything beyond 7 is garbage.
@@ -71,7 +82,7 @@ class MorseDecoder {
   /// Decodes a Morse code string (e.g. ".−.") to its character.
   /// Returns `null` for unrecognized codes.
   String? decodeSymbol(String morseCode) {
-    return MorseCodeTable.reverseLookup(morseCode);
+    return MorseCodeTable.reverseLookup(morseCode, priority: priority);
   }
 
   /// Decodes a list of [DecodedElement]s into text.
@@ -151,5 +162,16 @@ class MorseDecoder {
     // Use 25th percentile for dit estimation
     final idx = (onDurations.length * 0.25).floor();
     return onDurations[idx.clamp(0, onDurations.length - 1)].toDouble();
+  }
+
+  /// Estimates WPM from a dit duration using the PARIS method.
+  ///
+  /// The word PARIS is exactly 50 dit-lengths, so
+  /// `WPM = 60000 / (ditMs × 50) = 1200 / ditMs`.
+  ///
+  /// Example: ditMs = 150 → WPM = 8; ditMs = 60 → WPM = 20.
+  static double estimateWpm(double ditMs) {
+    if (ditMs <= 0) return 0;
+    return 1200 / ditMs;
   }
 }

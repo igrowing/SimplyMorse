@@ -80,7 +80,11 @@ Future<void> configureDependencies() async {
         morseTransmitter: getIt<MorseTransmitter>(),
       ),
     )
-    ..registerFactory<AudioDecoder>(() => AudioDecoder())
+    ..registerFactory<AudioDecoder>(() => AudioDecoder(
+        sampleRate: 44100,
+        fftSize: 2048,
+        blockSize: 220,
+      ))
     ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
     ..registerSingleton<VideoDebugLogger>(VideoDebugLogger())
     ..registerFactory<VideoDecoder>(() => VideoDecoder())

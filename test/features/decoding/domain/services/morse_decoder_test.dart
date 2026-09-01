@@ -286,4 +286,23 @@ void main() {
       expect(result, isEmpty);
     });
   });
+
+  group('MorseDecoder.estimateWpm', () {
+    test('estimates 8 WPM from 150 ms dit', () {
+      expect(MorseDecoder.estimateWpm(150), closeTo(8.0, 0.01));
+    });
+
+    test('estimates 20 WPM from 60 ms dit', () {
+      expect(MorseDecoder.estimateWpm(60), closeTo(20.0, 0.01));
+    });
+
+    test('estimates 3 WPM from 400 ms dit', () {
+      expect(MorseDecoder.estimateWpm(400), closeTo(3.0, 0.01));
+    });
+
+    test('returns 0 for zero or negative dit', () {
+      expect(MorseDecoder.estimateWpm(0), 0);
+      expect(MorseDecoder.estimateWpm(-1), 0);
+    });
+  });
 }

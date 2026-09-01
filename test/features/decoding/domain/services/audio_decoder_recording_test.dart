@@ -69,8 +69,16 @@ List<RecordingFixture> _loadManifest() {
 _decodeRecording(RecordingFixture fixture) {
   final samples = _loadFloat32Samples(fixture.file);
 
+  // Scale FFT and block size for the sample rate.
+  // At 8 kHz: fftSize=256 (31 Hz/bin), blockSize=40 (5 ms).
+  // At 44.1 kHz: fftSize=2048 (22 Hz/bin), blockSize=220 (5 ms).
+  final fftSz = fixture.sampleRate >= 44100 ? 2048 : 256;
+  final blockSz = (fixture.sampleRate * 5 / 1000).round();
+
   final decoder = AudioDecoder(
     sampleRate: fixture.sampleRate,
+    fftSize: fftSz,
+    blockSize: blockSz,
     bandwidth: 0,
   );
 
@@ -234,8 +242,12 @@ void main() {
       test('${fixture.file} locks within valid range', () {
         final samples = _loadFloat32Samples(fixture.file);
 
+        final fftSz = fixture.sampleRate >= 44100 ? 2048 : 256;
+        final blockSz = (fixture.sampleRate * 5 / 1000).round();
         final decoder = AudioDecoder(
           sampleRate: fixture.sampleRate,
+          fftSize: fftSz,
+          blockSize: blockSz,
           bandwidth: 0,
         );
 

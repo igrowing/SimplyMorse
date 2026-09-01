@@ -38,8 +38,13 @@ void main() {
           .asFloat32List(bytes.offsetInBytes, bytes.length ~/ 4)
           .toList();
 
+      final sr = entry['sampleRate'] as int;
+      final fftSz = sr >= 44100 ? 2048 : 256;
+      final blockSz = (sr * 5 / 1000).round();
       final decoder = AudioDecoder(
-        sampleRate: entry['sampleRate'] as int,
+        sampleRate: sr,
+        fftSize: fftSz,
+        blockSize: blockSz,
         bandwidth: 0,
       );
       final elements = <DecodedElement>[];

@@ -1,8 +1,8 @@
 [
   {
     "file": "1000Hz_2times_8wpm.f32",
-    "sampleRate": 8000,
-    "nSamples": 473771,
+    "sampleRate": 44100,
+    "nSamples": 2611663,
     "expectedFreq": 1000,
     "expectedWpm": 8,
     "repeatCount": 2,
@@ -11,8 +11,8 @@
   },
   {
     "file": "400Hz_2times_8wpm.f32",
-    "sampleRate": 8000,
-    "nSamples": 457899,
+    "sampleRate": 44100,
+    "nSamples": 2524169,
     "expectedFreq": 400,
     "expectedWpm": 8,
     "repeatCount": 2,
@@ -21,8 +21,8 @@
   },
   {
     "file": "700Hz_1time_3wpm.f32",
-    "sampleRate": 8000,
-    "nSamples": 560299,
+    "sampleRate": 44100,
+    "nSamples": 3088649,
     "expectedFreq": 700,
     "expectedWpm": 3,
     "repeatCount": 1,
@@ -31,8 +31,8 @@
   },
   {
     "file": "700Hz_2times_8wpm.f32",
-    "sampleRate": 8000,
-    "nSamples": 475307,
+    "sampleRate": 44100,
+    "nSamples": 2620130,
     "expectedFreq": 700,
     "expectedWpm": 8,
     "repeatCount": 2,
@@ -41,8 +41,8 @@
   },
   {
     "file": "700Hz_3times_20wpm.f32",
-    "sampleRate": 8000,
-    "nSamples": 312320,
+    "sampleRate": 44100,
+    "nSamples": 1721664,
     "expectedFreq": 700,
     "expectedWpm": 20,
     "repeatCount": 3,

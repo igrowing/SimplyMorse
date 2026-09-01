@@ -28,7 +28,7 @@ class AudioCaptureImpl implements AudioCapture {
     final stream = await _recorder.startStream(
       RecordConfig(
         encoder: AudioEncoder.pcm16bits,
-        sampleRate: 8000,
+        sampleRate: 44100,
         numChannels: 1,
         autoGain: false,
         echoCancel: false,
