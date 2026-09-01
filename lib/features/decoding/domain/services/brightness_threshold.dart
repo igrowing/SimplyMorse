@@ -12,6 +12,9 @@ class BrightnessThreshold {
     this.decayFactor = 0.995,
     this.minRange = 0.01,
     this.minTransitionMs = 50,
+    this.biasHistorySize = 10,
+    this.minSamplesForBias = 4,
+    this.biasMaxFrameFraction = 0.5,
   }) : assert(
          onFactor >= offFactor,
          'onFactor must be greater than or equal to offFactor',
@@ -46,6 +49,19 @@ class BrightnessThreshold {
   /// frame is already a third of a 20 WPM dit.
   final int minTransitionMs;
 
+  /// How many recent completed on/off segments feed the mark/space
+  /// bias estimate. See [biasMaxFrameFraction].
+  final int biasHistorySize;
+
+  /// Minimum on-segments *and* off-segments in history before a bias
+  /// correction is attempted — a couple of samples on either side is
+  /// too easily skewed by one landing near a threshold boundary.
+  final int minSamplesForBias;
+
+  /// Cap on the bias correction, as a fraction of the observed frame
+  /// period. See [_currentBiasMs] for why a cap is needed at all.
+  final double biasMaxFrameFraction;
+
   double _min = 1;
   double _max = 0;
   bool _isOn = false;
@@ -55,6 +71,41 @@ class BrightnessThreshold {
   double _prevBrightness = 0;
   int _prevTimestampMs = 0;
   double _lastEdgeMs = 0;
+
+  // -- Mark/space bias correction --
+  //
+  // Camera frame integration and LED/sensor persistence delay the
+  // *falling* edge (on -> off) more than the rising edge: a frame
+  // whose exposure window mostly overlapped a lit mark still reads
+  // "on" even after the source has switched off. The rising edge has
+  // no equivalent delay. Net effect, confirmed on the reference
+  // recordings: marks measure systematically longer than the 1-unit
+  // gaps that follow them — by up to several frames at 20 WPM, where
+  // a mark is only ~1.8 frames to begin with, this dilation collapses
+  // dits into dahs before any decoder-side logic runs.
+  //
+  // The fix estimates the bias online — half the gap between the
+  // median mark and the median *short* gap (a proxy for "should be
+  // the same duration") — and shifts only the falling edge earlier by
+  // that amount. No fixed millisecond constant: frame rate, sending
+  // speed and camera behaviour all vary, so the correction is derived
+  // from what this stream is actually doing.
+  double _segStartMs = 0;
+  double _avgFrameMs = 33;
+  bool _avgFrameMsSeeded = false;
+  final List<double> _onHistoryMs = [];
+  final List<double> _offHistoryMs = [];
+  double _effectiveTransitionMs = 0;
+
+  /// The time callers should report this frame's transition at,
+  /// instead of the raw frame timestamp.
+  ///
+  /// Equal to the frame timestamp on every call except the one where
+  /// a falling (on -> off) edge is detected, where it is shifted
+  /// earlier by the current bias correction — see the class docs
+  /// above [_segStartMs]. Safe to read unconditionally after every
+  /// [process] call.
+  double get effectiveTransitionMs => _effectiveTransitionMs;
 
   /// Timestamp of the most recent transition, interpolated between
   /// the two frames that straddled the threshold.
@@ -96,8 +147,26 @@ class BrightnessThreshold {
       _prevBrightness = brightness;
       _prevTimestampMs = t;
       _lastEdgeMs = t.toDouble();
+      _segStartMs = t.toDouble();
+      _effectiveTransitionMs = t.toDouble();
       return _isOn;
     }
+
+    // Track the observed frame period so the bias cap (below) scales
+    // to the actual capture rate rather than assuming one.
+    final dt = t - _prevTimestampMs;
+    if (dt > 0) {
+      if (!_avgFrameMsSeeded) {
+        _avgFrameMs = dt.toDouble();
+        _avgFrameMsSeeded = true;
+      } else {
+        _avgFrameMs += (dt - _avgFrameMs) * 0.2;
+      }
+    }
+
+    // Defaults to the raw timestamp; overridden below only on a
+    // falling edge, once bias correction is warranted.
+    _effectiveTransitionMs = t.toDouble();
 
     final forgetRate = 1 - decayFactor;
 
@@ -137,13 +206,65 @@ class BrightnessThreshold {
         brightness,
         t,
       );
+
+      if (_isOn) {
+        // Falling edge: on -> off. Shift it earlier by the current
+        // bias and record the (corrected) mark duration.
+        _effectiveTransitionMs = t - _currentBiasMs();
+        final durationMs = _effectiveTransitionMs - _segStartMs;
+        if (durationMs > 0) _pushHistory(_onHistoryMs, durationMs);
+      } else {
+        // Rising edge: off -> on. No correction — only persistence
+        // and integration on the falling side are asymmetric.
+        final durationMs = _effectiveTransitionMs - _segStartMs;
+        if (durationMs > 0) _pushHistory(_offHistoryMs, durationMs);
+      }
+
       _isOn = !_isOn;
       _lastTransitionMs = t;
+      _segStartMs = _effectiveTransitionMs;
     }
 
     _prevBrightness = brightness;
     _prevTimestampMs = t;
     return _isOn;
+  }
+
+  void _pushHistory(List<double> history, double durationMs) {
+    history.add(durationMs);
+    if (history.length > biasHistorySize) history.removeAt(0);
+  }
+
+  /// Current falling-edge bias correction, in ms.
+  ///
+  /// Half the gap between the median mark and the median *short* off
+  /// segment (off segments longer than 2.5x the median mark are
+  /// character/word gaps, not comparable 1-unit gaps, and are
+  /// excluded). Marks and 1-unit gaps should be equal in valid Morse,
+  /// so this gap is exactly the dilation to correct for — see the
+  /// class docs above [_segStartMs].
+  ///
+  /// Capped at [biasMaxFrameFraction] of the observed frame period:
+  /// the underlying cause is at most a frame or so of integration and
+  /// persistence, so a larger estimate is noise, not signal, and
+  /// applying it uncorrected has caused more harm than good in
+  /// testing.
+  double _currentBiasMs() {
+    if (_onHistoryMs.length < minSamplesForBias ||
+        _offHistoryMs.length < minSamplesForBias) {
+      return 0;
+    }
+    final sortedOn = List<double>.from(_onHistoryMs)..sort();
+    final medianOn = sortedOn[sortedOn.length ~/ 2];
+
+    final shortOffs = _offHistoryMs.where((d) => d < medianOn * 2.5).toList();
+    if (shortOffs.length < minSamplesForBias) return 0;
+    shortOffs.sort();
+    final medianOff = shortOffs[shortOffs.length ~/ 2];
+
+    final bias = (medianOn - medianOff) / 2.0;
+    final cap = _avgFrameMs * biasMaxFrameFraction;
+    return bias.clamp(0.0, cap);
   }
 
   /// Places the edge between the previous and current frame at the
@@ -166,5 +287,11 @@ class BrightnessThreshold {
     _prevBrightness = 0;
     _prevTimestampMs = 0;
     _lastEdgeMs = 0;
+    _segStartMs = 0;
+    _avgFrameMs = 33;
+    _avgFrameMsSeeded = false;
+    _onHistoryMs.clear();
+    _offHistoryMs.clear();
+    _effectiveTransitionMs = 0;
   }
 }

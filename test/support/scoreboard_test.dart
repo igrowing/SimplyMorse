@@ -90,7 +90,10 @@ void main() {
       for (var i = 0; i < trace.length; i++) {
         final t = i * frameMs;
         final isOn = threshold.process(trace[i], timestampMs: t);
-        builder.transition(nowOn: isOn, timeMs: t.toDouble());
+        builder.transition(
+          nowOn: isOn,
+          timeMs: threshold.effectiveTransitionMs,
+        );
       }
       builder.flush();
       gate.flush();

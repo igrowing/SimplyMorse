@@ -123,6 +123,7 @@ class VideoDecoder {
     this.lostFrameLimit = 10,
     this.minRegionSize = 8,
     this.maxRegionSize = 32,
+    this.backgroundMarginPx = 8,
     BrightnessThreshold? threshold,
     AlphaBetaFilter? filter,
   }) : _threshold = threshold ?? BrightnessThreshold(),
@@ -147,6 +148,12 @@ class VideoDecoder {
 
   /// Maximum brightness-reading region size (pixels).
   final int maxRegionSize;
+
+  /// Extra pixels beyond the brightness-reading region's own radius
+  /// that make up the background annulus used to cancel shared
+  /// auto-exposure drift. See the background-subtraction comment in
+  /// [_track].
+  final int backgroundMarginPx;
 
   // Components
   final BrightnessThreshold _threshold;
@@ -359,12 +366,31 @@ class VideoDecoder {
       final cy = _filter.y.round();
       final half = regionSize ~/ 2;
 
-      final brightness = frame.regionMeanLuminance(
+      final rawBrightness = frame.regionMeanLuminance(
         cx - half,
         cy - half,
         regionSize,
         regionSize,
       );
+
+      // Background-subtract for a localized source: camera
+      // auto-exposure moves the whole scene together, so the region
+      // around the beacon rises and falls with it even when the
+      // beacon itself hasn't changed state — this was measured
+      // corrupting BrightnessThreshold's min/max tracking on AE-heavy
+      // reference recordings. Subtracting the surrounding annulus'
+      // level cancels that shared drift. Skipped for a full-frame
+      // blink, where the annulus flashes in phase with the region and
+      // subtracting it would cancel the *signal*, not just drift.
+      final brightness = _isFullFrame
+          ? rawBrightness
+          : rawBrightness -
+                frame.annulusMeanLuminance(
+                  cx,
+                  cy,
+                  half,
+                  half + backgroundMarginPx,
+                );
 
       final isOn = _threshold.process(
         brightness,
@@ -387,7 +413,7 @@ class VideoDecoder {
       );
       _builder.transition(
         nowOn: isOn,
-        timeMs: frame.timestampMs.toDouble(),
+        timeMs: _threshold.effectiveTransitionMs,
       );
     } else {
       _lostFrameCount++;

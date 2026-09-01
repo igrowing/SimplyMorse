@@ -94,7 +94,7 @@ List<VideoRecordingFixture> _loadVideoManifest() {
   for (var i = 0; i < trace.length; i++) {
     final ts = i * frameMs;
     final isOn = threshold.process(trace[i], timestampMs: ts);
-    builder.transition(nowOn: isOn, timeMs: ts.toDouble());
+    builder.transition(nowOn: isOn, timeMs: threshold.effectiveTransitionMs);
   }
   builder.flush();
   gate.flush();
@@ -191,10 +191,14 @@ void main() {
       expect(result.ditMs, closeTo(60, 20));
       // 20 WPM at 30 fps is 1.8 frames per dit — the dah and
       // character-gap clusters overlap, so this is frame-rate
-      // limited rather than threshold limited.
+      // limited rather than threshold limited. BrightnessThreshold's
+      // falling-edge bias correction recovers most of that (measured
+      // 37.0% -> 29.6%) by undoing the systematic mark/gap dilation
+      // frame integration and LED persistence introduce — see its
+      // class docs.
       expect(
         characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.45),
+        lessThanOrEqualTo(0.35),
       );
 
       // ignore: avoid_print
