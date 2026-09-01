@@ -160,9 +160,9 @@ class EncodingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateRepeatLoop(bool value) async {
+  Future<void> updateRepeatLoop({required bool value}) async {
     _repeatLoop = value;
-    await _settingsRepo.saveRepeatLoop(value);
+    await _settingsRepo.saveRepeatLoop(enabled: value);
     notifyListeners();
   }
 
@@ -175,17 +175,15 @@ class EncodingController extends ChangeNotifier {
   /// Backward-compatible method — maps [LightMethod] back to
   /// output methods.
   void updateLightMethod(LightMethod value) {
-    final next = Set<OutputMethod>.from(_outputs);
-    // Remove existing light methods
-    next.remove(OutputMethod.led);
-    next.remove(OutputMethod.display);
-    // Add the new ones
-    if (value == LightMethod.flashLed || value == LightMethod.both) {
-      next.add(OutputMethod.led);
-    }
-    if (value == LightMethod.display || value == LightMethod.both) {
-      next.add(OutputMethod.display);
-    }
+    final next = Set<OutputMethod>.from(_outputs)
+      ..remove(OutputMethod.led)
+      ..remove(OutputMethod.display)
+      ..addAll([
+        if (value == LightMethod.flashLed || value == LightMethod.both)
+          OutputMethod.led,
+        if (value == LightMethod.display || value == LightMethod.both)
+          OutputMethod.display,
+      ]);
     if (next.isNotEmpty) _outputs = next;
     notifyListeners();
   }

@@ -67,6 +67,7 @@ class Goertzel {
   /// Updates the target frequency (for tracking frequency
   /// drift) and recomputes coefficients.
   void updateFrequency(double newFreq) {
+    // Ignored: prefer_constant_constructors is intentional for this test case.
     // ignore: prefer_constant_constructors
     final newGoertzel = Goertzel(
       sampleRate: sampleRate,

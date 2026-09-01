@@ -103,7 +103,6 @@ class LevelTracker {
   /// null while on (or before the first gap). Anchors [maxSpaceDropDb].
   double? _spaceDbGapAnchor;
 
-
   /// Whether both levels have been estimated.
   bool get isReady => _markDb != null;
 
@@ -161,8 +160,7 @@ class LevelTracker {
   bool get isOn => _isOn;
 
   /// Converts a linear envelope amplitude to dB.
-  static double toDb(double envelope) =>
-      20 * (log(max(envelope, _eps)) / ln10);
+  static double toDb(double envelope) => 20 * (log(max(envelope, _eps)) / ln10);
 
   /// Changes the attack/release time constants and the mark-anchor
   /// offset without resetting the tracked levels — for switching to a

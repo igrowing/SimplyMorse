@@ -1,4 +1,6 @@
 @Tags(['video-recording'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -125,6 +127,7 @@ void main() {
 
   if (!manifestExists || !firstTraceExists) {
     test('video recording fixtures not available — skipping', () {
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(
         '  Video recording tests skipped: brightness trace fixtures '
@@ -157,6 +160,7 @@ void main() {
         lessThanOrEqualTo(0.75),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('4wpm', result.text, fixture.expectedText));
     });
@@ -176,6 +180,7 @@ void main() {
         lessThanOrEqualTo(0.40),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('8wpm', result.text, fixture.expectedText));
     });
@@ -201,6 +206,7 @@ void main() {
         lessThanOrEqualTo(0.35),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('20wpm', result.text, fixture.expectedText));
     });

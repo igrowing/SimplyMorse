@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/core/utils/wav_generator.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart'
+    show LightMethod;
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 
 /// Callback for transmission progress updates.
@@ -21,8 +22,7 @@ typedef CompleteCallback = void Function();
 /// can blink the screen in sync with the Morse signal when the
 /// selected [LightMethod] includes display output.
 class MorseTransmitter {
-  MorseTransmitter({required TorchService torchService})
-    : _torchService = torchService;
+  MorseTransmitter({required this._torchService});
 
   final TorchService _torchService;
 
@@ -126,7 +126,7 @@ class MorseTransmitter {
   /// Disposes all resources.
   void dispose() {
     _progressTimer?.cancel();
-    _player?.dispose();
+    unawaited(_player?.dispose());
     displayBlink.dispose();
   }
 

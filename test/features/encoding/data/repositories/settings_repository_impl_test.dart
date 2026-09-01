@@ -23,16 +23,16 @@ void main() {
       });
 
       test('returns saved speed after saveSpeed', () async {
-        await repository.saveSpeed(15.0);
+        await repository.saveSpeed(15);
         final speed = await repository.getSpeed();
         expect(speed, 15.0);
       });
 
       test('returns updated speed after multiple saves', () async {
-        await repository.saveSpeed(5.0);
+        await repository.saveSpeed(5);
         expect(await repository.getSpeed(), 5.0);
 
-        await repository.saveSpeed(25.0);
+        await repository.saveSpeed(25);
         expect(await repository.getSpeed(), 25.0);
       });
     });
@@ -67,7 +67,7 @@ void main() {
       });
 
       test('returns saved tone after saveTone', () async {
-        await repository.saveTone(500.0);
+        await repository.saveTone(500);
         final tone = await repository.getTone();
         expect(tone, 500.0);
       });
@@ -103,7 +103,7 @@ void main() {
       });
 
       test('returns saved initial delay after saveInitialDelay', () async {
-        await repository.saveInitialDelay(5.0);
+        await repository.saveInitialDelay(5);
         final delay = await repository.getInitialDelay();
         expect(delay, 5.0);
       });
@@ -111,7 +111,7 @@ void main() {
 
     group('saveInitialDelay', () {
       test('persists zero delay', () async {
-        await repository.saveInitialDelay(0.0);
+        await repository.saveInitialDelay(0);
         expect(await repository.getInitialDelay(), 0.0);
       });
 
@@ -132,15 +132,15 @@ void main() {
     });
 
     test('speed, tone and delay are independent', () async {
-      await repository.saveSpeed(20.0);
-      await repository.saveTone(450.0);
-      await repository.saveInitialDelay(10.0);
+      await repository.saveSpeed(20);
+      await repository.saveTone(450);
+      await repository.saveInitialDelay(10);
 
       expect(await repository.getSpeed(), 20.0);
       expect(await repository.getTone(), 450.0);
       expect(await repository.getInitialDelay(), 10.0);
 
-      await repository.saveSpeed(10.0);
+      await repository.saveSpeed(10);
       expect(await repository.getSpeed(), 10.0);
       expect(await repository.getTone(), 450.0);
       expect(await repository.getInitialDelay(), 10.0);

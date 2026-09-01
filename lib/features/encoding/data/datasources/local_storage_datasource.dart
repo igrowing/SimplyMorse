@@ -55,7 +55,7 @@ class LocalStorageDatasource {
         AppConstants.defaultRepeatLoop;
   }
 
-  Future<void> saveRepeatLoop(bool enabled) async {
+  Future<void> saveRepeatLoop({required bool enabled}) async {
     await _instance.setBool(AppConstants.repeatLoopKey, enabled);
   }
 
@@ -73,7 +73,7 @@ class LocalStorageDatasource {
         AppConstants.defaultFarnsworthEnabled;
   }
 
-  Future<void> saveFarnsworthEnabled(bool enabled) async {
+  Future<void> saveFarnsworthEnabled({required bool enabled}) async {
     await _instance.setBool(AppConstants.farnsworthKey, enabled);
   }
 

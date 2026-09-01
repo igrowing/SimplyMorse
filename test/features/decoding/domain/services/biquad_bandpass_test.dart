@@ -98,7 +98,7 @@ void main() {
       // Process silence — output should be near zero (no ringing)
       double maxOut = 0;
       for (var i = 0; i < 100; i++) {
-        final out = filter.process(0.0);
+        final out = filter.process(0);
         if (out.abs() > maxOut) maxOut = out.abs();
       }
       expect(maxOut, lessThan(1e-10));

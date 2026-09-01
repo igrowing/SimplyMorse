@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:math';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
@@ -116,10 +116,12 @@ class CameraCaptureImpl implements CameraCapture {
     if (_controller == null || !isInitialized) return;
     _isActive = true;
 
-    _controller!.startImageStream((CameraImage image) {
-      if (!_isActive) return;
-      onFrame(_processImage(image));
-    });
+    unawaited(
+      _controller!.startImageStream((image) {
+        if (!_isActive) return;
+        onFrame(_processImage(image));
+      }),
+    );
   }
 
   @override

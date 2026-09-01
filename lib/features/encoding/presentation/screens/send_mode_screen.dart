@@ -1,16 +1,15 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
-
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/screen_flash_service.dart';
-import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
-import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
-import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
+import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
+import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/morse_transmission_label.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
@@ -63,7 +62,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
       _ledFlashState = GetIt.instance<ScreenFlashService>().isFlashing;
     }
 
-    _controller.init();
+    unawaited(_controller.init());
   }
 
   @override
@@ -114,21 +113,21 @@ class _SendModeScreenState extends State<SendModeScreen> {
         ),
         body: Stack(
           children: [
-          Consumer<EncodingController>(
-            builder: (context, ctrl, _) {
-          // Show split layout on web when any light output is active.
-          final showVisualPanel = kIsWeb && ctrl.hasLight;
+            Consumer<EncodingController>(
+              builder: (context, ctrl, _) {
+                // Show split layout on web when any light output is active.
+                final showVisualPanel = kIsWeb && ctrl.hasLight;
 
-          if (showVisualPanel) {
-            return _buildSplitLayout(context);
-          }
-          return _buildNormalLayout(context);
-            },
-          ),
-          _buildCountdownOverlay(context),
-          _buildRepeatCountdownOverlay(context),
-        ],
-      ),
+                if (showVisualPanel) {
+                  return _buildSplitLayout(context);
+                }
+                return _buildNormalLayout(context);
+              },
+            ),
+            _buildCountdownOverlay(context),
+            _buildRepeatCountdownOverlay(context),
+          ],
+        ),
       ),
     );
   }
@@ -143,7 +142,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
         final label = _countdownLabel();
 
         return Positioned.fill(
-          child: Container(
+          child: ColoredBox(
             color: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.85),
             child: Center(
               child: Column(
@@ -158,7 +157,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
                   ),
                   const SizedBox(height: 24),
                   TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0.5, end: 1.0),
+                    tween: Tween<double>(begin: 0.5, end: 1),
                     duration: const Duration(milliseconds: 900),
                     key: ValueKey(remaining),
                     builder: (context, scale, child) {
@@ -279,8 +278,8 @@ class _SendModeScreenState extends State<SendModeScreen> {
                   children: [
                     if (showLedCircle) ...[
                       ValueListenableBuilder<bool>(
-                        valueListenable: _ledFlashState ??
-                            ValueNotifier<bool>(false),
+                        valueListenable:
+                            _ledFlashState ?? ValueNotifier<bool>(false),
                         builder: (context, isFlashing, _) {
                           return AnimatedContainer(
                             duration: const Duration(milliseconds: 50),
@@ -396,7 +395,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
     return ValueListenableBuilder<bool>(
       valueListenable: _controller.displayBlink,
       builder: (context, isBlinking, _) {
-        return Container(
+        return ColoredBox(
           color: isBlinking ? Colors.white : Colors.black,
           child: SafeArea(
             child: Column(
@@ -717,7 +716,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
               value: ctrl.repeatLoop,
               onChanged: ctrl.isTransmitting
                   ? null
-                  : (value) => _controller.updateRepeatLoop(value),
+                  : (value) => _controller.updateRepeatLoop(value: value),
               contentPadding: EdgeInsets.zero,
             ),
             if (ctrl.repeatLoop) ...[
@@ -762,7 +761,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
       builder: (context, remaining, _) {
         if (remaining == null) return const SizedBox.shrink();
         return Positioned.fill(
-          child: Container(
+          child: ColoredBox(
             color: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.7),
             child: Center(
               child: Column(
@@ -811,14 +810,16 @@ class _SendModeScreenState extends State<SendModeScreen> {
   }
 
   void _navigateToSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-          themeController: widget.themeController,
-          screenTimeoutService: widget.screenTimeoutService,
-          themeMode: widget.themeController.mode,
-          displayTimeout: widget.displayTimeout,
-          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(
+            themeController: widget.themeController,
+            screenTimeoutService: widget.screenTimeoutService,
+            themeMode: widget.themeController.mode,
+            displayTimeout: widget.displayTimeout,
+            onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );

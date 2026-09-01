@@ -108,7 +108,7 @@ void main() {
         blockSize: blockSize,
       );
 
-      final samples = List<double>.filled(blockSize, 0.0);
+      final samples = List<double>.filled(blockSize, 0);
       final power = goertzel.process(samples);
 
       expect(power.abs(), lessThan(1e-6));

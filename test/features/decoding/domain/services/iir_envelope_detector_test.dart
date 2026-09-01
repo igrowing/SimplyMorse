@@ -47,7 +47,7 @@ void main() {
       expect(envOn, greaterThan(0.1));
 
       // 200ms of silence
-      final silence = List<double>.filled(1600, 0.0);
+      final silence = List<double>.filled(1600, 0);
       detector.processBlock(silence);
       final envOff = detector.envelope;
 
@@ -108,7 +108,7 @@ void main() {
       final envHigh = detector.envelope;
 
       // 50ms gap
-      detector.processBlock(List.filled(400, 0.0));
+      detector.processBlock(List.filled(400, 0));
 
       // 100ms tone at amplitude 0.5
       final tone2 = List<double>.generate(
@@ -141,7 +141,7 @@ void main() {
       expect(detector.envelope, equals(0.0));
 
       // After reset, processing silence should keep envelope near zero
-      detector.processBlock(List.filled(80, 0.0));
+      detector.processBlock(List.filled(80, 0));
       expect(detector.envelope, lessThan(0.001));
     });
 
@@ -160,7 +160,8 @@ void main() {
       );
       detector.processBlock(tone);
 
-      // Even with 10Hz frequency mismatch, envelope should still detect the tone
+      // Even with 10Hz frequency mismatch, envelope should still detect the
+      // tone
       expect(detector.envelope, greaterThan(0.05));
     });
   });

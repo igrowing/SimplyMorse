@@ -26,8 +26,14 @@ void main() {
       // 120 ms fast/slow line, so the gate should actively fit-check
       // this.
       final clean = [
-        on_(200), off(200), on_(600), off(200),
-        on_(200), off(600), on_(200), off(200),
+        on_(200),
+        off(200),
+        on_(600),
+        off(200),
+        on_(200),
+        off(600),
+        on_(200),
+        off(200),
       ];
       clean.forEach(gate.add);
       expect(gate.isLocked, isTrue);
@@ -35,33 +41,52 @@ void main() {
       expect(out, clean);
     });
 
-    test('drops a leading run of junk before locking onto real slow timing', () {
-      final out = <DecodedElement>[];
-      final gate = MorseLockGate(
-        onElement: out.add,
-        minElementsToLock: 8,
-        minMarksToLock: 4,
-      );
+    test(
+      'drops a leading run of junk before locking onto real slow timing',
+      () {
+        final out = <DecodedElement>[];
+        final gate = MorseLockGate(
+          onElement: out.add,
+          minElementsToLock: 8,
+          minMarksToLock: 4,
+        );
 
-      // Junk: durations bearing no small-integer relationship to a
-      // consistent unit (mimics camera-settling / countdown flicker).
-      final junk = [
-        off(660), on_(3993), off(825), on_(1749), off(1683), on_(99),
-        off(132), on_(66), off(1353), on_(2673), off(363),
-      ];
-      final real = [
-        on_(300), off(300), on_(900), off(300),
-        on_(300), off(900), on_(300), off(300), on_(300),
-      ];
+        // Junk: durations bearing no small-integer relationship to a
+        // consistent unit (mimics camera-settling / countdown flicker).
+        final junk = [
+          off(660),
+          on_(3993),
+          off(825),
+          on_(1749),
+          off(1683),
+          on_(99),
+          off(132),
+          on_(66),
+          off(1353),
+          on_(2673),
+          off(363),
+        ];
+        final real = [
+          on_(300),
+          off(300),
+          on_(900),
+          off(300),
+          on_(300),
+          off(900),
+          on_(300),
+          off(300),
+          on_(300),
+        ];
 
-      [...junk, ...real].forEach(gate.add);
-      gate.flush();
+        [...junk, ...real].forEach(gate.add);
+        gate.flush();
 
-      expect(gate.isLocked, isTrue);
-      // None of the junk should have reached the output.
-      expect(out.any((e) => e.durationMs > 1000), isFalse);
-      expect(out, containsAll(real));
-    });
+        expect(gate.isLocked, isTrue);
+        // None of the junk should have reached the output.
+        expect(out.any((e) => e.durationMs > 1000), isFalse);
+        expect(out, containsAll(real));
+      },
+    );
 
     test('bypasses fast sending immediately instead of gating it', () {
       final out = <DecodedElement>[];
@@ -70,8 +95,18 @@ void main() {
       // Include some quantization-style jitter that a strict fit
       // check would reject, to prove it is never applied here.
       final fast = [
-        on_(66), off(60), on_(99), off(66), on_(60), off(165),
-        on_(132), off(66), on_(198), off(66), on_(66), off(66),
+        on_(66),
+        off(60),
+        on_(99),
+        off(66),
+        on_(60),
+        off(165),
+        on_(132),
+        off(66),
+        on_(198),
+        off(66),
+        on_(66),
+        off(66),
       ];
       fast.forEach(gate.add);
 
@@ -97,7 +132,11 @@ void main() {
       // Slow enough to gate (unit candidates >= 120ms) but never
       // settles into a clean fit within the buffer.
       final erratic = [
-        on_(200), off(3000), on_(9000), off(150), on_(4000),
+        on_(200),
+        off(3000),
+        on_(9000),
+        off(150),
+        on_(4000),
       ];
       erratic.forEach(gate.add);
       expect(out, isEmpty);
@@ -113,8 +152,12 @@ void main() {
         minMarksToLock: 3,
       );
       final withWordGap = [
-        on_(150), off(1000), on_(150), off(150),
-        on_(150), off(450),
+        on_(150),
+        off(1000),
+        on_(150),
+        off(150),
+        on_(150),
+        off(450),
       ];
       withWordGap.forEach(gate.add);
       expect(gate.isLocked, isTrue);
@@ -165,8 +208,9 @@ void main() {
       );
       // Slow (unit candidates >= 120ms) but never fits cleanly.
       for (var i = 0; i < 30; i++) {
-        gate.add(on_(200 + i * 37));
-        gate.add(off(150 + i * 53));
+        gate
+          ..add(on_(200 + i * 37))
+          ..add(off(150 + i * 53));
       }
       expect(gate.isLocked, isTrue);
       expect(out, isNotEmpty);

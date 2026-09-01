@@ -1,6 +1,6 @@
-import 'dart:math';
-
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
+import 'package:simply_morse/features/decoding/domain/services/element_builder.dart'
+    show ElementBuilder;
 import 'package:simply_morse/features/encoding/domain/models/morse_code_table.dart';
 
 /// Decodes on/off timing elements into text using the Morse
@@ -72,7 +72,7 @@ class MorseDecoder {
 
   /// Hard noise floor — marks below this absolute duration are
   /// ignored during both dit estimation and decoding.
-  static const double _noiseFloorMs = 8.0;
+  static const double _noiseFloorMs = 8;
 
   /// Farnsworth detection threshold: if the estimated gap-dit
   /// exceeds the mark-dit by more than this ratio, Farnsworth
@@ -127,7 +127,7 @@ class MorseDecoder {
     final gapDit = _estimateGapDit(elements, dit);
 
     final buffer = StringBuffer();
-    var morseBuilder = StringBuffer();
+    final morseBuilder = StringBuffer();
 
     for (final el in elements) {
       if (el.isOn) {

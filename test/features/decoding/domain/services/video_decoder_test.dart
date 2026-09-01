@@ -53,7 +53,7 @@ void main() {
           dec.processFrame(
             _makeFrame(
               timestampMs: i * 33,
-              sourceOn: i % 2 == 0,
+              sourceOn: i.isEven,
             ),
           );
         }
@@ -70,7 +70,7 @@ void main() {
             dec.processFrame(
               _makeFrame(
                 timestampMs: i * 33,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -93,7 +93,7 @@ void main() {
             VideoFrame(
               luminance: List<double>.filled(
                 80 * 60,
-                i % 2 == 0 ? 0.9 : 0.1,
+                i.isEven ? 0.9 : 0.1,
               ),
               width: 80,
               height: 60,
@@ -120,7 +120,7 @@ void main() {
           dec.processFrame(
             _makeFrame(
               timestampMs: i * 33,
-              sourceOn: i % 2 == 0,
+              sourceOn: i.isEven,
             ),
           );
         }
@@ -140,7 +140,7 @@ void main() {
             threshold: BrightnessThreshold(
               onFactor: 0.6,
               offFactor: 0.4,
-              decayFactor: 1.0,
+              decayFactor: 1,
               minRange: 0.01,
             ),
           );
@@ -153,7 +153,7 @@ void main() {
             dec.processFrame(
               _makeFrame(
                 timestampMs: i * 33,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -164,15 +164,16 @@ void main() {
             dec.processFrame(
               _makeFrame(
                 timestampMs: i * 33,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
 
           // Should have emitted elements
-          dec.flush();
-          dec.flush();
-        expect(elements, isNotEmpty);
+          dec
+            ..flush()
+            ..flush();
+          expect(elements, isNotEmpty);
         },
       );
 
@@ -187,7 +188,7 @@ void main() {
             threshold: BrightnessThreshold(
               onFactor: 0.6,
               offFactor: 0.4,
-              decayFactor: 1.0,
+              decayFactor: 1,
               minRange: 0.01,
             ),
           );
@@ -202,7 +203,7 @@ void main() {
               _makeFrame(
                 timestampMs: i * 33,
                 sourceX: shakeX,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -216,7 +217,7 @@ void main() {
               _makeFrame(
                 timestampMs: i * 33,
                 sourceX: shakeX,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -225,9 +226,10 @@ void main() {
             dec.state,
             VideoDecoderState.locked,
           );
-          dec.flush();
-          dec.flush();
-        expect(elements, isNotEmpty);
+          dec
+            ..flush()
+            ..flush();
+          expect(elements, isNotEmpty);
         },
       );
 
@@ -242,7 +244,7 @@ void main() {
             threshold: BrightnessThreshold(
               onFactor: 0.6,
               offFactor: 0.4,
-              decayFactor: 1.0,
+              decayFactor: 1,
               minRange: 0.01,
             ),
           );
@@ -257,7 +259,7 @@ void main() {
                 timestampMs: i * 33,
                 sourceX: 12,
                 sourceY: 12,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -273,7 +275,7 @@ void main() {
                 timestampMs: i * 33,
                 sourceX: 12 + (i - 20),
                 sourceY: 12,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -282,9 +284,10 @@ void main() {
             dec.state,
             VideoDecoderState.locked,
           );
-          dec.flush();
-          dec.flush();
-        expect(elements, isNotEmpty);
+          dec
+            ..flush()
+            ..flush();
+          expect(elements, isNotEmpty);
         },
       );
 
@@ -297,7 +300,7 @@ void main() {
           threshold: BrightnessThreshold(
             onFactor: 0.6,
             offFactor: 0.4,
-            decayFactor: 1.0,
+            decayFactor: 1,
             minRange: 0.01,
           ),
         );
@@ -312,7 +315,7 @@ void main() {
               timestampMs: i * 33,
               sourceX: 20,
               sourceY: 20,
-              sourceOn: i % 2 == 0,
+              sourceOn: i.isEven,
             ),
           );
         }
@@ -330,7 +333,7 @@ void main() {
               timestampMs: i * 33,
               sourceX: 20 + drift + shake,
               sourceY: 20 + shake ~/ 2,
-              sourceOn: i % 2 == 0,
+              sourceOn: i.isEven,
             ),
           );
         }
@@ -357,7 +360,7 @@ void main() {
             dec.processFrame(
               _makeFrame(
                 timestampMs: i * 33,
-                sourceOn: i % 2 == 0,
+                sourceOn: i.isEven,
               ),
             );
           }
@@ -394,7 +397,7 @@ void main() {
           dec.processFrame(
             _makeFrame(
               timestampMs: i * 33,
-              sourceOn: i % 2 == 0,
+              sourceOn: i.isEven,
             ),
           );
         }
@@ -409,7 +412,7 @@ void main() {
 
     group('VideoFrame', () {
       test('meanLuminance computes average', () {
-        final frame = VideoFrame(
+        const frame = VideoFrame(
           luminance: [0.0, 0.5, 1.0, 0.5],
           width: 2,
           height: 2,
@@ -424,7 +427,7 @@ void main() {
       test(
         'regionMeanLuminance computes sub-region average',
         () {
-          final frame = VideoFrame(
+          const frame = VideoFrame(
             luminance: [
               0.0,
               0.0,

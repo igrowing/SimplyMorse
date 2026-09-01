@@ -19,15 +19,15 @@ void main() {
       final bt = BrightnessThreshold(
         onFactor: 0.7,
         offFactor: 0.3,
-        decayFactor: 1.0, // no forgetting
+        decayFactor: 1, // no forgetting
         minRange: 0.01,
       );
 
       // First sample initializes to 0.0
-      bt.process(0.0);
+      bt.process(0);
 
       // 1.0 exceeds on threshold (0 + 1*0.7 = 0.7) → on
-      expect(bt.process(1.0), isTrue);
+      expect(bt.process(1), isTrue);
 
       // 0.2 below off threshold (0 + 1*0.3 = 0.3) → off
       expect(bt.process(0.2), isFalse);
@@ -40,12 +40,12 @@ void main() {
       final bt = BrightnessThreshold(
         onFactor: 0.7,
         offFactor: 0.3,
-        decayFactor: 1.0,
+        decayFactor: 1,
         minRange: 0.01,
       );
 
-      bt.process(0.0);
-      bt.process(1.0); // turns on
+      bt.process(0);
+      bt.process(1); // turns on
       expect(bt.isOn, isTrue);
 
       // Between thresholds — stays on
@@ -64,8 +64,9 @@ void main() {
 
       // Prime with extremes. After process(0.0) then
       // process(1.0): _min drifts up slightly.
-      bt.process(0.0);
-      bt.process(1.0);
+      bt
+        ..process(0)
+        ..process(1);
       expect(bt.range, greaterThan(0.8));
 
       // After 20 samples at 0.5, both bounds drift toward
@@ -79,12 +80,13 @@ void main() {
 
     test('reset clears all state', () {
       final bt = BrightnessThreshold(
-        decayFactor: 1.0,
+        decayFactor: 1,
       );
 
-      bt.process(0.0);
-      bt.process(1.0);
-      bt.process(0.8);
+      bt
+        ..process(0)
+        ..process(1)
+        ..process(0.8);
       expect(bt.isOn, isTrue);
 
       bt.reset();
@@ -100,14 +102,14 @@ void main() {
         final bt = BrightnessThreshold(
           onFactor: 0.7,
           offFactor: 0.3,
-          decayFactor: 1.0,
+          decayFactor: 1,
           minRange: 0.01,
         );
 
         // Prime with full range
-        bt.process(0.0);
+        bt.process(0);
         // process(1.0) turns on
-        bt.process(1.0);
+        bt.process(1);
 
         // Now test alternating pattern
         final results = <bool>[];

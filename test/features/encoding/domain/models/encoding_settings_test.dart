@@ -193,7 +193,7 @@ void main() {
         mode: EncodingMode.sound,
         speedWpm: 10,
         toneHz: 700,
-        initialDelaySec: 0.0,
+        initialDelaySec: 0,
       );
       expect(settings.initialDelaySec, 0.0);
     });
@@ -203,7 +203,7 @@ void main() {
         mode: EncodingMode.sound,
         speedWpm: 10,
         toneHz: 700,
-        initialDelaySec: 20.0,
+        initialDelaySec: 20,
       );
       expect(settings.initialDelaySec, 20.0);
     });
@@ -283,7 +283,7 @@ void main() {
         speedWpm: 10,
         toneHz: 700,
       );
-      final copy = original.copyWith(initialDelaySec: 10.0);
+      final copy = original.copyWith(initialDelaySec: 10);
 
       expect(copy.initialDelaySec, 10.0);
       expect(copy.mode, original.mode);
@@ -301,7 +301,7 @@ void main() {
         speedWpm: 15,
         toneHz: 500,
         lightMethod: LightMethod.display,
-        initialDelaySec: 5.0,
+        initialDelaySec: 5,
       );
 
       expect(copy.mode, EncodingMode.flash);
@@ -396,13 +396,13 @@ void main() {
         mode: EncodingMode.sound,
         speedWpm: 10,
         toneHz: 700,
-        initialDelaySec: 1.0,
+        initialDelaySec: 1,
       );
       const b = EncodingSettings(
         mode: EncodingMode.sound,
         speedWpm: 10,
         toneHz: 700,
-        initialDelaySec: 5.0,
+        initialDelaySec: 5,
       );
 
       expect(a, isNot(equals(b)));

@@ -1,17 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/screen_flash_service.dart';
-import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
-import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
-import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
+import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
+import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
-
-import '../../../../helpers/fakes.dart';
 import '../../../../helpers/fake_feedback_service.dart';
+import '../../../../helpers/fakes.dart';
 
 void main() {
   late FakeSettingsRepository settingsRepo;
@@ -44,8 +43,9 @@ void main() {
   Future<void> pumpScreen(WidgetTester tester) async {
     // Use a taller surface so bottom buttons (Send, Clear)
     // are within hit-test bounds.
-    tester.view.physicalSize = const Size(800, 900);
-    tester.view.devicePixelRatio = 1.0;
+    tester
+      ..view.physicalSize = const Size(800, 900)
+      ..view.devicePixelRatio = 1.0;
     await tester.pumpWidget(
       MaterialApp(
         home: SendModeScreen(
@@ -103,13 +103,15 @@ void main() {
                 body: Center(
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => SendModeScreen(
-                            themeController: ThemeController(),
-                            screenTimeoutService: ScreenTimeoutService(),
-                            displayTimeout: DisplayTimeout.system,
-                            onDisplayTimeoutChanged: (_) {},
+                      unawaited(
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SendModeScreen(
+                              themeController: ThemeController(),
+                              screenTimeoutService: ScreenTimeoutService(),
+                              displayTimeout: DisplayTimeout.system,
+                              onDisplayTimeoutChanged: (_) {},
+                            ),
                           ),
                         ),
                       );
@@ -153,8 +155,9 @@ void main() {
         );
       });
 
-      testWidgets('LED and Display are not selected by default',
-          (tester) async {
+      testWidgets('LED and Display are not selected by default', (
+        tester,
+      ) async {
         await pumpScreen(tester);
 
         final ledChip = find.widgetWithText(FilterChip, 'LED');
@@ -188,8 +191,9 @@ void main() {
         },
       );
 
-      testWidgets('selecting LED shows tone slider (sound still on)',
-          (tester) async {
+      testWidgets('selecting LED shows tone slider (sound still on)', (
+        tester,
+      ) async {
         await pumpScreen(tester);
 
         // Tone should be visible because Sound is selected by default

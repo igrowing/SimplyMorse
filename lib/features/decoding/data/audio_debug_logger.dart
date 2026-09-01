@@ -150,9 +150,8 @@ class AudioDebugLogger {
 
   void _flush() {
     if (_buffer.isEmpty || _sink == null) return;
-    for (final line in _buffer) {
-      _sink!.writeln(line);
-    }
-    _buffer.clear();
+    _buffer
+      ..forEach(_sink!.writeln)
+      ..clear();
   }
 }

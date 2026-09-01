@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Dedicated settings screen with theme control, Farnsworth
 /// timing, display timeout, and app info.
@@ -140,53 +140,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showFarnsworthInfoDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Farnsworth Timing'),
-          content: const SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Farnsworth timing is a method used in Morse code '
-                  'training and transmission where the individual dits '
-                  'and dahs (the "characters") are sent at a higher speed, '
-                  'but the gaps between characters and words are extended '
-                  'to a slower effective speed.',
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'For example, at 20/10 Farnsworth, the dits and dahs '
-                  'are sent at 20 WPM (60 ms per dit), but the inter-'
-                  'character and inter-word gaps are stretched to '
-                  'match 10 WPM (360 ms between characters, 840 ms '
-                  'between words).',
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'This allows a learner to hear characters at full '
-                  'speed — developing instant character recognition — '
-                  'while having extra time to think between characters.',
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'When enabled, SimplyMorse will extend inter-character '
-                  'and inter-word gaps according to the Farnsworth method.',
-                ),
-              ],
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Farnsworth Timing'),
+            content: const SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Farnsworth timing is a method used in Morse code '
+                    'training and transmission where the individual dits '
+                    'and dahs (the "characters") are sent at a higher speed, '
+                    'but the gaps between characters and words are extended '
+                    'to a slower effective speed.',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'For example, at 20/10 Farnsworth, the dits and dahs '
+                    'are sent at 20 WPM (60 ms per dit), but the '
+                    'inter-character and inter-word gaps are stretched to '
+                    'match 10 WPM (360 ms between characters, 840 ms '
+                    'between words).',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'This allows a learner to hear characters at full '
+                    'speed — developing instant character recognition — '
+                    'while having extra time to think between characters.',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'When enabled, SimplyMorse will extend inter-character '
+                    'and inter-word gaps according to the Farnsworth method.',
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Got it'),
-            ),
-          ],
-        );
-      },
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

@@ -180,6 +180,7 @@ class AudioDecoder {
   final double envelopeCutoffHz;
   final double onThresholdFactor;
   final double offThresholdFactor;
+
   /// Absolute floor for the glitch-merge threshold, in ms.
   final int minElementMs;
 
@@ -375,8 +376,7 @@ class AudioDecoder {
 
   /// Raw samples retained during scanning, replayed on lock.
   final List<double> _preLock = [];
-  int get _preLockCapacity =>
-      (preLockBufferMs * sampleRate / 1000).round();
+  int get _preLockCapacity => (preLockBufferMs * sampleRate / 1000).round();
   double _lockedFreq = 0;
   int _lastSignalSample = 0;
 
@@ -715,8 +715,9 @@ class AudioDecoder {
       _levels.reconfigure(
         attackMs: fast ? fastLevelAttackMs : normalLevelAttackMs,
         releaseMs: fast ? fastLevelReleaseMs : normalLevelReleaseMs,
-        thresholdOffsetDb:
-            fast ? fastThresholdOffsetDb : normalThresholdOffsetDb,
+        thresholdOffsetDb: fast
+            ? fastThresholdOffsetDb
+            : normalThresholdOffsetDb,
       );
     }
     // If no estimate could be made (too few elements in the buffer),
@@ -853,7 +854,6 @@ class AudioDecoder {
 
   /// Thresholds one envelope value and records any transition.
   void _trackEnvelope(double env) {
-
     final blockMs = blockSize * 1000 / sampleRate;
     final wantOn = _levels.process(env, blockMs);
 

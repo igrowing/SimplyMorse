@@ -1,10 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
-import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/core/theme/app_theme.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
+import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/main/presentation/main_screen.dart';
 
 /// Root widget for the SimplyMorse application.
@@ -26,7 +27,7 @@ class _SimplyMorseAppState extends State<SimplyMorseApp> {
     super.initState();
     _themeController = GetIt.instance<ThemeController>();
     _screenTimeoutService = GetIt.instance<ScreenTimeoutService>();
-    _loadDisplayTimeout();
+    unawaited(_loadDisplayTimeout());
   }
 
   Future<void> _loadDisplayTimeout() async {

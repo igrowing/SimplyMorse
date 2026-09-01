@@ -2,9 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
+import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
-import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 
@@ -82,8 +82,9 @@ void main() {
 
       test('resume sets status back to listening', () {
         final controller = makeController();
-        controller.start();
-        controller.pause();
+        controller
+          ..start()
+          ..pause();
 
         controller.resume();
 
@@ -127,8 +128,9 @@ void main() {
 
       test('resume restarts audio capture', () {
         final controller = makeController(mode: DecodingMode.audio);
-        controller.start();
-        controller.pause();
+        controller
+          ..start()
+          ..pause();
 
         controller.resume();
 
@@ -262,7 +264,7 @@ void main() {
         controller.start();
 
         // Emit enough noise to fill the noise floor
-        final noise = List<double>.filled(256 * 6, 0.0);
+        final noise = List<double>.filled(256 * 6, 0);
         audioCapture.emit(noise);
 
         expect(audioDecoder.state, DecoderState.scanning);

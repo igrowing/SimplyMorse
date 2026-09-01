@@ -29,11 +29,11 @@ class FakeTorchService implements TorchService {
 
 /// Fake settings repository with in-memory storage.
 class FakeSettingsRepository implements SettingsRepository {
-  double speed = 7.0;
-  double tone = 700.0;
-  double initialDelay = 1.0;
+  double speed = 7;
+  double tone = 700;
+  double initialDelay = 1;
   bool repeatLoop = false;
-  double repeatDelay = 2.0;
+  double repeatDelay = 2;
   bool farnsworthEnabled = false;
   String displayTimeout = 'system';
   int saveSpeedCount = 0;
@@ -75,7 +75,7 @@ class FakeSettingsRepository implements SettingsRepository {
   Future<bool> getRepeatLoop() async => repeatLoop;
 
   @override
-  Future<void> saveRepeatLoop(bool enabled) async {
+  Future<void> saveRepeatLoop({required bool enabled}) async {
     repeatLoop = enabled;
     saveRepeatLoopCount++;
   }
@@ -93,7 +93,7 @@ class FakeSettingsRepository implements SettingsRepository {
   Future<bool> getFarnsworthEnabled() async => farnsworthEnabled;
 
   @override
-  Future<void> saveFarnsworthEnabled(bool enabled) async {
+  Future<void> saveFarnsworthEnabled({required bool enabled}) async {
     farnsworthEnabled = enabled;
     saveFarnsworthCount++;
   }
@@ -118,8 +118,9 @@ class FakeTextHistoryRepository implements TextHistoryRepository {
 
   @override
   Future<void> save(String text) async {
-    _entries.remove(text);
-    _entries.insert(0, text);
+    _entries
+      ..remove(text)
+      ..insert(0, text);
     saveCount++;
   }
 
@@ -152,7 +153,7 @@ class FakeMorseTransmitter extends MorseTransmitter {
   int stopCount = 0;
   int disposeCount = 0;
 
-  /// When true (default), [transmit] calls [onComplete] immediately.
+  /// When true (default), `transmit` calls `onComplete` immediately.
   /// Set to false to keep the transmission in the "transmitting" state.
   bool autoComplete = true;
 

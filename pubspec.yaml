@@ -27,10 +27,10 @@ dependencies:
   wakelock_plus: ^1.2.10
 
 dev_dependencies:
+  flutter_launcher_icons: ^0.14.4
   flutter_test:
     sdk: flutter
   very_good_analysis: ^10.3.0
-  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true

@@ -6,7 +6,7 @@ import 'package:simply_morse/features/decoding/domain/services/fft.dart';
 
 void main() {
   group('FFT', () {
-    FFT fft = FFT(256);
+    var fft = FFT(256);
 
     List<double> generateSineWave(
       double freq,
@@ -82,7 +82,7 @@ void main() {
     });
 
     test('silence produces near-zero power spectrum', () {
-      final samples = List<double>.filled(256, 0.0);
+      final samples = List<double>.filled(256, 0);
       final power = fft.powerSpectrum(Float64List.fromList(samples));
 
       for (final p in power) {

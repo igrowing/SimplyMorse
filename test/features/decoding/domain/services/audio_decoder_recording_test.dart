@@ -1,3 +1,5 @@
+// JSON fixtures use dynamic maps from jsonDecode; casting is inherent.
+// ignore_for_file: avoid_dynamic_calls
 import 'dart:convert';
 import 'dart:io';
 
@@ -83,7 +85,7 @@ _decodeRecording(RecordingFixture fixture) {
   );
 
   final elements = <DecodedElement>[];
-  decoder.onElement = (el) => elements.add(el);
+  decoder.onElement = elements.add;
 
   const batchSize = 4096;
   for (var i = 0; i < samples.length; i += batchSize) {
@@ -94,7 +96,7 @@ _decodeRecording(RecordingFixture fixture) {
   }
   decoder.flush();
 
-  var filtered = elements.skipWhile((e) => !e.isOn).toList();
+  final filtered = elements.skipWhile((e) => !e.isOn).toList();
   final morseDecoder = MorseDecoder();
   final text = morseDecoder.decodeElements(filtered);
 
@@ -136,6 +138,7 @@ void main() {
         lessThanOrEqualTo(0.05),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('3wpm', result.text, fixture.expectedText));
     });
@@ -161,6 +164,7 @@ void main() {
         lessThanOrEqualTo(0.15),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('8wpm/700Hz', result.text, fixture.expectedText));
     });
@@ -189,6 +193,7 @@ void main() {
         lessThanOrEqualTo(0.25),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('20wpm', result.text, fixture.expectedText));
     });
@@ -211,6 +216,7 @@ void main() {
         lessThanOrEqualTo(0.20),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('8wpm/1000Hz', result.text, fixture.expectedText));
     });
@@ -232,6 +238,7 @@ void main() {
         lessThanOrEqualTo(0.06),
       );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
       print(cerReport('8wpm/400Hz', result.text, fixture.expectedText));
     });
@@ -251,7 +258,7 @@ void main() {
           bandwidth: 0,
         );
 
-        final batchSize = 4096;
+        const batchSize = 4096;
         for (var i = 0; i < samples.length; i += batchSize) {
           final end = (i + batchSize < samples.length)
               ? i + batchSize

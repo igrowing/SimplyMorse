@@ -22,20 +22,14 @@ import 'package:simply_morse/features/decoding/domain/services/video_decoder.dar
 /// - Video: CameraCapture → VideoDecoder → MorseDecoder
 class DecodingController extends ChangeNotifier {
   DecodingController({
-    required MorseDecoder morseDecoder,
-    AudioDecoder? audioDecoder,
-    AudioCapture? audioCapture,
-    VideoDecoder? videoDecoder,
-    CameraCapture? cameraCapture,
-    AudioDebugLogger? debugLogger,
-    VideoDebugLogger? videoDebugLogger,
-  }) : _morseDecoder = morseDecoder,
-       _audioDecoder = audioDecoder,
-       _audioCapture = audioCapture,
-       _videoDecoder = videoDecoder,
-       _cameraCapture = cameraCapture,
-       _debugLogger = debugLogger,
-       _videoDebugLogger = videoDebugLogger;
+    required this._morseDecoder,
+    this._audioDecoder,
+    this._audioCapture,
+    this._videoDecoder,
+    this._cameraCapture,
+    this._debugLogger,
+    this._videoDebugLogger,
+  });
 
   final MorseDecoder _morseDecoder;
   final AudioDecoder? _audioDecoder;
@@ -115,12 +109,12 @@ class DecodingController extends ChangeNotifier {
 
   /// Whether the camera supports high-frame-rate.
   /// Returns `true` for audio mode (no camera needed).
-  bool get isHighFrameRate => _mode == DecodingMode.video
-      ? _cameraCapture?.isHighFrameRate ?? false
-      : true;
+  bool get isHighFrameRate =>
+      !(_mode == DecodingMode.video) ||
+      (_cameraCapture?.isHighFrameRate ?? false);
 
   /// Returns a human-readable description of the camera capture
-  /// mode: 'High speed', 'High resolution', or 'Error: <reason>'.
+  /// mode: 'High speed', 'High resolution', or 'Error: `<reason>`'.
   String get cameraCaptureType {
     if (_mode != DecodingMode.video) return '';
     final cam = _cameraCapture;
@@ -187,10 +181,10 @@ class DecodingController extends ChangeNotifier {
 
   /// Pauses the current session. Decoded text is preserved.
   void pause() {
-    _audioSub?.cancel();
+    unawaited(_audioSub?.cancel());
     _audioSub = null;
-    _audioCapture?.stop();
-    _cameraCapture?.stop();
+    unawaited(_audioCapture?.stop());
+    unawaited(_cameraCapture?.stop());
     // Decoders hold the last element back by one transition so a
     // glitch can be merged with its neighbours; release it, or the
     // final character of the transmission is lost.
@@ -243,7 +237,7 @@ class DecodingController extends ChangeNotifier {
     // Wire debug logger if enabled
     final adl = _debugLogger;
     if (adl != null && adl.enabled) {
-      adl.start();
+      unawaited(adl.start());
       _audioDecoder.onDebugScanning =
           ({
             required totalSamples,
@@ -268,81 +262,27 @@ class DecodingController extends ChangeNotifier {
             );
           };
 
-      _audioDecoder.onDebugLock =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required freq,
-            required bestAvgPower,
-            required noiseFloor,
-            required onThresholdFactor,
-          }) {
-            adl.logLock(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              freq: freq,
-              bestAvgPower: bestAvgPower,
-              noiseFloor: noiseFloor,
-              onThresholdFactor: onThresholdFactor,
-            );
-          };
+      _audioDecoder.onDebugLock = adl.logLock;
 
-      _audioDecoder.onDebugTracking =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required freq,
-            required power,
-            required envelope,
-            required noiseFloor,
-            required onThreshold,
-            required offThreshold,
-            required isOn,
-          }) {
-            adl.logTracking(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              freq: freq,
-              power: power,
-              envelope: envelope,
-              noiseFloor: noiseFloor,
-              onThreshold: onThreshold,
-              offThreshold: offThreshold,
-              isOn: isOn,
-            );
-          };
+      _audioDecoder.onDebugTracking = adl.logTracking;
 
-      _audioDecoder.onDebugTransition =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required isOn,
-            required durationMs,
-          }) {
-            adl.logTransition(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              isOn: isOn,
-              durationMs: durationMs,
-            );
-          };
+      _audioDecoder.onDebugTransition = adl.logTransition;
     }
 
-    _audioDecoder.onElement = _onElement;
-    _audioDecoder.onLock = _onLock;
-    _audioDecoder.onUnlock = () {
-      adl?.logUnlock(
-        totalSamples: 0,
-        sampleRate: 8000,
-      );
-      _lockedFrequency = 0;
-      notifyListeners();
-    };
+    _audioDecoder
+      ..onElement = _onElement
+      ..onLock = _onLock
+      ..onUnlock = () {
+        adl?.logUnlock(
+          totalSamples: 0,
+          sampleRate: 8000,
+        );
+        _lockedFrequency = 0;
+        notifyListeners();
+      };
     _lockedFrequency = 0;
     final stream = _audioCapture.start();
-    _audioSub = stream.listen((samples) {
-      _audioDecoder.processSamples(samples);
-    });
+    _audioSub = stream.listen(_audioDecoder.processSamples);
   }
 
   void _startVideo() {
@@ -352,110 +292,21 @@ class DecodingController extends ChangeNotifier {
     // Wire video debug logger if enabled
     final vdl = _videoDebugLogger;
     if (vdl != null && vdl.enabled) {
-      vdl.start();
+      unawaited(vdl.start());
       final vd = _videoDecoder;
-      vd.onDebugScan =
-          ({
-            required timestampMs,
-            required maxVariance,
-            required meanVariance,
-            required frameCount,
-          }) {
-            vdl.logScanning(
-              timestampMs: timestampMs,
-              maxVariance: maxVariance,
-              meanVariance: meanVariance,
-              frameCount: frameCount,
-            );
-          };
-      vd.onDebugConfirm =
-          ({
-            required timestampMs,
-            required variance,
-            required confirmCount,
-            required filterX,
-            required filterY,
-          }) {
-            vdl.logConfirming(
-              timestampMs: timestampMs,
-              variance: variance,
-              confirmCount: confirmCount,
-              filterX: filterX,
-              filterY: filterY,
-            );
-          };
-      vd.onDebugTrack =
-          ({
-            required timestampMs,
-            required variance,
-            required brightness,
-            required minBrightness,
-            required maxBrightness,
-            required range,
-            required onThreshold,
-            required offThreshold,
-            required isOn,
-            required regionX,
-            required regionY,
-            required regionSize,
-            required innovation,
-          }) {
-            vdl.logTracking(
-              timestampMs: timestampMs,
-              variance: variance,
-              brightness: brightness,
-              minBrightness: minBrightness,
-              maxBrightness: maxBrightness,
-              range: range,
-              onThreshold: onThreshold,
-              offThreshold: offThreshold,
-              isOn: isOn,
-              regionX: regionX,
-              regionY: regionY,
-              regionSize: regionSize,
-              innovation: innovation,
-            );
-          };
-      vd.onDebugTransition =
-          ({
-            required timestampMs,
-            required isOn,
-            required durationMs,
-          }) {
-            vdl.logTransition(
-              timestampMs: timestampMs,
-              isOn: isOn,
-              durationMs: durationMs,
-            );
-          };
-      vd.onDebugSignalLost =
-          ({
-            required timestampMs,
-            required lostFrameCount,
-          }) {
-            vdl.logSignalLost(
-              timestampMs: timestampMs,
-              lostFrameCount: lostFrameCount,
-            );
-          };
-      vd.onDebugStateChange =
-          ({
-            required timestampMs,
-            required newState,
-            detail,
-          }) {
-            vdl.logStateChange(
-              timestampMs: timestampMs,
-              newState: newState,
-              detail: detail,
-            );
-          };
+      // cascade_invocations: receiver used in conditional block, can't cascade.
+      // ignore: cascade_invocations
+      vd
+        ..onDebugScan = vdl.logScanning
+        ..onDebugConfirm = vdl.logConfirming
+        ..onDebugTrack = vdl.logTracking
+        ..onDebugTransition = vdl.logTransition
+        ..onDebugSignalLost = vdl.logSignalLost
+        ..onDebugStateChange = vdl.logStateChange;
     }
 
     _videoDecoder.onElement = _onElement;
-    _cameraCapture.startImageStream((frame) {
-      _videoDecoder.processFrame(frame);
-    });
+    _cameraCapture.startImageStream(_videoDecoder.processFrame);
   }
 
   void _onElement(DecodedElement element) {
@@ -471,11 +322,11 @@ class DecodingController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _audioSub?.cancel();
-    _audioCapture?.stop();
-    _cameraCapture?.stop();
-    _debugLogger?.stop();
-    _videoDebugLogger?.stop();
+    unawaited(_audioSub?.cancel());
+    unawaited(_audioCapture?.stop());
+    unawaited(_cameraCapture?.stop());
+    unawaited(_debugLogger?.stop());
+    unawaited(_videoDebugLogger?.stop());
     _status = DecodingStatus.idle;
     super.dispose();
   }

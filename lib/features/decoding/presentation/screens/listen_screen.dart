@@ -1,14 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
-
 import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
-import 'package:simply_morse/core/services/screen_timeout_service.dart';
-import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
@@ -200,7 +200,7 @@ class _ListenScreenState extends State<ListenScreen> {
     final theme = Theme.of(context);
     return Row(
       children: [
-        Icon(Icons.mic, size: 28),
+        const Icon(Icons.mic, size: 28),
         const SizedBox(width: 12),
         Text('Hear', style: theme.textTheme.headlineSmall),
       ],
@@ -405,14 +405,16 @@ class _ListenScreenState extends State<ListenScreen> {
   }
 
   void _navigateToSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-          themeController: widget.themeController,
-          screenTimeoutService: widget.screenTimeoutService,
-          themeMode: widget.themeController.mode,
-          displayTimeout: widget.displayTimeout,
-          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(
+            themeController: widget.themeController,
+            screenTimeoutService: widget.screenTimeoutService,
+            themeMode: widget.themeController.mode,
+            displayTimeout: widget.displayTimeout,
+            onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );

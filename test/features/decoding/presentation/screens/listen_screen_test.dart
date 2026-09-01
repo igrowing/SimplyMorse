@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
-import 'package:simply_morse/core/services/screen_timeout_service.dart';
-import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/listen_screen.dart';
 
 import '../../../../helpers/decoding_fakes.dart';

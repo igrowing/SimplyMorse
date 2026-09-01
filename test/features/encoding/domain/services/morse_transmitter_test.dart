@@ -25,7 +25,7 @@ void main() {
   group('MorseTransmitter', () {
     group('flash transmission (flashLed)', () {
       test('toggles torch on for a single dit (E)', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -48,7 +48,7 @@ void main() {
       });
 
       test('toggles torch correctly for SOS', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -71,7 +71,7 @@ void main() {
       });
 
       test('toggles torch correctly for T (single dah)', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -94,7 +94,7 @@ void main() {
       });
 
       test('respects on/off event pattern for HI', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -117,7 +117,7 @@ void main() {
       });
 
       test('flash-only mode never creates AudioPlayer', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -140,7 +140,7 @@ void main() {
 
     group('display transmission', () {
       test('toggles displayBlink for SOS', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -164,7 +164,7 @@ void main() {
       });
 
       test('display-only mode never creates AudioPlayer', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -188,7 +188,7 @@ void main() {
 
     group('both (torch + display)', () {
       test('toggles both torch and displayBlink', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -216,7 +216,7 @@ void main() {
 
     group('initial delay', () {
       test('completes transmission even with delay', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -240,7 +240,7 @@ void main() {
       });
 
       test('zero delay starts immediately', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 100,
           toneHz: 700,
@@ -263,7 +263,7 @@ void main() {
 
     group('event validation', () {
       test('receives correct events for E (dit)', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 10,
           toneHz: 700,
@@ -277,7 +277,7 @@ void main() {
       });
 
       test('receives correct events for T (dah)', () async {
-        final settings = EncodingSettings(
+        const settings = EncodingSettings(
           mode: EncodingMode.flash,
           speedWpm: 10,
           toneHz: 700,
@@ -288,15 +288,15 @@ void main() {
 
         final onEvents = events.where((e) => e.isOn);
         expect(onEvents.length, 1);
-        final ditMs = 1200 / 10;
-        final dahMs = 3 * ditMs;
+        const ditMs = 1200 / 10;
+        const dahMs = 3 * ditMs;
         expect(onEvents.first.durationMs, dahMs.round());
       });
 
       test(
         'SOS has 9 on events (3 dits + 3 dahs + 3 dits)',
         () {
-          final settings = EncodingSettings(
+          const settings = EncodingSettings(
             mode: EncodingMode.flash,
             speedWpm: 20,
             toneHz: 700,

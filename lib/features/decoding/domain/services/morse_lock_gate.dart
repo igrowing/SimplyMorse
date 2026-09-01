@@ -194,11 +194,8 @@ class MorseLockGate {
   }
 
   bool _fits() {
-    final markDurations = _buffer
-        .where((e) => e.isOn)
-        .map((e) => e.durationMs)
-        .toList()
-      ..sort();
+    final markDurations =
+        _buffer.where((e) => e.isOn).map((e) => e.durationMs).toList()..sort();
     if (markDurations.length < minMarksToLock) return false;
 
     final unit = markDurations[markDurations.length ~/ 2]; // median
@@ -209,8 +206,10 @@ class MorseLockGate {
       if (!e.isOn && ratio > 5) continue; // a long pause proves nothing
       final fits = [1, 3].any((c) {
         final target = c * unit;
-        final allowed =
-            (target * tolerance).clamp(minAbsoluteSlackMs, double.infinity);
+        final allowed = (target * tolerance).clamp(
+          minAbsoluteSlackMs,
+          double.infinity,
+        );
         return (e.durationMs - target).abs() <= allowed;
       });
       if (!fits) return false;
@@ -224,16 +223,18 @@ class MorseLockGate {
   /// ran out.
   void _bypass() {
     _locked = true;
-    _buffer.forEach(onElement);
-    _buffer.clear();
+    _buffer
+      ..forEach(onElement)
+      ..clear();
   }
 
   /// Emits whatever is buffered, locked or not, so a stream that
   /// never satisfies the fit still reaches the decoder in full rather
   /// than being silently dropped. Call at the end of a transmission.
   void flush() {
-    _buffer.forEach(onElement);
-    _buffer.clear();
+    _buffer
+      ..forEach(onElement)
+      ..clear();
   }
 
   /// Clears all state.

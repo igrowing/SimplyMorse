@@ -14,7 +14,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
             const MethodChannel('plugins.flutter.io/camera'),
-            (MethodCall methodCall) async {
+            (methodCall) async {
               if (methodCall.method == 'availableCameras') {
                 return <dynamic>[];
               }

@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/listen_screen.dart';
@@ -70,9 +70,7 @@ class MainScreen extends StatelessWidget {
               icon: Icons.camera_alt,
               label: 'Watch',
               disabledOnWeb: kIsWeb,
-              onTap: kIsWeb
-                  ? null
-                  : () => _navigateToWatch(context),
+              onTap: kIsWeb ? null : () => _navigateToWatch(context),
             ),
           ],
         ),
@@ -81,53 +79,61 @@ class MainScreen extends StatelessWidget {
   }
 
   void _navigateToSend(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SendModeScreen(
-          themeController: themeController,
-          screenTimeoutService: screenTimeoutService,
-          displayTimeout: displayTimeout,
-          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SendModeScreen(
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            displayTimeout: displayTimeout,
+            onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );
   }
 
   void _navigateToListen(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ListenScreen(
-          themeController: themeController,
-          screenTimeoutService: screenTimeoutService,
-          displayTimeout: displayTimeout,
-          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ListenScreen(
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            displayTimeout: displayTimeout,
+            onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );
   }
 
   void _navigateToWatch(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SeeScreen(
-          themeController: themeController,
-          screenTimeoutService: screenTimeoutService,
-          displayTimeout: displayTimeout,
-          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SeeScreen(
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            displayTimeout: displayTimeout,
+            onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );
   }
 
   void _navigateToSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-          themeController: themeController,
-          screenTimeoutService: screenTimeoutService,
-          themeMode: themeController.mode,
-          displayTimeout: displayTimeout,
-          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            themeMode: themeController.mode,
+            displayTimeout: displayTimeout,
+            onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );

@@ -87,7 +87,7 @@ void main() {
         final history = await repository.getAll();
         // The last 3 saved texts should be at the front
         // (most recent first, reversed order of insertion)
-        final maxIdx = AppConstants.maxHistoryEntries + 2;
+        const maxIdx = AppConstants.maxHistoryEntries + 2;
         expect(history[0], 'text_$maxIdx');
         expect(history[1], 'text_${maxIdx - 1}');
         expect(history[2], 'text_${maxIdx - 2}');

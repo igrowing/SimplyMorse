@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart'
+    show EncodingMode;
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart'
+    show LightMethod;
 
 /// Output methods for Morse transmission.
 ///

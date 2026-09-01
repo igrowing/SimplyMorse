@@ -9,11 +9,11 @@ import 'package:simply_morse/core/services/share_service_impl.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/audio_capture_service.dart';
+import 'package:simply_morse/features/decoding/data/audio_debug_logger.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
+import 'package:simply_morse/features/decoding/data/video_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
-import "package:simply_morse/features/decoding/data/audio_debug_logger.dart";
-import "package:simply_morse/features/decoding/data/video_debug_logger.dart";
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
@@ -80,14 +80,16 @@ Future<void> configureDependencies() async {
         morseTransmitter: getIt<MorseTransmitter>(),
       ),
     )
-    ..registerFactory<AudioDecoder>(() => AudioDecoder(
+    ..registerFactory<AudioDecoder>(
+      () => AudioDecoder(
         sampleRate: 44100,
         fftSize: 2048,
         blockSize: 220,
-      ))
+      ),
+    )
     ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
     ..registerSingleton<VideoDebugLogger>(VideoDebugLogger())
-    ..registerFactory<VideoDecoder>(() => VideoDecoder())
+    ..registerFactory<VideoDecoder>(VideoDecoder.new)
     ..registerFactory<DecodingController>(
       () => DecodingController(
         morseDecoder: getIt<MorseDecoder>(),

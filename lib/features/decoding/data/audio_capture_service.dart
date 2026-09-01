@@ -26,7 +26,7 @@ class AudioCaptureImpl implements AudioCapture {
   Stream<List<double>> start() async* {
     _isActive = true;
     final stream = await _recorder.startStream(
-      RecordConfig(
+      const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 44100,
         numChannels: 1,

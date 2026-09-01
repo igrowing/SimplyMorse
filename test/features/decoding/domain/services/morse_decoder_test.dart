@@ -99,7 +99,7 @@ void main() {
     // S = ... (3 dits + 2 intra-gaps)
     // O = --- (3 dahs + 2 intra-gaps)
     // char gap = 3 dits
-    List<DecodedElement> _s(
+    List<DecodedElement> s(
       int ditMs,
     ) {
       final gap = ditMs;
@@ -112,7 +112,7 @@ void main() {
       ];
     }
 
-    List<DecodedElement> _o(int ditMs) {
+    List<DecodedElement> o(int ditMs) {
       final dahMs = ditMs * 3;
       final gap = ditMs;
       return [
@@ -126,13 +126,13 @@ void main() {
 
     test('decodes "SOS" with explicit ditMs', () {
       const ditMs = 171;
-      final charGap = ditMs * 3;
+      const charGap = ditMs * 3;
       final elements = <DecodedElement>[
-        ..._s(ditMs),
-        DecodedElement(isOn: false, durationMs: charGap),
-        ..._o(ditMs),
-        DecodedElement(isOn: false, durationMs: charGap),
-        ..._s(ditMs),
+        ...s(ditMs),
+        const DecodedElement(isOn: false, durationMs: charGap),
+        ...o(ditMs),
+        const DecodedElement(isOn: false, durationMs: charGap),
+        ...s(ditMs),
       ];
 
       final result = decoder.decodeElements(
@@ -144,13 +144,13 @@ void main() {
 
     test('decodes "SOS" with auto-estimated ditMs', () {
       const ditMs = 200;
-      final charGap = ditMs * 3;
+      const charGap = ditMs * 3;
       final elements = <DecodedElement>[
-        ..._s(ditMs),
-        DecodedElement(isOn: false, durationMs: charGap),
-        ..._o(ditMs),
-        DecodedElement(isOn: false, durationMs: charGap),
-        ..._s(ditMs),
+        ...s(ditMs),
+        const DecodedElement(isOn: false, durationMs: charGap),
+        ...o(ditMs),
+        const DecodedElement(isOn: false, durationMs: charGap),
+        ...s(ditMs),
       ];
 
       final result = decoder.decodeElements(elements);
@@ -159,11 +159,11 @@ void main() {
 
     test('decodes word gap as space', () {
       const ditMs = 100;
-      final wordGap = ditMs * 7;
+      const wordGap = ditMs * 7;
       final elements = <DecodedElement>[
-        ..._s(ditMs),
-        DecodedElement(isOn: false, durationMs: wordGap),
-        ..._o(ditMs),
+        ...s(ditMs),
+        const DecodedElement(isOn: false, durationMs: wordGap),
+        ...o(ditMs),
       ];
 
       final result = decoder.decodeElements(
@@ -176,7 +176,7 @@ void main() {
     test('decodes single character "E"', () {
       const ditMs = 150;
       final elements = <DecodedElement>[
-        DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
       ];
 
       final result = decoder.decodeElements(
@@ -188,9 +188,9 @@ void main() {
 
     test('decodes single character "T"', () {
       const ditMs = 150;
-      final dahMs = ditMs * 3;
+      const dahMs = ditMs * 3;
       final elements = <DecodedElement>[
-        DecodedElement(isOn: true, durationMs: dahMs),
+        const DecodedElement(isOn: true, durationMs: dahMs),
       ];
 
       final result = decoder.decodeElements(
@@ -206,18 +206,18 @@ void main() {
 
     test('returns empty string when no on-elements', () {
       final elements = <DecodedElement>[
-        DecodedElement(isOn: false, durationMs: 500),
+        const DecodedElement(isOn: false, durationMs: 500),
       ];
       expect(decoder.decodeElements(elements), isEmpty);
     });
 
     test('handles rapid WPM (short durations)', () {
       const ditMs = 40; // 30 WPM
-      final charGap = ditMs * 3;
+      const charGap = ditMs * 3;
       final elements = <DecodedElement>[
-        ..._s(ditMs),
-        DecodedElement(isOn: false, durationMs: charGap),
-        ..._o(ditMs),
+        ...s(ditMs),
+        const DecodedElement(isOn: false, durationMs: charGap),
+        ...o(ditMs),
       ];
 
       final result = decoder.decodeElements(
@@ -229,11 +229,11 @@ void main() {
 
     test('handles slow WPM (long durations)', () {
       const ditMs = 1200; // 1 WPM
-      final charGap = ditMs * 3;
+      const charGap = ditMs * 3;
       final elements = <DecodedElement>[
-        ..._s(ditMs),
-        DecodedElement(isOn: false, durationMs: charGap),
-        ..._o(ditMs),
+        ...s(ditMs),
+        const DecodedElement(isOn: false, durationMs: charGap),
+        ...o(ditMs),
       ];
 
       final result = decoder.decodeElements(
@@ -246,7 +246,7 @@ void main() {
     test('flushes trailing symbol without gap', () {
       const ditMs = 100;
       final elements = <DecodedElement>[
-        ..._s(ditMs),
+        ...s(ditMs),
       ];
 
       final result = decoder.decodeElements(
@@ -260,23 +260,23 @@ void main() {
       const ditMs = 100;
       // 8 dits — not a valid Morse symbol
       final elements = <DecodedElement>[
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
-        DecodedElement(isOn: false, durationMs: ditMs),
-        DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
+        const DecodedElement(isOn: false, durationMs: ditMs),
+        const DecodedElement(isOn: true, durationMs: ditMs),
         // char gap
-        DecodedElement(isOn: false, durationMs: ditMs * 3),
+        const DecodedElement(isOn: false, durationMs: ditMs * 3),
       ];
 
       final result = decoder.decodeElements(
@@ -313,7 +313,7 @@ void main() {
     // dits at 60ms (20 WPM char speed), dahs at 180ms,
     // intra-gaps at 60ms, char-gaps at 360ms (10 WPM Farnsworth),
     // word-gaps at 840ms.
-    List<DecodedElement> _buildFarnsworthSos() {
+    List<DecodedElement> buildFarnsworthSos() {
       return [
         // S = ... (3 dits)
         const DecodedElement(isOn: true, durationMs: 60),
@@ -342,7 +342,7 @@ void main() {
 
     // Helper: build elements for "SOS" at standard timing.
     // char-gaps at 180ms (3 × dit), word-gaps at 420ms (7 × dit).
-    List<DecodedElement> _buildStandardSos() {
+    List<DecodedElement> buildStandardSos() {
       return [
         // S = ... (3 dits)
         const DecodedElement(isOn: true, durationMs: 60),
@@ -371,13 +371,13 @@ void main() {
 
     test('decodes standard timing SOS correctly', () {
       final decoder = MorseDecoder();
-      final result = decoder.decodeElements(_buildStandardSos());
+      final result = decoder.decodeElements(buildStandardSos());
       expect(result, 'SOS');
     });
 
     test('decodes Farnsworth timing SOS correctly', () {
       final decoder = MorseDecoder();
-      final result = decoder.decodeElements(_buildFarnsworthSos());
+      final result = decoder.decodeElements(buildFarnsworthSos());
       expect(result, 'SOS');
     });
 
@@ -389,8 +389,7 @@ void main() {
         // all gap classification. A 360ms gap / 60ms dit = 6.0,
         // which hits the wordGapThreshold — char-gap becomes
         // word-gap, splitting "SOS" into "S O S".
-        final decoder = MorseDecoder(wordGapThreshold: 6.0);
-        final elements = _buildFarnsworthSos();
+        final elements = buildFarnsworthSos();
 
         // Force standard timing by passing ditMs explicitly
         // and using a decoder that doesn't detect Farnsworth
@@ -398,7 +397,7 @@ void main() {
         // with a very high wordGapThreshold that prevents
         // word-gaps, proving the Farnsworth gap would have
         // been a word-gap.
-        final noFarnsworth = MorseDecoder(wordGapThreshold: 99.0);
+        final noFarnsworth = MorseDecoder(wordGapThreshold: 99);
         final result = noFarnsworth.decodeElements(elements, ditMs: 60);
         // With wordGapThreshold=99, all gaps are char-gaps,
         // so we get "SOS" — but the real old behavior (6.0)
@@ -414,11 +413,11 @@ void main() {
         // char-gaps at 360ms, word-gap at 840ms.
         final elements = [
           // First SOS
-          ..._buildFarnsworthSos(),
+          ...buildFarnsworthSos(),
           // Farnsworth word-gap (840ms = 7 × 120ms Farnsworth dit)
           const DecodedElement(isOn: false, durationMs: 840),
           // Second SOS
-          ..._buildFarnsworthSos(),
+          ...buildFarnsworthSos(),
         ];
 
         final decoder = MorseDecoder();
@@ -432,11 +431,11 @@ void main() {
       () {
         final elements = [
           // First SOS
-          ..._buildStandardSos(),
+          ...buildStandardSos(),
           // Standard word-gap (420ms = 7 × 60ms)
           const DecodedElement(isOn: false, durationMs: 420),
           // Second SOS
-          ..._buildStandardSos(),
+          ...buildStandardSos(),
         ];
 
         final decoder = MorseDecoder();

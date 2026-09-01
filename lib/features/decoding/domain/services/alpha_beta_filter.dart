@@ -17,8 +17,8 @@ class AlphaBetaFilter {
   AlphaBetaFilter({
     this.alpha = 0.7,
     this.beta = 0.1,
-  }) : assert(alpha > 0 && alpha <= 1),
-       assert(beta >= 0 && beta <= 1);
+  }) : assert(alpha > 0 && alpha <= 1, 'alpha must be in (0, 1]'),
+       assert(beta >= 0 && beta <= 1, 'beta must be in [0, 1]');
 
   final double alpha;
   final double beta;

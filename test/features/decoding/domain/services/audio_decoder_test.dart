@@ -33,7 +33,7 @@ List<double> generateNoise(
 
 /// Generates pure silence (all zeros).
 List<double> generateSilence(int numSamples) {
-  return List.filled(numSamples, 0.0);
+  return List.filled(numSamples, 0);
 }
 
 /// Number of samples for one FFT frame (32 ms at 8 kHz).
@@ -189,9 +189,10 @@ void main() {
         // Keying: the level tracker needs both a mark and a space
         // level to separate, so an unbroken carrier is squelched by
         // design — feed a gap and another tone.
-        decoder.processSamples(generateSilence(blockSize * 40));
-        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
-        decoder.processSamples(generateSilence(blockSize * 40));
+        decoder
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 40));
 
         // Elements are held back one transition so a glitch can be
         // merged with its neighbours; flush releases the last one.
@@ -215,8 +216,9 @@ void main() {
         decoder.processSamples(generateTone(700, 8000, blockSize * 20));
 
         // Tone off — need enough silence for envelope to decay
-        decoder.processSamples(generateSilence(blockSize * 100));
-        decoder.flush();
+        decoder
+          ..processSamples(generateSilence(blockSize * 100))
+          ..flush();
 
         // Should have at least one on-element (the tone itself)
         final onElements = elements.where((e) => e.isOn);
@@ -228,9 +230,10 @@ void main() {
         final elements = <DecodedElement>[];
         decoder.onElement = elements.add;
 
-        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
-        decoder.processSamples(generateTone(700, 8000, blockSize * 10));
-        decoder.processSamples(generateSilence(blockSize * 100));
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateTone(700, 8000, blockSize * 10))
+          ..processSamples(generateSilence(blockSize * 100));
 
         for (final el in elements) {
           expect(el.durationMs, greaterThan(0));
@@ -267,8 +270,9 @@ void main() {
         expect(decoder.state, DecoderState.locked);
 
         // Feed a very long silence — should stay locked
-        decoder.processSamples(generateTone(700, 8000, blockSize * 5));
-        decoder.processSamples(generateSilence(8000 * 10));
+        decoder
+          ..processSamples(generateTone(700, 8000, blockSize * 5))
+          ..processSamples(generateSilence(8000 * 10));
 
         expect(decoder.state, DecoderState.locked);
         expect(decoder.lockedFrequency, greaterThan(0));
@@ -288,9 +292,10 @@ void main() {
 
         // Key the tone so the level tracker separates and registers a
         // first mark, then go quiet for longer than the timeout.
-        decoder.processSamples(generateSilence(blockSize * 40));
-        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
-        decoder.processSamples(generateSilence(blockSize * 200));
+        decoder
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 200));
 
         expect(decoder.state, DecoderState.scanning);
         expect(decoder.lockedFrequency, 0);
@@ -304,10 +309,11 @@ void main() {
         var unlocked = false;
         decoder.onUnlock = () => unlocked = true;
 
-        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
-        decoder.processSamples(generateSilence(blockSize * 40));
-        decoder.processSamples(generateTone(700, 8000, blockSize * 20));
-        decoder.processSamples(generateSilence(blockSize * 200));
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 200));
 
         expect(unlocked, isTrue);
       });
@@ -319,8 +325,9 @@ void main() {
         );
 
         // Lock and keep feeding tone for a long time
-        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
-        decoder.processSamples(generateTone(700, 8000, blockSize * 200));
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateTone(700, 8000, blockSize * 200));
 
         expect(decoder.state, DecoderState.locked);
       });

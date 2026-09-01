@@ -37,9 +37,10 @@ void main() {
   group('EncodingController', () {
     group('init', () {
       test('loads settings and history', () async {
-        settingsRepo.speed = 15.0;
-        settingsRepo.tone = 800.0;
-        settingsRepo.initialDelay = 5.0;
+        settingsRepo
+          ..speed = 15.0
+          ..tone = 800.0
+          ..initialDelay = 5.0;
         historyRepo.seed(['hello', 'sos']);
 
         await controller.init();
@@ -112,14 +113,14 @@ void main() {
     group('updateSpeed', () {
       test('updates speed value', () async {
         await controller.init();
-        await controller.updateSpeed(20.0);
+        await controller.updateSpeed(20);
 
         expect(controller.speedWpm, 20.0);
       });
 
       test('persists to settings repository', () async {
         await controller.init();
-        await controller.updateSpeed(25.0);
+        await controller.updateSpeed(25);
 
         expect(settingsRepo.saveSpeedCount, 1);
       });
@@ -129,7 +130,7 @@ void main() {
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.updateSpeed(15.0);
+        await controller.updateSpeed(15);
 
         expect(notifyCount, 1);
       });
@@ -138,14 +139,14 @@ void main() {
     group('updateTone', () {
       test('updates tone value', () async {
         await controller.init();
-        await controller.updateTone(850.0);
+        await controller.updateTone(850);
 
         expect(controller.toneHz, 850.0);
       });
 
       test('persists to settings repository', () async {
         await controller.init();
-        await controller.updateTone(600.0);
+        await controller.updateTone(600);
 
         expect(settingsRepo.saveToneCount, 1);
       });
@@ -155,7 +156,7 @@ void main() {
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.updateTone(500.0);
+        await controller.updateTone(500);
 
         expect(notifyCount, 1);
       });
@@ -164,14 +165,14 @@ void main() {
     group('updateInitialDelay', () {
       test('updates initial delay value', () async {
         await controller.init();
-        await controller.updateInitialDelay(10.0);
+        await controller.updateInitialDelay(10);
 
         expect(controller.initialDelaySec, 10.0);
       });
 
       test('persists to settings repository', () async {
         await controller.init();
-        await controller.updateInitialDelay(5.0);
+        await controller.updateInitialDelay(5);
 
         expect(settingsRepo.saveInitialDelayCount, 1);
       });
@@ -181,7 +182,7 @@ void main() {
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.updateInitialDelay(3.0);
+        await controller.updateInitialDelay(3);
 
         expect(notifyCount, 1);
       });
@@ -235,14 +236,15 @@ void main() {
 
         expect(transmitter.transmitCount, 1);
         expect(transmitter.lastEvents, isNotNull);
-        expect(transmitter.lastEvents!, isNotEmpty);
+        expect(transmitter.lastEvents, isNotEmpty);
         expect(transmitter.lastSettings!.mode, EncodingMode.sound);
       });
 
       test('passes light method to settings', () async {
         await controller.init();
-        controller.updateLightMethod(LightMethod.display);
-        controller.updateText('SOS');
+        controller
+          ..updateLightMethod(LightMethod.display)
+          ..updateText('SOS');
         await controller.send();
 
         expect(
@@ -253,7 +255,7 @@ void main() {
 
       test('runs countdown before transmit when delay > 0', () async {
         await controller.init();
-        await controller.updateInitialDelay(1.0);
+        await controller.updateInitialDelay(1);
         controller.updateText('SOS');
 
         // The countdown should fire during send()
@@ -440,8 +442,9 @@ void main() {
 
       test('toggleOutput removes a method (if not the last)', () async {
         await controller.init();
-        controller.toggleOutput(OutputMethod.led);
-        controller.toggleOutput(OutputMethod.sound);
+        controller
+          ..toggleOutput(OutputMethod.led)
+          ..toggleOutput(OutputMethod.sound);
 
         expect(controller.hasSound, isFalse);
         expect(controller.hasLed, isTrue);

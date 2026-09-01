@@ -1,17 +1,17 @@
+import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
-
 import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
-import 'package:simply_morse/core/services/screen_timeout_service.dart';
-import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
@@ -265,7 +265,7 @@ class _SeeScreenState extends State<SeeScreen> {
     final theme = Theme.of(context);
     return Row(
       children: [
-        Icon(Icons.camera_alt, size: 28),
+        const Icon(Icons.camera_alt, size: 28),
         const SizedBox(width: 12),
         Text(
           'Watch',
@@ -523,14 +523,16 @@ class _SeeScreenState extends State<SeeScreen> {
   }
 
   void _navigateToSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-          themeController: widget.themeController,
-          screenTimeoutService: widget.screenTimeoutService,
-          themeMode: widget.themeController.mode,
-          displayTimeout: widget.displayTimeout,
-          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(
+            themeController: widget.themeController,
+            screenTimeoutService: widget.screenTimeoutService,
+            themeMode: widget.themeController.mode,
+            displayTimeout: widget.displayTimeout,
+            onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+          ),
         ),
       ),
     );

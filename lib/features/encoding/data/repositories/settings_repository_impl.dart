@@ -31,8 +31,8 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<bool> getRepeatLoop() => _dataSource.getRepeatLoop();
 
   @override
-  Future<void> saveRepeatLoop(bool enabled) =>
-      _dataSource.saveRepeatLoop(enabled);
+  Future<void> saveRepeatLoop({required bool enabled}) =>
+      _dataSource.saveRepeatLoop(enabled: enabled);
 
   @override
   Future<double> getRepeatDelay() => _dataSource.getRepeatDelay();
@@ -45,8 +45,8 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<bool> getFarnsworthEnabled() => _dataSource.getFarnsworthEnabled();
 
   @override
-  Future<void> saveFarnsworthEnabled(bool enabled) =>
-      _dataSource.saveFarnsworthEnabled(enabled);
+  Future<void> saveFarnsworthEnabled({required bool enabled}) =>
+      _dataSource.saveFarnsworthEnabled(enabled: enabled);
 
   @override
   Future<String> getDisplayTimeout() => _dataSource.getDisplayTimeout();
