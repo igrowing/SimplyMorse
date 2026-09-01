@@ -36,7 +36,6 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 * **Code Generation:** Code-generated companion files (`*.g.dart`, `*.freezed.dart`) must never be manually modified. If modifications require schema updates, run the build runner shell command.
 * **Versions**: automatically increase minor version of the app on every commit. The minor version identifies is a number between last does and a plus sign in pubspec.yml under `version` entry. Change major or middle version number only when explicitly requested by the developer. Do not change the number after sign plus (+) in the version.
 
-
 ### Lint Hygiene Rules (zero-warning policy)
 
 `flutter analyze` must return **zero issues** before any commit. The rules below address the most common lint violations. When in doubt, run `dart fix --apply` first, then resolve remaining issues manually.
@@ -95,6 +94,7 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 
 **Pubspec (sort_pub_dependencies)**
 * Keep `dependencies:` and `dev_dependencies:` in `pubspec.yaml` sorted alphabetically. Run `dart format pubspec.yaml` or sort manually after adding a dependency.
+
 
 ---
 
