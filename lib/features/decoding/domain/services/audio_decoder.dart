@@ -144,6 +144,7 @@ class AudioDecoder {
     this.fastLevelReleaseMs = 220,
     this.fastThresholdOffsetDb = 3.0,
     this.preLockBufferMs = 1200,
+    this.reTuneIntervalBlocks = 0,
   }) {
     _fft = FFT(fftSize);
     _frameMs = fftSize * 1000 / sampleRate;
@@ -318,6 +319,24 @@ class AudioDecoder {
   /// than a shorter, more tightly-targeted replay window would.
   final int preLockBufferMs;
 
+  /// How often (in tracking blocks) to re-check the FFT for a
+  /// frequency change during tracking. Default 0 = disabled
+  /// (permanent lock, never re-tune).
+  ///
+  /// When > 0, every [reTuneIntervalBlocks] tracking blocks the
+  /// decoder runs a quick FFT scan on the recent audio. If the
+  /// dominant frequency has shifted significantly (> 50 Hz) AND
+  /// the current locked frequency's power has dropped below the
+  /// noise floor, the decoder unlocks and re-scans — effectively
+  /// following the operator to a new frequency (QSY) without
+  /// manual intervention.
+  ///
+  /// This does not re-tune while a valid signal is present at
+  /// the locked frequency — it only triggers when the signal at
+  /// the locked frequency is gone and a new, stronger one has
+  /// appeared elsewhere.
+  final int reTuneIntervalBlocks;
+
   // Derived scanning thresholds
   late final int _minToneFrames;
   late final int _longToneFrames;
@@ -360,6 +379,10 @@ class AudioDecoder {
       (preLockBufferMs * sampleRate / 1000).round();
   double _lockedFreq = 0;
   int _lastSignalSample = 0;
+
+  // Re-tune state
+  final List<double> _reTuneBuffer = [];
+  int _reTuneCounter = 0;
 
   /// The frequency the decoder has locked onto, in Hz.
   /// Returns 0 while scanning.
@@ -749,8 +772,83 @@ class AudioDecoder {
   // -- Tracking phase --------------------------------------------
 
   void _track(List<double> samples) {
+    // Periodic frequency re-tuning check.
+    if (reTuneIntervalBlocks > 0) {
+      _reTuneBuffer.addAll(samples);
+      if (_reTuneBuffer.length > fftSize) {
+        _reTuneBuffer.removeRange(0, _reTuneBuffer.length - fftSize);
+      }
+      _reTuneCounter++;
+      if (_reTuneCounter >= reTuneIntervalBlocks &&
+          _reTuneBuffer.length >= fftSize) {
+        _reTuneCounter = 0;
+        _checkReTune();
+        if (_state == DecoderState.scanning) return;
+      }
+    }
+
     // Process all samples through the IIR bandpass + envelope.
     _trackEnvelope(_detector!.processBlock(samples));
+  }
+
+  /// Runs a quick FFT scan on the recent audio to check whether the
+  /// tone frequency has shifted. If the current locked frequency's
+  /// power has dropped and a new, significantly different frequency
+  /// is dominant, the decoder unlocks and returns to scanning.
+  void _checkReTune() {
+    if (_reTuneBuffer.length < fftSize) return;
+
+    final power = _fft.powerSpectrum(
+      Float64List.fromList(_reTuneBuffer),
+    );
+
+    final minBin = _fft.frequencyToBin(minFreq, sampleRate);
+    final maxBin = _fft
+        .frequencyToBin(maxFreq, sampleRate)
+        .clamp(0, power.length - 1);
+
+    // Find the dominant bin in the search band.
+    var bestBin = -1;
+    var bestPower = 0.0;
+    double otherPower = 0;
+    var otherCount = 0;
+    for (var i = minBin; i <= maxBin; i++) {
+      if (power[i] > bestPower) {
+        if (bestBin >= 0) {
+          otherPower += bestPower;
+          otherCount++;
+        }
+        bestPower = power[i];
+        bestBin = i;
+      } else {
+        otherPower += power[i];
+        otherCount++;
+      }
+    }
+    if (bestBin < 0) return;
+
+    final avgOther = otherCount > 0 ? otherPower / otherCount : 0.0;
+    final dominantFreq = bestBin * sampleRate / fftSize;
+
+    // Only re-tune if:
+    // 1. The dominant frequency is significantly different (> 50 Hz)
+    // 2. The new frequency is a real tone (SNR >= onThresholdFactor)
+    // 3. The current locked frequency's power is below the average
+    //    (the signal at the locked freq is gone)
+    if ((dominantFreq - _lockedFreq).abs() > 50 &&
+        avgOther > 0 &&
+        bestPower / avgOther >= onThresholdFactor) {
+      final lockedBin = _fft
+          .frequencyToBin(_lockedFreq, sampleRate)
+          .clamp(0, power.length - 1);
+      final lockedPower = power[lockedBin];
+
+      if (lockedPower < avgOther * 2) {
+        // Signal at the locked frequency is gone, and a new tone
+        // has appeared — unlock and re-scan.
+        _unlock();
+      }
+    }
   }
 
   /// Thresholds one envelope value and records any transition.
@@ -804,6 +902,8 @@ class AudioDecoder {
     _lastSignalSample = 0;
     _levels.reset();
     _elements.reset();
+    _reTuneBuffer.clear();
+    _reTuneCounter = 0;
     _resetScan();
   }
 
@@ -851,6 +951,8 @@ class AudioDecoder {
     _levels.reset();
     _elements.reset();
     _preLock.clear();
+    _reTuneBuffer.clear();
+    _reTuneCounter = 0;
     _totalSamples = 0;
     _lockedFreq = 0;
     _lastSignalSample = 0;

@@ -1,6 +1,8 @@
 /// International Morse Code lookup table.
 ///
 /// Maps characters to their dot/dash representation.
+/// Includes the full ITU standard: letters, digits, punctuation,
+/// and common prosigns.
 class MorseCodeTable {
   MorseCodeTable._();
 
@@ -22,6 +24,9 @@ class MorseCodeTable {
     '&': '.-...', ':': '---...', ';': '-.-.-.', '=': '-...-',
     '+': '.-.-.', '-': '-....-', '_': '..--.-', '"': '.-..-.',
     r'$': '...-..-', '@': '.--.-.',
+    // Prosigns (only codes long enough to not be confused with
+    // garbage from timing errors at high WPM).
+    'SOS': '...---...', // Distress signal (9 elements)
     // Space (word separator)
     ' ': '',
   };

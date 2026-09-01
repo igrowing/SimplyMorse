@@ -127,9 +127,29 @@ class LevelTracker {
   /// With a strong signal the first dominates and edges are unbiased.
   /// As SNR falls the second takes over and the threshold retreats
   /// towards the tone, trading edge accuracy for noise immunity.
+  /// The decision threshold.
+  ///
+  /// Two anchors, whichever is higher:
+  /// * An SNR-scaled offset below the mark level — the half-amplitude
+  ///   crossing, which measures mark and space durations without bias.
+  ///   The offset is scaled by [separationDb] (auto-sensitivity):
+  ///   a strong signal (high separation) gets a lower offset for
+  ///   cleaner edges and noise resistance; a weak signal gets a higher
+  ///   offset to stay sensitive. The configured [thresholdOffsetDb]
+  ///   (possibly set by [reconfigure] for fast/normal speed) is the
+  ///   baseline at 20 dB separation; the actual offset varies from
+  ///   110 % (weak, ~10 dB) to 90 % (strong, ~30+ dB).
+  /// * [noiseMarginDb] above the space level — which keeps background
+  ///   fluctuation from being read as marks.
+  ///
+  /// With a strong signal the first dominates and edges are unbiased.
+  /// As SNR falls the second takes over and the threshold retreats
+  /// towards the tone, trading edge accuracy for noise immunity.
   double get thresholdDb {
     if (!isReady) return 0;
-    final fromMark = _markDb! - thresholdOffsetDb;
+    final snrFactor = (20 / separationDb).clamp(0.9, 1.1);
+    final adaptiveOffset = thresholdOffsetDb * snrFactor;
+    final fromMark = _markDb! - adaptiveOffset;
     final fromSpace = _spaceDb! + min(noiseMarginDb, separationDb * 0.6);
     return max(fromMark, fromSpace);
   }

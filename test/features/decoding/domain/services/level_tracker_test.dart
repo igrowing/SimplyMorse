@@ -36,9 +36,12 @@ void main() {
     test('threshold sits below the mark level when SNR is high', () {
       final t = LevelTracker(thresholdOffsetDb: 3, noiseMarginDb: 10)
         ..seed(markDb: -20, spaceDb: -70);
-      // 50 dB separation: the mark anchor (-23) is above the space
-      // anchor (-60), so it wins and edges stay unbiased.
-      expect(t.thresholdDb, closeTo(-23, 1e-9));
+      // 50 dB separation: auto-sensitivity scales the offset down
+      // to 90 % (snrFactor = 20/50 clamped to 0.9), giving an
+      // adaptive offset of 2.7 dB. The mark anchor (-22.7) is above
+      // the space anchor (-60), so it wins — a higher threshold
+      // for strong signals, for cleaner edges and noise resistance.
+      expect(t.thresholdDb, closeTo(-22.7, 1e-9));
     });
 
     test('threshold keeps a margin above the space level at low SNR', () {
@@ -46,8 +49,28 @@ void main() {
         ..seed(markDb: -20, spaceDb: -24);
       // 4 dB separation: the margin is capped at 60 % of it, so the
       // space anchor is -24 + 2.4 = -21.6, which beats the mark
-      // anchor of -23 and pulls the threshold up towards the tone.
+      // anchor of -23.3 (auto-sensitivity scales the offset up to
+      // 110 %: 3 × 1.1 = 3.3) and pulls the threshold up towards the
+      // tone.
       expect(t.thresholdDb, closeTo(-21.6, 1e-9));
+    });
+
+    test('auto-sensitivity scales offset by SNR', () {
+      // At 20 dB separation, the factor is 1.0 (baseline).
+      final t20 = LevelTracker(thresholdOffsetDb: 4)
+        ..seed(markDb: -20, spaceDb: -40);
+      expect(t20.thresholdDb, closeTo(-24, 1e-9));
+
+      // At 40 dB separation, the factor is 0.9 (clamped from 0.5).
+      final t40 = LevelTracker(thresholdOffsetDb: 4)
+        ..seed(markDb: -20, spaceDb: -60);
+      expect(t40.thresholdDb, closeTo(-23.6, 1e-9));
+
+      // At 10 dB separation, the factor is 1.1 (clamped from 2.0),
+      // but the space anchor (-24.0) beats the mark anchor (-24.4).
+      final t10 = LevelTracker(thresholdOffsetDb: 4)
+        ..seed(markDb: -20, spaceDb: -30);
+      expect(t10.thresholdDb, closeTo(-24.0, 1e-9));
     });
 
     test('squelches while the two levels are closer than the minimum', () {
@@ -69,13 +92,15 @@ void main() {
     test('hysteresis holds the state between the two thresholds', () {
       final t = LevelTracker(hysteresisDb: 3, thresholdOffsetDb: 6)
         ..seed(markDb: -20, spaceDb: -60);
-      // Threshold is -26 dB, band is -23 to -29 dB.
-      final inBand = pow(10, -26 / 20).toDouble();
+      // 40 dB separation: auto-sensitivity scales offset to 6 × 0.9 =
+      // 5.4. Threshold is -25.4 dB, band is -22.4 to -28.4 dB.
+      final threshold = t.thresholdDb;
+      final inBand = pow(10, threshold / 20).toDouble();
       expect(feed(t, inBand, 5), isFalse, reason: 'starts off, stays off');
 
       final t2 = LevelTracker(hysteresisDb: 3, thresholdOffsetDb: 6)
         ..seed(markDb: -20, spaceDb: -60);
-      feed(t2, 0.1, 5); // well above -23 dB, turns on
+      feed(t2, 0.1, 5); // well above threshold + hysteresis, turns on
       expect(t2.isOn, isTrue);
       expect(feed(t2, inBand, 3), isTrue, reason: 'held on inside the band');
     });
