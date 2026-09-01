@@ -5,6 +5,7 @@ import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
 import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
+import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
 import 'package:simply_morse/features/encoding/domain/models/transmission_state.dart';
 import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/encoding/domain/repositories/text_history_repository.dart';
@@ -28,13 +29,16 @@ class EncodingController extends ChangeNotifier {
   final MorseEncoder _encoder;
   final MorseTransmitter _transmitter;
 
-  EncodingMode _mode = EncodingMode.sound;
+  /// Currently selected output methods (multi-select).
+  /// Maps internally to [EncodingMode] + [LightMethod] for
+  /// backward compatibility with the domain layer.
+  Set<OutputMethod> _outputs = const {OutputMethod.sound};
+
   double _speedWpm = AppConstants.defaultSpeedWpm;
   double _toneHz = AppConstants.defaultToneHz;
   double _initialDelaySec = AppConstants.defaultInitialDelaySec;
   bool _repeatLoop = AppConstants.defaultRepeatLoop;
   double _repeatDelaySec = AppConstants.defaultRepeatDelaySec;
-  LightMethod _lightMethod = LightMethod.flashLed;
   String _text = '';
   List<String> _history = [];
   TransmissionState _transmission = const TransmissionState();
@@ -51,13 +55,37 @@ class EncodingController extends ChangeNotifier {
   /// Null when no repeat delay is running.
   final ValueNotifier<int?> repeatCountdown = ValueNotifier<int?>(null);
 
-  EncodingMode get mode => _mode;
+  /// The selected output methods.
+  Set<OutputMethod> get outputs => _outputs;
+
+  /// Whether sound output is active.
+  bool get hasSound => _outputs.contains(OutputMethod.sound);
+
+  /// Whether LED/torch output is active.
+  bool get hasLed => _outputs.contains(OutputMethod.led);
+
+  /// Whether display blink output is active.
+  bool get hasDisplay => _outputs.contains(OutputMethod.display);
+
+  /// Whether any visual (non-audio) output is active.
+  bool get hasLight => hasLed || hasDisplay;
+
+  // ── Backward-compatible domain accessors ──────────────────
+  /// Derived [EncodingMode] from the current output selection.
+  EncodingMode get mode => hasSound
+      ? (hasLight ? EncodingMode.both : EncodingMode.sound)
+      : EncodingMode.flash;
+
+  /// Derived [LightMethod] from the current output selection.
+  LightMethod get lightMethod => hasLed && hasDisplay
+      ? LightMethod.both
+      : (hasLed ? LightMethod.flashLed : LightMethod.display);
+
   double get speedWpm => _speedWpm;
   double get toneHz => _toneHz;
   double get initialDelaySec => _initialDelaySec;
   bool get repeatLoop => _repeatLoop;
   double get repeatDelaySec => _repeatDelaySec;
-  LightMethod get lightMethod => _lightMethod;
   String get text => _text;
   List<String> get history => _history;
   TransmissionState get transmission => _transmission;
@@ -68,11 +96,10 @@ class EncodingController extends ChangeNotifier {
   /// with the Morse signal.
   ValueNotifier<bool> get displayBlink => _transmitter.displayBlink;
 
-  /// Initializes the controller with the given [mode] and loads
-  /// persisted settings and history.
-  Future<void> init(EncodingMode mode) async {
+  /// Initializes the controller and loads persisted settings
+  /// and history.
+  Future<void> init() async {
     if (_initialized) return;
-    _mode = mode;
     _speedWpm = await _settingsRepo.getSpeed();
     _toneHz = await _settingsRepo.getTone();
     _initialDelaySec = await _settingsRepo.getInitialDelay();
@@ -80,6 +107,28 @@ class EncodingController extends ChangeNotifier {
     _repeatDelaySec = await _settingsRepo.getRepeatDelay();
     _history = await _historyRepo.getAll();
     _initialized = true;
+    notifyListeners();
+  }
+
+  /// Updates the selected output methods.
+  /// Ensures at least one method remains selected.
+  void updateOutputs(Set<OutputMethod> value) {
+    if (value.isEmpty) return; // prevent empty selection
+    _outputs = value;
+    notifyListeners();
+  }
+
+  /// Toggles a single output method on/off.
+  /// Ensures at least one method remains selected.
+  void toggleOutput(OutputMethod method) {
+    final next = Set<OutputMethod>.from(_outputs);
+    if (next.contains(method)) {
+      if (next.length == 1) return; // prevent empty selection
+      next.remove(method);
+    } else {
+      next.add(method);
+    }
+    _outputs = next;
     notifyListeners();
   }
 
@@ -123,8 +172,21 @@ class EncodingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Backward-compatible method — maps [LightMethod] back to
+  /// output methods.
   void updateLightMethod(LightMethod value) {
-    _lightMethod = value;
+    final next = Set<OutputMethod>.from(_outputs);
+    // Remove existing light methods
+    next.remove(OutputMethod.led);
+    next.remove(OutputMethod.display);
+    // Add the new ones
+    if (value == LightMethod.flashLed || value == LightMethod.both) {
+      next.add(OutputMethod.led);
+    }
+    if (value == LightMethod.display || value == LightMethod.both) {
+      next.add(OutputMethod.display);
+    }
+    if (next.isNotEmpty) _outputs = next;
     notifyListeners();
   }
 
@@ -180,10 +242,10 @@ class EncodingController extends ChangeNotifier {
     }
 
     final settings = EncodingSettings(
-      mode: _mode,
+      mode: mode,
       speedWpm: _speedWpm,
       toneHz: _toneHz,
-      lightMethod: _lightMethod,
+      lightMethod: lightMethod,
       initialDelaySec: 0,
     );
 

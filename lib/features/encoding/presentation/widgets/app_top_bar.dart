@@ -8,6 +8,9 @@ import 'package:simply_morse/core/constants/app_constants.dart';
 /// the Settings screen. When [showSettingsIcon] is false,
 /// no action button is shown (used on the Settings screen
 /// itself).
+///
+/// When the current route can pop (i.e. this is not the root
+/// route), a back button is shown instead of the app icon.
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   const AppTopBar({
     this.showSettingsIcon = true,
@@ -23,15 +26,25 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.of(context).canPop();
+
     return AppBar(
-      leading: const Padding(
-        padding: EdgeInsets.all(10),
-        child: Image(
-          image: AssetImage('assets/SimplyMorse_icon1024.png'),
-          width: 28,
-          height: 28,
-        ),
-      ),
+      leading: canPop
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).maybePop(),
+              tooltip: MaterialLocalizations.of(
+                context,
+              ).backButtonTooltip,
+            )
+          : const Padding(
+              padding: EdgeInsets.all(10),
+              child: Image(
+                image: AssetImage('assets/SimplyMorse_icon1024.png'),
+                width: 28,
+                height: 28,
+              ),
+            ),
       title: const Text(
         AppConstants.appName,
         style: TextStyle(

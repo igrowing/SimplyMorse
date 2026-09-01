@@ -30,6 +30,12 @@ abstract interface class SettingsRepository {
   /// Saves the delay between repeats in seconds.
   Future<void> saveRepeatDelay(double seconds);
 
+  /// Gets whether Farnsworth timing is enabled.
+  Future<bool> getFarnsworthEnabled();
+
+  /// Saves the Farnsworth timing setting.
+  Future<void> saveFarnsworthEnabled(bool enabled);
+
   /// Gets the display lit timeout mode
   /// ('system', '3x', or 'always').
   Future<String> getDisplayTimeout();

@@ -34,12 +34,14 @@ class FakeSettingsRepository implements SettingsRepository {
   double initialDelay = 1.0;
   bool repeatLoop = false;
   double repeatDelay = 2.0;
+  bool farnsworthEnabled = false;
   String displayTimeout = 'system';
   int saveSpeedCount = 0;
   int saveToneCount = 0;
   int saveInitialDelayCount = 0;
   int saveRepeatLoopCount = 0;
   int saveRepeatDelayCount = 0;
+  int saveFarnsworthCount = 0;
   int saveDisplayTimeoutCount = 0;
 
   @override
@@ -85,6 +87,15 @@ class FakeSettingsRepository implements SettingsRepository {
   Future<void> saveRepeatDelay(double seconds) async {
     repeatDelay = seconds;
     saveRepeatDelayCount++;
+  }
+
+  @override
+  Future<bool> getFarnsworthEnabled() async => farnsworthEnabled;
+
+  @override
+  Future<void> saveFarnsworthEnabled(bool enabled) async {
+    farnsworthEnabled = enabled;
+    saveFarnsworthCount++;
   }
 
   @override

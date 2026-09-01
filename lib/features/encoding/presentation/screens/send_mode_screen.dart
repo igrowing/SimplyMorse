@@ -6,8 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/screen_flash_service.dart';
-import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
+import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
@@ -17,20 +17,17 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 
 /// Screen for composing and transmitting Morse code.
 ///
+/// A multi-select toggle at the top lets the user choose any
+/// combination of Sound, LED, and Display output.
+///
 /// On web with light output, the screen is split:
 /// left side shows normal UI controls, right side (40%)
 /// shows a visual transmission panel.
 ///
-/// The panel shows:
-/// - Flash LED → black panel with emulated LED circle.
-/// - Display → entire panel blinks white/black.
-/// - Both → both LED circle and full panel blink.
-///
-/// On mobile with Display light method, active transmission
-/// shows a full-screen blink overlay with only a Pause button.
+/// On mobile with Display output, active transmission
+/// shows a full-screen blink overlay with only a Stop button.
 class SendModeScreen extends StatefulWidget {
   const SendModeScreen({
-    required this.mode,
     required this.themeController,
     required this.screenTimeoutService,
     required this.displayTimeout,
@@ -38,7 +35,6 @@ class SendModeScreen extends StatefulWidget {
     super.key,
   });
 
-  final EncodingMode mode;
   final ThemeController themeController;
   final ScreenTimeoutService screenTimeoutService;
   final DisplayTimeout displayTimeout;
@@ -53,10 +49,6 @@ class _SendModeScreenState extends State<SendModeScreen> {
   late final FeedbackService _feedbackService;
   final _textController = TextEditingController();
 
-  /// Whether to show the split-screen visual panel (web only,
-  /// when the mode includes light output).
-  late final bool _showVisualPanel;
-
   /// The flash state notifier from [ScreenFlashService].
   /// Only non-null on web where the torch is emulated.
   ValueNotifier<bool>? _ledFlashState;
@@ -67,13 +59,11 @@ class _SendModeScreenState extends State<SendModeScreen> {
     _controller = GetIt.instance<EncodingController>();
     _feedbackService = GetIt.instance<FeedbackService>();
 
-    _showVisualPanel = kIsWeb && widget.mode.needsLight;
-
     if (kIsWeb) {
       _ledFlashState = GetIt.instance<ScreenFlashService>().isFlashing;
     }
 
-    _controller.init(widget.mode);
+    _controller.init();
   }
 
   @override
@@ -124,23 +114,26 @@ class _SendModeScreenState extends State<SendModeScreen> {
         ),
         body: Stack(
           children: [
-            _showVisualPanel
-                ? _buildSplitLayout(context)
-                : _buildNormalLayout(context),
-            _buildCountdownOverlay(context),
-            _buildRepeatCountdownOverlay(context),
-          ],
-        ),
+          Consumer<EncodingController>(
+            builder: (context, ctrl, _) {
+          // Show split layout on web when any light output is active.
+          final showVisualPanel = kIsWeb && ctrl.hasLight;
+
+          if (showVisualPanel) {
+            return _buildSplitLayout(context);
+          }
+          return _buildNormalLayout(context);
+            },
+          ),
+          _buildCountdownOverlay(context),
+          _buildRepeatCountdownOverlay(context),
+        ],
+      ),
       ),
     );
   }
 
   /// Initial-delay countdown overlay.
-  ///
-  /// Shown while [EncodingController.countdownRemaining] is non-null.
-  /// Displays an instruction label adapted to the active light method
-  /// (or a generic message for sound-only mode) and a large
-  /// counting-down number.
   Widget _buildCountdownOverlay(BuildContext context) {
     return ValueListenableBuilder<int?>(
       valueListenable: _controller.countdownRemaining,
@@ -208,16 +201,21 @@ class _SendModeScreenState extends State<SendModeScreen> {
   }
 
   /// Returns the instruction label shown during the countdown,
-  /// adapted to the current mode and light method.
+  /// adapted to the active output methods.
   String _countdownLabel() {
-    if (!widget.mode.needsLight) {
+    final hasLight = _controller.hasLight;
+    if (!hasLight) {
       return 'Get ready to transmit';
     }
-    return switch (_controller.lightMethod) {
-      LightMethod.flashLed => 'Point the flash LED toward your target',
-      LightMethod.display => 'Point the screen toward your target',
-      LightMethod.both => 'Point the flash LED and screen toward your target',
-    };
+    final hasLed = _controller.hasLed;
+    final hasDisplay = _controller.hasDisplay;
+    if (hasLed && hasDisplay) {
+      return 'Point the flash LED and screen toward your target';
+    }
+    if (hasLed) {
+      return 'Point the flash LED toward your target';
+    }
+    return 'Point the screen toward your target';
   }
 
   /// Split layout for web light modes: left = UI, right = panel.
@@ -256,11 +254,8 @@ class _SendModeScreenState extends State<SendModeScreen> {
   Widget _buildVisualPanel(BuildContext context) {
     return Consumer<EncodingController>(
       builder: (context, ctrl, _) {
-        final method = ctrl.lightMethod;
-        final needsDisplayBlink =
-            method == LightMethod.display || method == LightMethod.both;
-        final showLedCircle =
-            method == LightMethod.flashLed || method == LightMethod.both;
+        final needsDisplayBlink = ctrl.hasDisplay;
+        final showLedCircle = ctrl.hasLed;
 
         return ValueListenableBuilder<bool>(
           valueListenable: _controller.displayBlink,
@@ -284,19 +279,20 @@ class _SendModeScreenState extends State<SendModeScreen> {
                   children: [
                     if (showLedCircle) ...[
                       ValueListenableBuilder<bool>(
-                        valueListenable: _ledFlashState!,
+                        valueListenable: _ledFlashState ??
+                            ValueNotifier<bool>(false),
                         builder: (context, isFlashing, _) {
                           return AnimatedContainer(
-                            duration: const Duration(milliseconds: 30),
-                            width: 180,
-                            height: 180,
+                            duration: const Duration(milliseconds: 50),
+                            width: 80,
+                            height: 80,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: isFlashing
                                   ? Colors.white
-                                  : Colors.transparent,
+                                  : Colors.grey.shade900,
                               border: Border.all(
-                                color: Colors.grey,
+                                color: Colors.white24,
                                 width: 3,
                               ),
                               boxShadow: isFlashing
@@ -317,7 +313,7 @@ class _SendModeScreenState extends State<SendModeScreen> {
                       const SizedBox(height: 24),
                     ],
                     Text(
-                      method.label,
+                      _activeLightLabel(ctrl),
                       style: TextStyle(
                         color: textColor,
                         fontSize: 14,
@@ -351,20 +347,20 @@ class _SendModeScreenState extends State<SendModeScreen> {
     );
   }
 
+  String _activeLightLabel(EncodingController ctrl) {
+    if (ctrl.hasLed && ctrl.hasDisplay) return 'LED + DISPLAY';
+    if (ctrl.hasLed) return 'LED';
+    return 'DISPLAY';
+  }
+
   /// Normal (non-split) layout for mobile or sound-only mode.
-  ///
-  /// Includes a fullscreen display blink overlay when
-  /// transmitting with the Display light method on mobile.
   Widget _buildNormalLayout(BuildContext context) {
     return Consumer<EncodingController>(
       builder: (context, ctrl, _) {
         // On mobile, show fullscreen blink overlay when
-        // transmitting with Display or Both light method.
+        // transmitting with Display output.
         final showDisplayOverlay =
-            !kIsWeb &&
-            ctrl.isTransmitting &&
-            (ctrl.lightMethod == LightMethod.display ||
-                ctrl.lightMethod == LightMethod.both);
+            !kIsWeb && ctrl.isTransmitting && ctrl.hasDisplay;
 
         if (showDisplayOverlay) {
           return _buildDisplayOverlay(context);
@@ -396,7 +392,6 @@ class _SendModeScreenState extends State<SendModeScreen> {
   }
 
   /// Full-screen blink overlay for mobile display transmission.
-  /// Shows a Stop button.
   Widget _buildDisplayOverlay(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: _controller.displayBlink,
@@ -437,10 +432,10 @@ class _SendModeScreenState extends State<SendModeScreen> {
   /// Shared control list used by both split and normal layouts.
   List<Widget> _buildControls(BuildContext context) {
     return [
-      _buildHeader(context),
+      _buildOutputMethodToggle(context),
       const SizedBox(height: 16),
       _buildSpeedSlider(context),
-      if (widget.mode.needsTone) ...[
+      if (_controller.hasSound) ...[
         const SizedBox(height: 8),
         _buildToneSlider(context),
       ],
@@ -448,10 +443,6 @@ class _SendModeScreenState extends State<SendModeScreen> {
       _buildInitialDelaySlider(context),
       const SizedBox(height: 12),
       _buildRepeatControls(context),
-      if (widget.mode.needsLight) ...[
-        const SizedBox(height: 12),
-        _buildLightMethodSelector(context),
-      ],
       const SizedBox(height: 16),
       _buildHistoryDropdown(context),
       const SizedBox(height: 8),
@@ -463,17 +454,26 @@ class _SendModeScreenState extends State<SendModeScreen> {
     ];
   }
 
-  Widget _buildHeader(BuildContext context) {
+  /// Multi-select toggle for Sound / LED / Display.
+  Widget _buildOutputMethodToggle(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      children: [
-        Icon(widget.mode.icon, size: 28),
-        const SizedBox(width: 12),
-        Text(
-          widget.mode.label,
-          style: theme.textTheme.headlineSmall,
-        ),
-      ],
+    return Consumer<EncodingController>(
+      builder: (context, ctrl, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Output', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 8),
+            _MultiSelectToggle(
+              options: OutputMethod.values,
+              selected: ctrl.outputs,
+              onChanged: ctrl.isTransmitting
+                  ? null
+                  : (selection) => _controller.updateOutputs(selection),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -563,37 +563,6 @@ class _SendModeScreenState extends State<SendModeScreen> {
               divisions: 20,
               label: '${ctrl.initialDelaySec.round()}',
               onChanged: ctrl.isTransmitting ? null : _onInitialDelayChanged,
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Triple selector for Flash LED / Display / Both.
-  Widget _buildLightMethodSelector(BuildContext context) {
-    final theme = Theme.of(context);
-    return Consumer<EncodingController>(
-      builder: (context, ctrl, _) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Light method', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            SegmentedButton<LightMethod>(
-              segments: LightMethod.values
-                  .map(
-                    (m) => ButtonSegment(
-                      value: m,
-                      label: Text(m.label),
-                      icon: Icon(m.icon),
-                    ),
-                  )
-                  .toList(),
-              selected: {ctrl.lightMethod},
-              onSelectionChanged: ctrl.isTransmitting
-                  ? null
-                  : (value) => _controller.updateLightMethod(value.first),
             ),
           ],
         );
@@ -852,6 +821,52 @@ class _SendModeScreenState extends State<SendModeScreen> {
           onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
         ),
       ),
+    );
+  }
+}
+
+/// A multi-select toggle button group.
+///
+/// Each option can be independently toggled on/off. At least
+/// one must remain selected — the last active toggle cannot
+/// be turned off.
+class _MultiSelectToggle extends StatelessWidget {
+  const _MultiSelectToggle({
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final List<OutputMethod> options;
+  final Set<OutputMethod> selected;
+  final ValueChanged<Set<OutputMethod>>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: options.map((option) {
+        final isSelected = selected.contains(option);
+        return FilterChip(
+          selected: isSelected,
+          label: Text(option.label),
+          avatar: Icon(option.icon, size: 18),
+          onSelected: onChanged == null
+              ? null
+              : (value) {
+                  final next = Set<OutputMethod>.from(selected);
+                  if (value) {
+                    next.add(option);
+                  } else {
+                    if (next.length == 1) return; // keep at least one
+                    next.remove(option);
+                  }
+                  onChanged!(next);
+                },
+          showCheckmark: false,
+        );
+      }).toList(),
     );
   }
 }

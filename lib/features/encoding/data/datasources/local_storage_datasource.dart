@@ -68,6 +68,15 @@ class LocalStorageDatasource {
     await _instance.setDouble(AppConstants.repeatDelayKey, seconds);
   }
 
+  Future<bool> getFarnsworthEnabled() async {
+    return _instance.getBool(AppConstants.farnsworthKey) ??
+        AppConstants.defaultFarnsworthEnabled;
+  }
+
+  Future<void> saveFarnsworthEnabled(bool enabled) async {
+    await _instance.setBool(AppConstants.farnsworthKey, enabled);
+  }
+
   Future<String> getDisplayTimeout() async {
     return _instance.getString(AppConstants.displayTimeoutKey) ??
         AppConstants.defaultDisplayTimeout;

@@ -25,6 +25,9 @@ class AppConstants {
   static const minRepeatDelaySec = 1.0;
   static const maxRepeatDelaySec = 20.0;
 
+  // Farnsworth timing
+  static const defaultFarnsworthEnabled = false;
+
   // Display lit timeout
   static const defaultDisplayTimeout = 'system'; // system | 3x | always
 
@@ -35,6 +38,7 @@ class AppConstants {
   static const textHistoryKey = 'text_history';
   static const repeatLoopKey = 'repeat_loop';
   static const repeatDelayKey = 'repeat_delay_sec';
+  static const farnsworthKey = 'farnsworth_enabled';
   static const displayTimeoutKey = 'display_timeout';
 
   // Text history limits

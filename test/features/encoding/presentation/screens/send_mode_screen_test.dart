@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/screen_flash_service.dart';
-import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
+import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
@@ -41,10 +41,7 @@ void main() {
     await GetIt.instance.reset();
   });
 
-  Future<void> pumpScreen(
-    WidgetTester tester, {
-    EncodingMode mode = EncodingMode.sound,
-  }) async {
+  Future<void> pumpScreen(WidgetTester tester) async {
     // Use a taller surface so bottom buttons (Send, Clear)
     // are within hit-test bounds.
     tester.view.physicalSize = const Size(800, 900);
@@ -52,7 +49,6 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: SendModeScreen(
-          mode: mode,
           themeController: ThemeController(),
           screenTimeoutService: ScreenTimeoutService(),
           displayTimeout: DisplayTimeout.system,
@@ -97,74 +93,107 @@ void main() {
         expect(find.text('Initial delay'), findsOneWidget);
         expect(find.byType(Slider), findsAtLeast(2));
       });
+
+      testWidgets('displays back button in app bar', (tester) async {
+        // Push the screen onto a navigator so canPop() is true.
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => SendModeScreen(
+                            themeController: ThemeController(),
+                            screenTimeoutService: ScreenTimeoutService(),
+                            displayTimeout: DisplayTimeout.system,
+                            onDisplayTimeoutChanged: (_) {},
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('Go'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Go'));
+        await tester.pumpAndSettle();
+
+        expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      });
     });
 
-    group('sound mode', () {
-      testWidgets('displays tone slider', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.sound);
+    group('output method toggle', () {
+      testWidgets('displays Output label', (tester) async {
+        await pumpScreen(tester);
 
-        expect(find.text('Tone'), findsOneWidget);
+        expect(find.text('Output'), findsOneWidget);
       });
 
-      testWidgets('displays Sound header with icon', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.sound);
+      testWidgets('displays Sound, LED, Display chips', (tester) async {
+        await pumpScreen(tester);
 
         expect(find.text('Sound'), findsOneWidget);
-        expect(find.byIcon(Icons.volume_up), findsOneWidget);
-      });
-
-      testWidgets('does not show light method selector', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.sound);
-
-        expect(find.text('Light method'), findsNothing);
-      });
-    });
-
-    group('light mode (was flash)', () {
-      testWidgets('hides tone slider', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.flash);
-
-        expect(find.text('Tone'), findsNothing);
-      });
-
-      testWidgets('displays Light header', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.flash);
-
-        expect(find.text('Light'), findsOneWidget);
-      });
-
-      testWidgets('displays light method selector', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.flash);
-
-        expect(find.text('Light method'), findsOneWidget);
-      });
-
-      testWidgets('displays all three light method options', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.flash);
-
-        expect(find.text('Flash LED'), findsOneWidget);
+        expect(find.text('LED'), findsOneWidget);
         expect(find.text('Display'), findsOneWidget);
-        expect(find.text('Both'), findsAtLeast(1));
       });
-    });
 
-    group('both mode', () {
-      testWidgets('displays tone slider', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.both);
+      testWidgets('Sound is selected by default', (tester) async {
+        await pumpScreen(tester);
 
+        final soundChip = find.widgetWithText(FilterChip, 'Sound');
+        expect(
+          tester.widget<FilterChip>(soundChip).selected,
+          isTrue,
+        );
+      });
+
+      testWidgets('LED and Display are not selected by default',
+          (tester) async {
+        await pumpScreen(tester);
+
+        final ledChip = find.widgetWithText(FilterChip, 'LED');
+        final displayChip = find.widgetWithText(FilterChip, 'Display');
+        expect(tester.widget<FilterChip>(ledChip).selected, isFalse);
+        expect(tester.widget<FilterChip>(displayChip).selected, isFalse);
+      });
+
+      testWidgets('tapping LED adds it to selection', (tester) async {
+        await pumpScreen(tester);
+
+        await tester.tap(find.text('LED'));
+        await tester.pumpAndSettle();
+
+        final ledChip = find.widgetWithText(FilterChip, 'LED');
+        expect(tester.widget<FilterChip>(ledChip).selected, isTrue);
+        final soundChip = find.widgetWithText(FilterChip, 'Sound');
+        expect(tester.widget<FilterChip>(soundChip).selected, isTrue);
+      });
+
+      testWidgets(
+        'tapping Sound when only Sound is selected does nothing',
+        (tester) async {
+          await pumpScreen(tester);
+
+          await tester.tap(find.text('Sound'));
+          await tester.pumpAndSettle();
+
+          final soundChip = find.widgetWithText(FilterChip, 'Sound');
+          expect(tester.widget<FilterChip>(soundChip).selected, isTrue);
+        },
+      );
+
+      testWidgets('selecting LED shows tone slider (sound still on)',
+          (tester) async {
+        await pumpScreen(tester);
+
+        // Tone should be visible because Sound is selected by default
         expect(find.text('Tone'), findsOneWidget);
-      });
-
-      testWidgets('displays Both header', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.both);
-
-        expect(find.text('Both'), findsAtLeast(1));
-      });
-
-      testWidgets('displays light method selector', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.both);
-
-        expect(find.text('Light method'), findsOneWidget);
       });
     });
 
@@ -299,7 +328,7 @@ void main() {
       testWidgets(
         'Send triggers transmission',
         (tester) async {
-          await pumpScreen(tester, mode: EncodingMode.flash);
+          await pumpScreen(tester);
 
           await tester.enterText(
             find.byType(TextField),
@@ -319,7 +348,7 @@ void main() {
 
     group('haptic feedback', () {
       testWidgets('triggers heavy impact on Send', (tester) async {
-        await pumpScreen(tester, mode: EncodingMode.flash);
+        await pumpScreen(tester);
 
         await tester.enterText(
           find.byType(TextField),
@@ -339,252 +368,18 @@ void main() {
 
         await tester.enterText(
           find.byType(TextField),
-          'hello',
+          'E',
         );
         await tester.pumpAndSettle();
 
+        await tester.ensureVisible(find.text('Clear'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Clear'));
         await tester.pumpAndSettle();
 
         final feedback = GetIt.instance<FeedbackService>();
         expect(feedback, isNotNull);
       });
-    });
-
-    group('countdown overlay', () {
-      testWidgets(
-        'shows countdown when sending with initial delay > 0',
-        (tester) async {
-          settingsRepo.initialDelay = 3.0;
-          transmitter.autoComplete = false;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pump();
-          await tester.pump();
-
-          // Countdown overlay should be visible
-          expect(find.text('3'), findsOneWidget);
-          expect(find.text('Cancel'), findsOneWidget);
-
-          // Clean up: cancel and let the timer fire
-          await tester.tap(find.text('Cancel'));
-          await tester.pump(const Duration(seconds: 5));
-          await tester.pumpAndSettle();
-        },
-      );
-
-      testWidgets(
-        'shows instruction label for Flash LED mode',
-        (tester) async {
-          settingsRepo.initialDelay = 2.0;
-          transmitter.autoComplete = false;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('Point the flash LED toward your target'),
-            findsOneWidget,
-          );
-
-          // Clean up
-          await tester.tap(find.text('Cancel'));
-          await tester.pump(const Duration(seconds: 5));
-          await tester.pumpAndSettle();
-        },
-      );
-
-      testWidgets(
-        'shows instruction label for Display mode',
-        (tester) async {
-          settingsRepo.initialDelay = 2.0;
-          transmitter.autoComplete = false;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          // Select Display light method
-          await tester.tap(find.text('Display'));
-          await tester.pumpAndSettle();
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('Point the screen toward your target'),
-            findsOneWidget,
-          );
-
-          // Clean up
-          await tester.tap(find.text('Cancel'));
-          await tester.pump(const Duration(seconds: 5));
-          await tester.pumpAndSettle();
-        },
-      );
-
-      testWidgets(
-        'shows instruction label for Both light method',
-        (tester) async {
-          settingsRepo.initialDelay = 2.0;
-          transmitter.autoComplete = false;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          // Select Both light method (last segment)
-          await tester.tap(find.text('Both'));
-          await tester.pumpAndSettle();
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('Point the flash LED and screen toward your target'),
-            findsOneWidget,
-          );
-
-          // Clean up
-          await tester.tap(find.text('Cancel'));
-          await tester.pump(const Duration(seconds: 5));
-          await tester.pumpAndSettle();
-        },
-      );
-
-      testWidgets(
-        'shows generic label for sound-only mode',
-        (tester) async {
-          settingsRepo.initialDelay = 2.0;
-          transmitter.autoComplete = false;
-          await pumpScreen(tester, mode: EncodingMode.sound);
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pump();
-          await tester.pump();
-
-          expect(find.text('Get ready to transmit'), findsOneWidget);
-
-          // Clean up
-          await tester.tap(find.text('Cancel'));
-          await tester.pump(const Duration(seconds: 5));
-          await tester.pumpAndSettle();
-        },
-      );
-
-      testWidgets(
-        'Cancel button aborts the countdown',
-        (tester) async {
-          settingsRepo.initialDelay = 5.0;
-          transmitter.autoComplete = false;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pump();
-          await tester.pump();
-
-          // Countdown is showing
-          expect(find.text('Cancel'), findsOneWidget);
-
-          await tester.tap(find.text('Cancel'));
-          await tester.pump(const Duration(seconds: 5));
-          await tester.pumpAndSettle();
-
-          // Should be back to normal — Send button visible again
-          expect(find.text('Send'), findsOneWidget);
-          // Countdown should be gone
-          expect(find.text('Cancel'), findsNothing);
-        },
-      );
-    });
-
-    group('transmission controls', () {
-      testWidgets(
-        'shows Stop button when transmitting',
-        (tester) async {
-          transmitter.autoComplete = false;
-          settingsRepo.initialDelay = 0.0;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pumpAndSettle();
-
-          // Stop button should be visible
-          expect(find.text('Stop'), findsOneWidget);
-          // Send and Clear should be hidden
-          expect(find.text('Send'), findsNothing);
-          expect(find.text('Clear'), findsNothing);
-        },
-      );
-
-      testWidgets(
-        'tapping Stop returns to Send button',
-        (tester) async {
-          transmitter.autoComplete = false;
-          settingsRepo.initialDelay = 0.0;
-          await pumpScreen(tester, mode: EncodingMode.flash);
-
-          await tester.enterText(find.byType(TextField), 'E');
-          await tester.pumpAndSettle();
-
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pumpAndSettle();
-
-          // Verify Stop is showing
-          expect(find.text('Stop'), findsOneWidget);
-
-          // Ensure the button is visible and tap it
-          await tester.ensureVisible(
-            find.widgetWithText(FilledButton, 'Stop'),
-          );
-          await tester.tap(
-            find.widgetWithText(FilledButton, 'Stop'),
-          );
-          await tester.pump();
-          await tester.pumpAndSettle();
-
-          // Send and Clear should reappear
-          expect(find.text('Send'), findsOneWidget);
-          expect(find.text('Clear'), findsOneWidget);
-          expect(find.text('Stop'), findsNothing);
-        },
-      );
     });
   });
 }

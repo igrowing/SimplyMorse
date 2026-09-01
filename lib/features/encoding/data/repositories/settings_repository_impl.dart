@@ -42,6 +42,13 @@ class SettingsRepositoryImpl implements SettingsRepository {
       _dataSource.saveRepeatDelay(seconds);
 
   @override
+  Future<bool> getFarnsworthEnabled() => _dataSource.getFarnsworthEnabled();
+
+  @override
+  Future<void> saveFarnsworthEnabled(bool enabled) =>
+      _dataSource.saveFarnsworthEnabled(enabled);
+
+  @override
   Future<String> getDisplayTimeout() => _dataSource.getDisplayTimeout();
 
   @override
