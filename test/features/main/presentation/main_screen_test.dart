@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
-import 'package:simply_morse/features/decoding/presentation/screens/receive_screen.dart';
+import 'package:simply_morse/features/main/presentation/main_screen.dart';
 
 void main() {
   late ThemeController themeController;
@@ -13,11 +13,11 @@ void main() {
     screenTimeoutService = ScreenTimeoutService();
   });
 
-  group('ReceiveScreen', () {
+  group('MainScreen', () {
     Future<void> pumpScreen(WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: ReceiveScreen(
+          home: MainScreen(
             themeController: themeController,
             screenTimeoutService: screenTimeoutService,
             displayTimeout: DisplayTimeout.system,
@@ -33,9 +33,14 @@ void main() {
       expect(find.text('SimplyMorse'), findsOneWidget);
     });
 
-    testWidgets('displays Hear button', (tester) async {
+    testWidgets('displays Send button', (tester) async {
       await pumpScreen(tester);
-      expect(find.text('Hear'), findsOneWidget);
+      expect(find.text('Send'), findsOneWidget);
+    });
+
+    testWidgets('displays Listen button', (tester) async {
+      await pumpScreen(tester);
+      expect(find.text('Listen'), findsOneWidget);
     });
 
     testWidgets('displays Watch button', (tester) async {
@@ -43,7 +48,7 @@ void main() {
       expect(find.text('Watch'), findsOneWidget);
     });
 
-    testWidgets('displays mic icon for Hear', (tester) async {
+    testWidgets('displays mic icon for Listen', (tester) async {
       await pumpScreen(tester);
       expect(find.byIcon(Icons.mic), findsOneWidget);
     });
@@ -53,8 +58,14 @@ void main() {
       expect(find.byIcon(Icons.camera_alt), findsOneWidget);
     });
 
-    testWidgets('both buttons are tappable', (tester) async {
+    testWidgets('all buttons are tappable on non-web', (tester) async {
       await pumpScreen(tester);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithIcon(FilledButton, Icons.send))
+            .onPressed,
+        isNotNull,
+      );
       expect(
         tester
             .widget<FilledButton>(find.widgetWithIcon(FilledButton, Icons.mic))

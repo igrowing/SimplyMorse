@@ -1,13 +1,16 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
-import 'package:simply_morse/features/decoding/presentation/screens/receive_screen.dart';
+import 'package:simply_morse/features/decoding/presentation/screens/listen_screen.dart';
+import 'package:simply_morse/features/decoding/presentation/screens/see_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
-/// Main screen with two large buttons: Send and Receive.
+/// Main screen with Send button and a Receive group containing
+/// Listen (audio) and Watch (camera) buttons.
 class MainScreen extends StatelessWidget {
   const MainScreen({
     required this.themeController,
@@ -51,12 +54,27 @@ class MainScreen extends StatelessWidget {
           onTap: () => _navigateToSend(context),
         ),
       ),
+      // Receive group: two side-by-side buttons
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        child: _MainButton(
-          icon: Icons.download,
-          label: 'Receive',
-          onTap: () => _navigateToReceive(context),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          runSpacing: 8,
+          children: [
+            _SubButton(
+              icon: Icons.mic,
+              label: 'Listen',
+              onTap: () => _navigateToListen(context),
+            ),
+            _SubButton(
+              icon: Icons.camera_alt,
+              label: 'Watch',
+              disabledOnWeb: kIsWeb,
+              onTap: kIsWeb
+                  ? null
+                  : () => _navigateToWatch(context),
+            ),
+          ],
         ),
       ),
     ];
@@ -75,10 +93,23 @@ class MainScreen extends StatelessWidget {
     );
   }
 
-  void _navigateToReceive(BuildContext context) {
+  void _navigateToListen(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ReceiveScreen(
+        builder: (_) => ListenScreen(
+          themeController: themeController,
+          screenTimeoutService: screenTimeoutService,
+          displayTimeout: displayTimeout,
+          onDisplayTimeoutChanged: onDisplayTimeoutChanged,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToWatch(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SeeScreen(
           themeController: themeController,
           screenTimeoutService: screenTimeoutService,
           displayTimeout: displayTimeout,
@@ -120,6 +151,46 @@ class _MainButton extends StatelessWidget {
       onPressed: onTap,
       icon: Icon(icon, size: 24),
       label: Text(label),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        shape: const StadiumBorder(),
+      ),
+    );
+  }
+}
+
+class _SubButton extends StatelessWidget {
+  const _SubButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.disabledOnWeb = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool disabledOnWeb;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return FilledButton.tonalIcon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 24),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (disabledOnWeb)
+            Text(
+              'Not available on web',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+        ],
+      ),
       style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         shape: const StadiumBorder(),
