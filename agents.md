@@ -36,6 +36,66 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 * **Code Generation:** Code-generated companion files (`*.g.dart`, `*.freezed.dart`) must never be manually modified. If modifications require schema updates, run the build runner shell command.
 * **Versions**: automatically increase minor version of the app on every commit. The minor version identifies is a number between last does and a plus sign in pubspec.yml under `version` entry. Change major or middle version number only when explicitly requested by the developer. Do not change the number after sign plus (+) in the version.
 
+
+### Lint Hygiene Rules (zero-warning policy)
+
+`flutter analyze` must return **zero issues** before any commit. The rules below address the most common lint violations. When in doubt, run `dart fix --apply` first, then resolve remaining issues manually.
+
+**Import ordering (directives_ordering)**
+* Sort imports: `dart:` first, then `package:`, then relative paths. Within each group, sort alphabetically.
+* Run `dart format .` after adding or reordering imports — it auto-sorts directives.
+
+**Async and futures (discarded_futures)**
+* Any call returning a `Future` in a non-`async` function must be wrapped with `unawaited(...)` (requires `import 'dart:async';`) or the enclosing function must be made `async` with `await`.
+* Never call a Future-returning function and discard the result silently.
+
+**Boolean parameters (avoid_positional_boolean_parameters)**
+* Never use positional `bool` parameters. Always use named parameters: `void save({required bool enabled})` not `void save(bool enabled)`.
+* Update all call sites to use the named parameter: `save(enabled: true)`.
+
+**Cascades (cascade_invocations)**
+* When calling multiple methods on the same receiver consecutively, use the cascade operator (`..`): `buffer..write(a)..write(b);`
+* In test files, cascading `expect()` chains is not idiomatic — add `// ignore: cascade_invocations` with a comment above it if needed.
+
+**Functional patterns (prefer_foreach, use_is_even_rather_than_modulo)**
+* A `for` loop that only calls a single function on each element should use `.forEach(tearOff)`: `list.forEach(print);`
+* Use `.isEven` / `.isOdd` instead of `% 2 == 0` / `% 2 == 1`.
+
+**Asserts (prefer_asserts_with_message)**
+* Every `assert()` must include a message: `assert(x > 0, 'x must be positive')`.
+
+**Ignore directives (document_ignores)**
+* Every `// ignore:` or `// ignore_for_file:` directive must have a `//` comment on the line immediately above it explaining why the suppression is intentional.
+* Example:
+  ```dart
+  // JSON fixtures use dynamic maps from jsonDecode; casting is inherent.
+  // ignore_for_file: avoid_dynamic_calls
+  ```
+
+**Doc comments (unintended_html_in_doc_comment, comment_references)**
+* Angle brackets in doc comments are interpreted as HTML — wrap type-like terms in backticks: `` `List<int>` `` not `List<int>`.
+* Use backticks for symbol references in doc comments: `` `transmit` `` not `[transmit]` (the bracket syntax triggers comment_references when the symbol isn't in scope).
+
+**Library annotations (library_annotations)**
+* File-level annotations like `@Tags([...])` must precede a `library;` directive at the top of the file:
+  ```dart
+  @Tags(['video-recording'])
+  library;
+  ```
+
+**Adjacent strings (missing_whitespace_between_adjacent_strings)**
+* When splitting a string across adjacent literals, ensure the concatenation point has whitespace. End the first fragment with a space or start the next one with a space.
+* Do not split at a hyphen — restructure the break so a space falls at the boundary.
+
+**Deprecated APIs (deprecated_member_use)**
+* Before using any package API, check `flutter analyze` for deprecation warnings. Use the current replacement API immediately — do not leave `// ignore: deprecated_member_use` in production code.
+
+**Unused code (unused_field, unused_local_variable)**
+* Remove any field, variable, or import that is not used. Do not prefix local variables with `_` to suppress unused warnings — that triggers `no_leading_underscores_for_local_identifiers`.
+
+**Pubspec (sort_pub_dependencies)**
+* Keep `dependencies:` and `dev_dependencies:` in `pubspec.yaml` sorted alphabetically. Run `dart format pubspec.yaml` or sort manually after adding a dependency.
+
 ---
 
 ## 3. Strict Error Handling & Failure Protocols
