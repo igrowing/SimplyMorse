@@ -295,6 +295,70 @@ void main() {
 
         controller.pause();
       });
+
+      test('track overlay telemetry flows to the notifier', () {
+        final controller = makeController(mode: DecodingMode.video);
+        controller.start();
+
+        // Blinking source at the frame center — enough frames to
+        // lock and emit overlay telemetry.
+        for (var i = 0; i < 40; i++) {
+          final on = i.isEven;
+          cameraCapture.emit(
+            VideoFrame(
+              luminance: List<double>.generate(
+                80 * 60,
+                (j) {
+                  final x = j % 80;
+                  final y = j ~/ 80;
+                  final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
+                  return on && inSpot ? 0.9 : 0.1;
+                },
+              ),
+              width: 80,
+              height: 60,
+              timestampMs: i * 33,
+            ),
+          );
+        }
+
+        expect(controller.trackOverlay.value, isNotNull);
+        expect(
+          controller.trackOverlay.value!.regionSizePx,
+          greaterThanOrEqualTo(8),
+        );
+
+        // Pause clears the overlay — a stale circle must not
+        // linger over a frozen preview.
+        controller.pause();
+        expect(controller.trackOverlay.value, isNull);
+
+        // Clear also resets it.
+        controller.resume();
+        for (var i = 0; i < 40; i++) {
+          final on = i.isEven;
+          cameraCapture.emit(
+            VideoFrame(
+              luminance: List<double>.generate(
+                80 * 60,
+                (j) {
+                  final x = j % 80;
+                  final y = j ~/ 80;
+                  final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
+                  return on && inSpot ? 0.9 : 0.1;
+                },
+              ),
+              width: 80,
+              height: 60,
+              timestampMs: 2000 + i * 33,
+            ),
+          );
+        }
+        expect(controller.trackOverlay.value, isNotNull);
+
+        controller.clear();
+        expect(controller.trackOverlay.value, isNull);
+      });
     });
 
     group('dispose', () {

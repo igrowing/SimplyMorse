@@ -8,6 +8,7 @@ import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
+import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
@@ -269,6 +270,79 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(feedbackService.calls, contains('light'));
+    });
+  });
+
+  group('TrackedSpotPainter', () {
+    const canvasSize = Size(160, 120);
+
+    TrackOverlayInfo info({int regionSizePx = 8}) => TrackOverlayInfo(
+      centerX: 0.5,
+      centerY: 0.5,
+      regionSizePx: regionSizePx,
+      signalOn: true,
+      markClassified: true,
+      isDash: false,
+    );
+
+    test('maps fraction center onto the preview canvas', () {
+      final center = TrackedSpotPainter.centerOf(info(), canvasSize);
+
+      expect(center.dx, closeTo(80, 0.001));
+      expect(center.dy, closeTo(60, 0.001));
+    });
+
+    test('circle diameter is double the detected spot diameter', () {
+      // 8 processing px on an 80-px-wide frame scale 2x onto a
+      // 160-px-wide canvas: spot diameter 16, circle radius 16
+      // (i.e. diameter 32 = 2 x 16).
+      expect(
+        TrackedSpotPainter.spotDiameterOf(info(), canvasSize),
+        closeTo(16, 0.001),
+      );
+      expect(
+        TrackedSpotPainter.radiusOf(info(), canvasSize),
+        closeTo(16, 0.001),
+      );
+    });
+
+    testWidgets('paints without throwing for on and off marks', (tester) async {
+      final painter = TrackedSpotPainter(info: info());
+      final painterOff = TrackedSpotPainter(
+        info: const TrackOverlayInfo(
+          centerX: 0.5,
+          centerY: 0.5,
+          regionSizePx: 8,
+          signalOn: false,
+          markClassified: false,
+          isDash: false,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            width: 160,
+            height: 120,
+            child: CustomPaint(
+              painter: painter,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            width: 160,
+            height: 120,
+            child: CustomPaint(
+              painter: painterOff,
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
     });
   });
 }

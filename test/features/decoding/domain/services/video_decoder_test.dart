@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
+import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
@@ -488,6 +489,130 @@ void main() {
           );
         },
       );
+    });
+
+    group('track overlay telemetry', () {
+      /// Feeds a blinking source through the decoder and collects
+      /// everything sent to onTrackOverlay.
+      List<TrackOverlayInfo?> feed(
+        VideoDecoder dec,
+        List<(int, bool)> segments, {
+        int periodMs = 33,
+      }) {
+        final infos = <TrackOverlayInfo?>[];
+        dec.onTrackOverlay = infos.add;
+        var t = 0;
+        for (final (durationMs, on) in segments) {
+          for (final end = t + durationMs; t < end; t += periodMs) {
+            dec.processFrame(
+              _makeFrame(timestampMs: t, sourceOn: on),
+            );
+          }
+        }
+        return infos;
+      }
+
+      test('emits nothing before the source is confirmed', () {
+        final dec = VideoDecoder();
+        // 10 frames: enough to enter confirming, not enough to
+        // lock (10 frames of history + 3 confirm frames needed,
+        // and only tracking emits overlay telemetry).
+        final infos = feed(dec, [
+          (150, true),
+          (150, false),
+        ]);
+
+        expect(infos, isEmpty);
+      });
+
+      test(
+        'emits normalized region center and size while locked',
+        () {
+          final dec = VideoDecoder();
+          final infos = feed(dec, [
+            for (var i = 0; i < 10; i++) (300, i.isEven),
+            for (var i = 0; i < 10; i++) (300, i.isEven),
+          ]);
+
+          expect(dec.state, VideoDecoderState.locked);
+          expect(infos, isNotEmpty);
+          for (final info in infos.whereType<TrackOverlayInfo>()) {
+            // Source at (40, 30) on an 80x60 frame lands in block
+            // (5, 3) of the 8x8 grid; the tracked center is
+            // block-quantized, i.e. (44, 28) -> fractions below.
+            expect(info.centerX, moreOrLessEquals(44 / 80, epsilon: 0.01));
+            expect(info.centerY, moreOrLessEquals(28 / 60, epsilon: 0.01));
+            expect(info.regionSizePx, greaterThanOrEqualTo(8));
+            expect(info.regionSizePx, lessThanOrEqualTo(32));
+          }
+        },
+      );
+
+      test('nulls the overlay when the signal is lost', () {
+        final dec = VideoDecoder();
+        final infos = feed(dec, [
+          for (var i = 0; i < 12; i++) (300, i.isEven),
+          // Steady dark frames: no variance, lock must drop.
+          (1200, false),
+        ]);
+
+        expect(dec.state, VideoDecoderState.scanning);
+        expect(infos.last, isNull);
+      });
+
+      test('reset nulls the overlay while locked', () {
+        final dec = VideoDecoder();
+        feed(dec, [for (var i = 0; i < 12; i++) (300, i.isEven)]);
+        expect(dec.state, VideoDecoderState.locked);
+
+        TrackOverlayInfo? last;
+        dec.onTrackOverlay = (info) => last = info;
+        dec.reset();
+
+        expect(last, isNull);
+      });
+
+      test('classifies the live mark: dot first, then dash', () {
+        final dec = VideoDecoder();
+        final infos = feed(dec, [
+          // Lock + establish a ~300ms dit estimate (p25 of marks).
+          for (var i = 0; i < 8; i++) (300, i.isEven),
+          // A long dash: 1200ms continuous ON.
+          (1200, true),
+          (300, false),
+        ]);
+
+        final duringDash = infos
+            .whereType<TrackOverlayInfo>()
+            .where((e) => e.signalOn && e.markClassified)
+            .toList();
+
+        expect(duringDash, isNotEmpty);
+        // Early in the dash the mark can still end as a dit.
+        expect(duringDash.first.isDash, isFalse);
+        // Once the running duration passes twice the dit estimate,
+        // the label must flip to dash.
+        expect(duringDash.last.isDash, isTrue);
+      });
+
+      test('hides the label before a dit estimate exists', () {
+        final dec = VideoDecoder();
+        final infos = feed(dec, [
+          for (var i = 0; i < 12; i++) (300, i.isEven),
+        ]);
+
+        // Before a mark completes, markClassified is false on
+        // every ON frame.
+        final onInfos = infos
+            .whereType<TrackOverlayInfo>()
+            .where((e) => e.signalOn)
+            .toList();
+        expect(onInfos, isNotEmpty);
+        expect(
+          onInfos.every((e) => e.markClassified),
+          isFalse,
+        );
+      });
     });
   });
 }

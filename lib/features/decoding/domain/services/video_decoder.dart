@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
+import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/alpha_beta_filter.dart';
 import 'package:simply_morse/features/decoding/domain/services/brightness_threshold.dart';
@@ -66,6 +67,11 @@ typedef DebugVideoStateChangeCallback =
       required String newState,
       String? detail,
     });
+
+/// Receives live tracking telemetry for the See-screen debug
+/// overlay on every locked frame, and `null` the moment the lock
+/// is lost or the decoder resets.
+typedef TrackOverlayCallback = void Function(TrackOverlayInfo? info);
 
 /// State of the video decoding pipeline.
 enum VideoDecoderState {
@@ -197,6 +203,22 @@ class VideoDecoder {
 
   // Output
   void Function(DecodedElement element)? onElement;
+
+  /// See-screen debug overlay telemetry — see
+  /// [TrackOverlayCallback].
+  TrackOverlayCallback? onTrackOverlay;
+
+  // Live mark timing for the debug overlay. Kept here — not in
+  // the presentation layer — because the overlay label must
+  // classify the mark *in progress*, which only the decoder can
+  // see: the element stream lags by one transition and the lock
+  // gate filters slow streams, so deriving it downstream would
+  // show stale or missing marks.
+  int _markStartMs = -1;
+  final List<int> _markDurationsMs = [];
+  double _ditEstimateMs = 0;
+  static const int _maxMarkSamples = 24;
+  static const int _minMarkSamples = 3;
 
   /// Confirms genuinely Morse-timed elements before they reach
   /// [_emit] — for slow sending only. Video's scan/confirm phase
@@ -431,6 +453,14 @@ class VideoDecoder {
         regionSize: regionSize,
         innovation: _filter.innovation,
       );
+      _updateOverlayTelemetry(
+        frame: frame,
+        isOn: isOn,
+        cx: cx,
+        cy: cy,
+        regionSize: regionSize,
+      );
+
       _builder.transition(
         nowOn: isOn,
         timeMs: _threshold.effectiveTransitionMs,
@@ -445,10 +475,69 @@ class VideoDecoder {
     _lastFrameMs = frame.timestampMs;
   }
 
+  // -- Debug overlay telemetry ------------------------------------
+
+  /// Feeds [onTrackOverlay] with the current lock position and
+  /// the live classification of the mark in progress.
+  void _updateOverlayTelemetry({
+    required VideoFrame frame,
+    required bool isOn,
+    required int cx,
+    required int cy,
+    required int regionSize,
+  }) {
+    // Track mark boundaries directly from the threshold state.
+    if (isOn && _markStartMs < 0) {
+      _markStartMs = frame.timestampMs;
+    } else if (!isOn && _markStartMs >= 0) {
+      _markDurationsMs.add(frame.timestampMs - _markStartMs);
+      if (_markDurationsMs.length > _maxMarkSamples) {
+        _markDurationsMs.removeAt(0);
+      }
+      _markStartMs = -1;
+      _updateDitEstimate();
+    }
+
+    var isDash = false;
+    var markClassified = false;
+    if (isOn && _markStartMs >= 0 && _ditEstimateMs > 0) {
+      markClassified = true;
+      final runningMs = frame.timestampMs - _markStartMs;
+      isDash = runningMs > 2 * _ditEstimateMs;
+    }
+
+    onTrackOverlay?.call(
+      TrackOverlayInfo(
+        centerX: cx / frame.width,
+        centerY: cy / frame.height,
+        regionSizePx: regionSize,
+        signalOn: isOn,
+        markClassified: markClassified,
+        isDash: isDash,
+      ),
+    );
+  }
+
+  /// 25th-percentile mark duration — the same robust dit
+  /// estimator used for the WPM readout, so the overlay's dot /
+  /// dash boundary matches what the decoder will ultimately
+  /// classify.
+  void _updateDitEstimate() {
+    if (_markDurationsMs.length < _minMarkSamples) return;
+    final sorted = [..._markDurationsMs]..sort();
+    final idx = (sorted.length * 0.25).floor().clamp(
+      0,
+      sorted.length - 1,
+    );
+    final dit = sorted[idx].toDouble();
+    if (dit > 0) _ditEstimateMs = dit;
+  }
+
   // -- Signal loss -----------------------------------------------
 
   void _signalLost() {
     _builder.flush();
+    _clearOverlayTelemetry();
     _lockGate.flush();
     onDebugSignalLost?.call(
       timestampMs: _lastFrameMs,
@@ -640,6 +729,15 @@ class VideoDecoder {
     _lockGate.flush();
   }
 
+  /// Clears the overlay mark-timing state and tells the overlay
+  /// the lock is gone.
+  void _clearOverlayTelemetry() {
+    _markStartMs = -1;
+    _markDurationsMs.clear();
+    _ditEstimateMs = 0;
+    onTrackOverlay?.call(null);
+  }
+
   /// Resets the decoder to the scanning state.
   void reset() {
     _state = VideoDecoderState.scanning;
@@ -652,6 +750,7 @@ class VideoDecoder {
     _lostFrameCount = 0;
     _lastFrameMs = 0;
     _isFullFrame = false;
+    _clearOverlayTelemetry();
   }
 }
 

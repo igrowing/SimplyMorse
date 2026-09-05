@@ -7,6 +7,7 @@ import 'package:simply_morse/features/decoding/data/video_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
+import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
@@ -46,6 +47,14 @@ class DecodingController extends ChangeNotifier {
   DecodingStatus _status = DecodingStatus.idle;
   String _decodedText = '';
   double _lockedFrequency = 0;
+
+  /// Live video tracking telemetry for the See-screen debug
+  /// overlay: non-`null` only while the decoder is locked on a
+  /// blinking source. Exposed as a [ValueNotifier] so the
+  /// overlay repaints per frame (30-120 Hz) without rebuilding
+  /// the rest of the screen on every telemetry update.
+  final ValueNotifier<TrackOverlayInfo?> trackOverlay =
+      ValueNotifier<TrackOverlayInfo?>(null);
 
   /// Whether debug logging is enabled.
   bool get isDebugLoggingEnabled => _debugLogger?.enabled ?? false;
@@ -164,6 +173,7 @@ class DecodingController extends ChangeNotifier {
     _status = DecodingStatus.idle;
     _decodedText = '';
     _lockedFrequency = 0;
+    trackOverlay.value = null;
     _elements.clear();
     notifyListeners();
   }
@@ -200,6 +210,7 @@ class DecodingController extends ChangeNotifier {
     // final character of the transmission is lost.
     _audioDecoder?.flush();
     _videoDecoder?.flush();
+    trackOverlay.value = null;
     _status = DecodingStatus.paused;
     notifyListeners();
   }
@@ -235,6 +246,7 @@ class DecodingController extends ChangeNotifier {
     _lockedFrequency = 0;
     _elements.clear();
     _status = DecodingStatus.idle;
+    trackOverlay.value = null;
     _audioDecoder?.reset();
     _videoDecoder?.reset();
     notifyListeners();
@@ -315,7 +327,11 @@ class DecodingController extends ChangeNotifier {
         ..onDebugStateChange = vdl.logStateChange;
     }
 
-    _videoDecoder.onElement = _onElement;
+    _videoDecoder
+      ..onElement = _onElement
+      ..onTrackOverlay = (info) {
+        trackOverlay.value = info;
+      };
     _cameraCapture.startImageStream(_videoDecoder.processFrame);
   }
 
@@ -338,6 +354,7 @@ class DecodingController extends ChangeNotifier {
     unawaited(_debugLogger?.stop());
     unawaited(_videoDebugLogger?.stop());
     _status = DecodingStatus.idle;
+    trackOverlay.dispose();
     super.dispose();
   }
 }

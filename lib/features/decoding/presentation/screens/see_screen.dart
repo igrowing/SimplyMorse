@@ -12,6 +12,7 @@ import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
+import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
@@ -26,6 +27,11 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 /// - a centered reticle shows where to aim the transmitting
 ///   light — scanning is confined to this area by
 ///   [VideoDecoder.targetAreaFraction],
+/// - a debug aid drawn while the decoder is locked on the source:
+///   a yellow circle of twice the detected spot's diameter tracks
+///   the brightness-reading region, with a dot/dash label above
+///   it showing the live classification of the mark in progress
+///   (see [TrackedSpotPainter]),
 /// - the top holds the status line (state, WPM, measured FPS)
 ///   and a translucent box with the decoded text,
 /// - the bottom holds all four actions: start/pause, clear,
@@ -221,6 +227,25 @@ class _SeeScreenState extends State<SeeScreen> {
                               );
                             },
                           ),
+                        ),
+                        // Debug aid: while the decoder is locked on
+                        // the source, a yellow circle of twice the
+                        // detected spot's diameter marks the tracked
+                        // region and a dot/dash label shows the live
+                        // mark classification. Painted in the same
+                        // coordinate space as the full camera frame,
+                        // so the fraction-based telemetry maps 1:1.
+                        ValueListenableBuilder<TrackOverlayInfo?>(
+                          valueListenable: ctrl.trackOverlay,
+                          builder: (context, info, _) {
+                            if (info == null) {
+                              return const SizedBox.shrink();
+                            }
+                            return CustomPaint(
+                              key: const Key('tracked-spot-overlay'),
+                              painter: TrackedSpotPainter(info: info),
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -577,4 +602,107 @@ class TargetReticlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(TargetReticlePainter old) => old.color != color;
+}
+
+/// Debug aid drawn over the live preview while the decoder is
+/// locked on the transmitting light: a yellow circle of **twice**
+/// the detected spot's diameter, centered on the tracked
+/// brightness-reading region, and — while a mark is in progress —
+/// a dot/dash label above it showing the live classification.
+///
+/// The overlay exists to answer two debugging questions at a
+/// glance: *is the signal locked?* (the circle is only drawn in
+/// the locked state) and *how well is it being tracked?* (the
+/// circle should hug the light as it moves; lag or jitter shows
+/// tracking trouble).
+///
+/// Geometry: [TrackOverlayInfo] carries the region center as frame
+/// fractions and the region size in processing-frame pixels
+/// (80×60). The preview stack this painter lives in shows the full
+/// captured frame 1:1, so center = fraction × canvas size and the
+/// spot's diameter = `regionSizePx / 80 × canvas.width`. Both the
+/// processing frame and the captured frame are 4:3, so the
+/// horizontal scale maps the region square faithfully.
+class TrackedSpotPainter extends CustomPainter {
+  TrackedSpotPainter({required this.info});
+
+  final TrackOverlayInfo info;
+
+  /// Width of the processing frame the region size is expressed
+  /// in — see `CameraCaptureImpl._processImage`.
+  static const double _processingWidth = 80;
+
+  /// Tracked-region center in preview coordinates.
+  ///
+  /// The preview stack shows the full captured frame 1:1, so a
+  /// fraction of the frame is the same fraction of the canvas.
+  static Offset centerOf(TrackOverlayInfo info, Size size) => Offset(
+    info.centerX * size.width,
+    info.centerY * size.height,
+  );
+
+  /// The debug circle's radius: twice the detected spot's
+  /// *diameter*, i.e. the spot's full size serves as the radius.
+  static double radiusOf(TrackOverlayInfo info, Size size) =>
+      spotDiameterOf(info, size);
+
+  /// The detected spot's diameter in preview pixels.
+  static double spotDiameterOf(TrackOverlayInfo info, Size size) =>
+      info.regionSizePx * size.width / _processingWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = centerOf(info, size);
+    final spotDiameter = spotDiameterOf(info, size);
+    final circlePaint = Paint()
+      ..color = Colors.yellow
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    // Double the spot's diameter: the circle visually envelops
+    // the light with a clear margin, so tracking quality is easy
+    // to judge at a glance.
+    canvas.drawCircle(center, radiusOf(info, size), circlePaint);
+
+    // Label: live classification of the mark in progress. Hidden
+    // while the signal is off, and until enough marks have been
+    // seen for a robust dit estimate (the decoder reports that via
+    // markClassified rather than guessing).
+    if (!info.signalOn || !info.markClassified) return;
+
+    final label = info.isDash ? 'dash' : 'dot';
+    final text = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Colors.yellow,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    const pad = 4.0;
+    final textTop = (center.dy - spotDiameter - text.height - 2 * pad - 6)
+        .clamp(0.0, size.height - text.height - 2 * pad);
+    final textLeft = (center.dx - text.width / 2 - pad).clamp(
+      0.0,
+      size.width - text.width - 2 * pad,
+    );
+
+    final scrimRect = Rect.fromLTWH(
+      textLeft,
+      textTop,
+      text.width + 2 * pad,
+      text.height + 2 * pad,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(scrimRect, const Radius.circular(4)),
+      Paint()..color = Colors.black54,
+    );
+    text.paint(canvas, Offset(textLeft + pad, textTop + pad));
+  }
+
+  @override
+  bool shouldRepaint(TrackedSpotPainter old) => old.info != info;
 }
