@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/transmission_state.dart';
-import 'package:simply_morse/features/encoding/presentation/widgets/morse_transmission_label.dart';
+import 'package:simply_morse/features/encoding/presentation/widgets/transmission_progress_text.dart';
 
 void main() {
-  group('MorseTransmissionLabel', () {
+  group('TransmissionProgressText', () {
     Future<void> pumpLabel(
       WidgetTester tester, {
       required String text,
@@ -13,7 +13,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MorseTransmissionLabel(
+            body: TransmissionProgressText(
               text: text,
               state: state,
             ),
@@ -28,7 +28,7 @@ void main() {
         await pumpLabel(tester, text: '');
 
         // Empty text → SizedBox.shrink inside the label
-        expect(find.byType(MorseTransmissionLabel), findsOneWidget);
+        expect(find.byType(TransmissionProgressText), findsOneWidget);
       },
     );
 
@@ -143,13 +143,38 @@ void main() {
     );
 
     testWidgets(
-      'renders within a Container with border',
+      'renders bare text with no border of its own',
       (tester) async {
+        // The widget is embedded in the input box's decorator;
+        // it must not draw its own container or border.
         await pumpLabel(tester, text: 'SOS');
 
-        expect(find.byType(Container), findsOneWidget);
+        expect(find.byType(Container), findsNothing);
         expect(find.byType(RichText), findsOneWidget);
       },
     );
+
+    test('buildSpans marks the current character bold in primary', () {
+      final colors = ColorScheme.fromSeed(
+        seedColor: Colors.blue,
+      );
+
+      final spans = TransmissionProgressText.buildSpans(
+        'AB',
+        const TransmissionState(
+          status: TransmissionStatus.transmitting,
+          currentCharIndex: 1,
+        ),
+        colors,
+      );
+
+      expect(spans.length, 2);
+      // Transmitted char: dimmed primary, normal weight.
+      expect(spans[0].style!.fontWeight, FontWeight.normal);
+      expect(spans[0].style!.color, colors.primary.withValues(alpha: 0.6));
+      // Current char: full primary, bold.
+      expect(spans[1].style!.fontWeight, FontWeight.bold);
+      expect(spans[1].style!.color, colors.primary);
+    });
   });
 }

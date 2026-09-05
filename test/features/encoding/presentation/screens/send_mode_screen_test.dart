@@ -9,6 +9,7 @@ import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
+import 'package:simply_morse/features/encoding/presentation/widgets/transmission_progress_text.dart';
 import '../../../../helpers/fake_feedback_service.dart';
 import '../../../../helpers/fakes.dart';
 
@@ -315,7 +316,7 @@ void main() {
       );
 
       testWidgets(
-        'shows transmission label after text entry',
+        'shows no separate transmission label after text entry',
         (tester) async {
           await pumpScreen(tester);
 
@@ -325,7 +326,54 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          expect(find.byType(RichText), findsWidgets);
+          // The input box is the only transmission display: while
+          // idle there is no progress view, only the TextField.
+          expect(find.byType(TransmissionProgressText), findsNothing);
+          expect(find.byType(TextField), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        'shows transmission progress inside the input box',
+        (tester) async {
+          await pumpScreen(tester);
+
+          await tester.enterText(
+            find.byType(TextField),
+            'SOS',
+          );
+          await tester.pumpAndSettle();
+
+          await tester.ensureVisible(find.text('Send'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Send'));
+          // One frame into the transmission: the input box is
+          // replaced in place by the progress view, not by a
+          // separate follow-up box.
+          await tester.pump();
+
+          expect(find.byType(TextField), findsNothing);
+          final progress = find.byType(TransmissionProgressText);
+          expect(progress, findsOneWidget);
+          // The full message is rendered inside the input box,
+          // one span per character (per-character highlighting is
+          // covered by the TransmissionProgressText widget tests).
+          final richText = tester.widget<RichText>(
+            find.descendant(
+              of: find.byType(TransmissionProgressText),
+              matching: find.byType(RichText),
+            ),
+          );
+          final spans = (richText.text as TextSpan).children!;
+          expect(spans.length, 3);
+          expect(spans.map((s) => (s as TextSpan).text).join(), 'SOS');
+
+          // After completion the editable input returns, with
+          // the text intact.
+          await tester.pumpAndSettle();
+          expect(find.byType(TransmissionProgressText), findsNothing);
+          expect(find.byType(TextField), findsOneWidget);
+          expect(find.text('SOS'), findsOneWidget);
         },
       );
 

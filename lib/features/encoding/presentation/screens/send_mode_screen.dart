@@ -11,13 +11,17 @@ import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
-import 'package:simply_morse/features/encoding/presentation/widgets/morse_transmission_label.dart';
+import 'package:simply_morse/features/encoding/presentation/widgets/transmission_progress_text.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for composing and transmitting Morse code.
 ///
 /// A multi-select toggle at the top lets the user choose any
 /// combination of Sound, LED, and Display output.
+///
+/// The message input box doubles as the transmission progress
+/// display: while sending, the character being transmitted is
+/// highlighted in place (see [TransmissionProgressText]).
 ///
 /// On web with light output, the screen is split:
 /// left side shows normal UI controls, right side (40%)
@@ -448,8 +452,6 @@ class _SendModeScreenState extends State<SendModeScreen> {
       _buildTextInput(context),
       const SizedBox(height: 16),
       _buildActionButtons(context),
-      const SizedBox(height: 16),
-      _buildTransmissionLabel(context),
     ];
   }
 
@@ -611,18 +613,35 @@ class _SendModeScreenState extends State<SendModeScreen> {
     );
   }
 
+  /// The message input doubles as the transmission progress
+  /// display: while sending, the editable TextField is swapped for
+  /// a read-only [TransmissionProgressText] inside the *same*
+  /// border and label, so the character being transmitted is
+  /// highlighted right where the user typed it — no separate
+  /// follow-up box, no extra screen space.
   Widget _buildTextInput(BuildContext context) {
     return Consumer<EncodingController>(
       builder: (context, ctrl, _) {
+        const decoration = InputDecoration(
+          border: OutlineInputBorder(),
+          labelText: 'Text to send',
+          alignLabelWithHint: true,
+        );
+
+        if (ctrl.isTransmitting) {
+          return InputDecorator(
+            decoration: decoration,
+            child: TransmissionProgressText(
+              text: ctrl.text,
+              state: ctrl.transmission,
+            ),
+          );
+        }
+
         return TextField(
           controller: _textController,
           maxLines: 4,
-          enabled: !ctrl.isTransmitting,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            labelText: 'Text to send',
-            alignLabelWithHint: true,
-          ),
+          decoration: decoration,
           onChanged: ctrl.updateText,
         );
       },
@@ -684,20 +703,6 @@ class _SendModeScreenState extends State<SendModeScreen> {
               ),
             ),
           ],
-        );
-      },
-    );
-  }
-
-  Widget _buildTransmissionLabel(BuildContext context) {
-    return Consumer<EncodingController>(
-      builder: (context, ctrl, _) {
-        if (ctrl.text.isEmpty && !ctrl.transmission.isCompleted) {
-          return const SizedBox.shrink();
-        }
-        return MorseTransmissionLabel(
-          text: ctrl.text,
-          state: ctrl.transmission,
         );
       },
     );
