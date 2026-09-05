@@ -83,9 +83,10 @@ enum VideoDecoderState {
 ///
 /// Implements the approach described in the SimplyMorse spec:
 ///
-/// 1. **Scanning**: Compute per-block temporal variance to
-///    find a blinking source. Detects both localized blinks
-///    (one block) and full-frame blinks.
+/// 1. **Scanning**: Compute per-block temporal variance inside the
+///    central target area (see [targetAreaFraction]) to find a
+///    blinking source the user has aimed at. Detects both localized
+///    blinks (one block) and full-frame blinks.
 ///
 /// 2. **Confirming**: Verify the candidate persists across
 ///    [confirmFrames] frames using a local search window
@@ -124,6 +125,7 @@ class VideoDecoder {
     this.minRegionSize = 8,
     this.maxRegionSize = 32,
     this.backgroundMarginPx = 8,
+    this.targetAreaFraction = defaultTargetAreaFraction,
     BrightnessThreshold? threshold,
     AlphaBetaFilter? filter,
   }) : _threshold = threshold ?? BrightnessThreshold(),
@@ -154,6 +156,23 @@ class VideoDecoder {
   /// auto-exposure drift. See the background-subtraction comment in
   /// [_track].
   final int backgroundMarginPx;
+
+  /// Side of the central target area as a fraction of the smaller
+  /// frame dimension.
+  ///
+  /// The user aims the camera so the transmitting light sits inside
+  /// the on-screen target reticle; scanning and tracking are then
+  /// confined to that central square. This both cuts the per-frame
+  /// search from every block to a handful and — more importantly —
+  /// ignores blinking sources outside the reticle (car indicators,
+  /// screens, ceiling lights) that previously competed for the lock.
+  ///
+  /// Must stay in sync with the reticle drawn on the See screen,
+  /// which renders [defaultTargetAreaFraction] of the preview.
+  final double targetAreaFraction;
+
+  /// Default target area — see [targetAreaFraction].
+  static const double defaultTargetAreaFraction = 0.4;
 
   // Components
   final BrightnessThreshold _threshold;
@@ -245,8 +264,9 @@ class VideoDecoder {
     var maxBy = 0;
     final variances = <double>[];
 
-    for (var by = 0; by < blocksY; by++) {
-      for (var bx = 0; bx < blocksX; bx++) {
+    final range = _targetBlockRange(frame);
+    for (var by = range.minBy; by <= range.maxBy; by++) {
+      for (var bx = range.minBx; bx <= range.maxBx; bx++) {
         final v = _blockVariance(bx, by);
         variances.add(v);
         if (v > maxVariance) {
@@ -473,10 +493,14 @@ class VideoDecoder {
     final predBx = (_filter.x / blockSize).round();
     final predBy = (_filter.y / blockSize).round();
 
-    final minBx = max(0, predBx - searchRadius);
-    final maxBx = min(blocksX - 1, predBx + searchRadius);
-    final minBy = max(0, predBy - searchRadius);
-    final maxBy = min(blocksY - 1, predBy + searchRadius);
+    // Clamp the search window to the target area — the user
+    // keeps the source inside the reticle, so anything outside
+    // it is background and must not grab the lock back.
+    final range = _targetBlockRange(frame);
+    final minBx = max(range.minBx, predBx - searchRadius);
+    final maxBx = min(range.maxBx, predBx + searchRadius);
+    final minBy = max(range.minBy, predBy - searchRadius);
+    final maxBy = min(range.maxBy, predBy + searchRadius);
 
     var maxVariance = 0.0;
     var maxBxResult = predBx;
@@ -497,6 +521,56 @@ class VideoDecoder {
       variance: maxVariance,
       centerX: maxBxResult * blockSize + blockSize / 2.0,
       centerY: maxByResult * blockSize + blockSize / 2.0,
+    );
+  }
+
+  /// Block-index bounds of the central target area — the square
+  /// with side [targetAreaFraction] × min(width, height), centered
+  /// on the frame. Only blocks fully inside it are considered.
+  ///
+  /// When [targetAreaFraction] ≥ 1 this degenerates to the whole
+  /// frame, preserving the pre-target search.
+  _BlockRange _targetBlockRange(VideoFrame frame) {
+    final blocksX = frame.width ~/ blockSize;
+    final blocksY = frame.height ~/ blockSize;
+    if (targetAreaFraction >= 1) {
+      return _BlockRange(
+        minBx: 0,
+        maxBx: blocksX - 1,
+        minBy: 0,
+        maxBy: blocksY - 1,
+      );
+    }
+    final side = (targetAreaFraction * min(frame.width, frame.height)).round();
+    final rectX = (frame.width - side) ~/ 2;
+    final rectY = (frame.height - side) ~/ 2;
+
+    // A block counts as in-target when its CENTER pixel lies
+    // inside the square. Requiring full containment would shrink
+    // the effective search area below the reticle drawn on screen
+    // and lose sources resting near its edge.
+    final half = blockSize / 2;
+    var minBx = ((rectX - half) / blockSize).ceil();
+    var maxBx = ((rectX + side - half) / blockSize).floor();
+    var minBy = ((rectY - half) / blockSize).ceil();
+    var maxBy = ((rectY + side - half) / blockSize).floor();
+
+    // Degenerate target (smaller than one block) — fall back to
+    // the single center block so scanning still works.
+    if (minBx > maxBx) {
+      final c = (frame.width / 2 / blockSize).floor();
+      minBx = maxBx = c;
+    }
+    if (minBy > maxBy) {
+      final c = (frame.height / 2 / blockSize).floor();
+      minBy = maxBy = c;
+    }
+
+    return _BlockRange(
+      minBx: minBx.clamp(0, blocksX - 1),
+      maxBx: maxBx.clamp(0, blocksX - 1),
+      minBy: minBy.clamp(0, blocksY - 1),
+      maxBy: maxBy.clamp(0, blocksY - 1),
     );
   }
 
@@ -579,6 +653,22 @@ class VideoDecoder {
     _lastFrameMs = 0;
     _isFullFrame = false;
   }
+}
+
+/// Block-index bounds of the target area.
+@pragma('vm:prefer-inline')
+class _BlockRange {
+  const _BlockRange({
+    required this.minBx,
+    required this.maxBx,
+    required this.minBy,
+    required this.maxBy,
+  });
+
+  final int minBx;
+  final int maxBx;
+  final int minBy;
+  final int maxBy;
 }
 
 /// Internal result of a local variance search.

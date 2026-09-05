@@ -10,8 +10,8 @@ import 'package:simply_morse/features/decoding/domain/services/video_decoder.dar
 /// at a given position.
 VideoFrame _makeFrame({
   required int timestampMs,
-  int sourceX = 12,
-  int sourceY = 12,
+  int sourceX = 40,
+  int sourceY = 30,
   int sourceSize = 8,
   bool sourceOn = true,
   double bgBrightness = 0.1,
@@ -82,6 +82,30 @@ void main() {
               VideoDecoderState.locked,
             ),
           );
+        },
+      );
+
+      test(
+        'ignores a blinking source outside the target area',
+        () {
+          final dec = VideoDecoder(historySize: 30);
+
+          // A bright blinking dot in the top-left corner —
+          // outside the central target area (x 28..52, y 18..42).
+          // Nothing else blinks, but the decoder must stay in
+          // scanning because the user has not aimed at it.
+          for (var i = 0; i < 20; i++) {
+            dec.processFrame(
+              _makeFrame(
+                timestampMs: i * 33,
+                sourceX: 12,
+                sourceY: 12,
+                sourceOn: i.isEven,
+              ),
+            );
+          }
+
+          expect(dec.state, VideoDecoderState.scanning);
         },
       );
 
@@ -252,13 +276,14 @@ void main() {
           final elements = <DecodedElement>[];
           dec.onElement = elements.add;
 
-          // Lock on at position (12, 12)
+          // Lock on at position (32, 30) — inside the
+          // target area (x 28..52, y 18..42).
           for (var i = 0; i < 20; i++) {
             dec.processFrame(
               _makeFrame(
                 timestampMs: i * 33,
-                sourceX: 12,
-                sourceY: 12,
+                sourceX: 32,
+                sourceY: 30,
                 sourceOn: i.isEven,
               ),
             );
@@ -268,13 +293,14 @@ void main() {
             VideoDecoderState.locked,
           );
 
-          // Slide right 1px per frame
+          // Slide right ~0.5px per frame — stays inside the
+          // target area the whole way (32 -> 51).
           for (var i = 20; i < 60; i++) {
             dec.processFrame(
               _makeFrame(
                 timestampMs: i * 33,
-                sourceX: 12 + (i - 20),
-                sourceY: 12,
+                sourceX: 32 + (i - 20) ~/ 2,
+                sourceY: 30,
                 sourceOn: i.isEven,
               ),
             );
@@ -308,13 +334,13 @@ void main() {
         final elements = <DecodedElement>[];
         dec.onElement = elements.add;
 
-        // Lock on
+        // Lock on at (34, 30) — inside the target area.
         for (var i = 0; i < 20; i++) {
           dec.processFrame(
             _makeFrame(
               timestampMs: i * 33,
-              sourceX: 20,
-              sourceY: 20,
+              sourceX: 34,
+              sourceY: 30,
               sourceOn: i.isEven,
             ),
           );
@@ -324,15 +350,16 @@ void main() {
           VideoDecoderState.locked,
         );
 
-        // Slide right + oscillate
+        // Slide right slowly + oscillate — stays inside the
+        // target area (x 30..51).
         for (var i = 20; i < 60; i++) {
-          final drift = i - 20;
+          final drift = (i - 20) ~/ 3;
           final shake = (4 * sin(i * 0.3)).round();
           dec.processFrame(
             _makeFrame(
               timestampMs: i * 33,
-              sourceX: 20 + drift + shake,
-              sourceY: 20 + shake ~/ 2,
+              sourceX: 34 + drift + shake,
+              sourceY: 30 + shake ~/ 2,
               sourceOn: i.isEven,
             ),
           );

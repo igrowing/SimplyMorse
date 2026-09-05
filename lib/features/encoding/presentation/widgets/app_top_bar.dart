@@ -15,11 +15,17 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   const AppTopBar({
     this.showSettingsIcon = true,
     this.onSettingsTap,
+    this.titleText,
     super.key,
   });
 
   final bool showSettingsIcon;
   final VoidCallback? onSettingsTap;
+
+  /// Optional title overriding the app name — used by mode
+  /// screens (e.g. the camera decoder) to label what the user
+  /// is looking at.
+  final String? titleText;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -45,9 +51,9 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                 height: 28,
               ),
             ),
-      title: const Text(
-        AppConstants.appName,
-        style: TextStyle(
+      title: Text(
+        titleText ?? AppConstants.appName,
+        style: const TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
         ),

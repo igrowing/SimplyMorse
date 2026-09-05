@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -11,15 +12,27 @@ import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
+import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for visual Morse decoding via camera.
 ///
-/// Implements the video decoding pipeline:
-/// CameraCapture → VideoDecoder (region detection →
-/// brightness tracking → timing) → MorseDecoder → text.
+/// Full-screen camera preview with a targeting overlay:
+/// - the live preview fills the screen (letterboxed, so the
+///   full frame stays visible and the reticle maps 1:1 to the
+///   decoder's target area),
+/// - a centered reticle shows where to aim the transmitting
+///   light — scanning is confined to this area by
+///   [VideoDecoder.targetAreaFraction],
+/// - the top holds the status line (state, WPM, measured FPS)
+///   and a translucent box with the decoded text,
+/// - the bottom holds all four actions: start/pause, clear,
+///   copy, share.
+///
+/// The top and bottom overlays are sized so they never cover
+/// the reticle.
 ///
 /// On web, camera frame streaming is not supported — the
 /// screen displays an informational message instead.
@@ -56,6 +69,15 @@ class _SeeScreenState extends State<SeeScreen> {
     _shareService = GetIt.instance<ShareService>();
     _feedbackService = GetIt.instance<FeedbackService>();
     _controller.init(DecodingMode.video);
+
+    // Show the live preview as soon as the camera permission is
+    // granted — the user needs to see through the camera to aim
+    // at the transmitting light before pressing Start.
+    unawaited(
+      _controller.checkPermission().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
   }
 
   @override
@@ -123,99 +145,306 @@ class _SeeScreenState extends State<SeeScreen> {
       value: _controller,
       child: Scaffold(
         appBar: AppTopBar(
+          titleText: 'Watch',
           onSettingsTap: () => _navigateToSettings(context),
         ),
-        body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth > 600;
-              if (isWide) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Camera preview on the left
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          children: [
-                            _buildHeader(context),
-                            const SizedBox(height: 16),
-                            _buildCameraPreview(context),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      // All other controls on the right
-                      Expanded(
-                        flex: 3,
-                        child: SingleChildScrollView(
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(
-                                maxWidth: 400,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _buildStatusIndicator(context),
-                                  const SizedBox(height: 8),
-                                  _buildWpmDisplay(context),
-                                  const SizedBox(height: 16),
-                                  _buildDecodedTextInput(context),
-                                  const SizedBox(height: 8),
-                                  _buildShareButtons(context),
-                                  const SizedBox(height: 16),
-                                  _buildActionButtons(context),
-                                ],
-                              ),
-                            ),
+        backgroundColor: Colors.black,
+        body: Consumer<DecodingController>(
+          builder: (context, ctrl, _) => _buildBody(context, ctrl),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, DecodingController ctrl) {
+    final camController = _cameraCapture.controller;
+    final previewReady =
+        camController != null && camController.value.isInitialized;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenW = constraints.maxWidth;
+        final screenH = constraints.maxHeight;
+
+        // Letterboxed (BoxFit.contain) preview rect — the full
+        // frame stays visible, so the centered reticle maps
+        // exactly onto the decoder's target area in frame
+        // coordinates.
+        var previewW = screenW;
+        var previewH = screenH;
+        if (previewReady) {
+          final aspect = camController.value.aspectRatio;
+          if (screenW / screenH > aspect) {
+            previewH = screenH;
+            previewW = previewH * aspect;
+          } else {
+            previewW = screenW;
+            previewH = previewW / aspect;
+          }
+        }
+        final reticleSide =
+            VideoDecoder.defaultTargetAreaFraction * min(previewW, previewH);
+        // Vertical gap between the screen's top/bottom edge and
+        // the reticle's bounding box — the overlays must stay
+        // inside it so they never cover the target.
+        final reticleEdgeGap = (screenH - reticleSide) / 2;
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Live preview with the targeting reticle.
+            if (previewReady)
+              Center(
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  child: SizedBox(
+                    width: 100,
+                    height: 100 / camController.value.aspectRatio,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CameraPreview(camController),
+                        Center(
+                          child: LayoutBuilder(
+                            builder: (context, box) {
+                              final side =
+                                  VideoDecoder.defaultTargetAreaFraction *
+                                  min(box.maxWidth, box.maxHeight);
+                              return CustomPaint(
+                                key: const Key('targeting-reticle'),
+                                size: Size.square(side),
+                                painter: TargetReticlePainter(
+                                  color: ctrl.isListening
+                                      ? Colors.greenAccent
+                                      : Colors.white,
+                                ),
+                              );
+                            },
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 16,
-                ),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 500,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildHeader(context),
-                        const SizedBox(height: 16),
-                        _buildStatusIndicator(context),
-                        const SizedBox(height: 8),
-                        _buildWpmDisplay(context),
-                        const SizedBox(height: 16),
-                        _buildDecodedTextInput(context),
-                        const SizedBox(height: 8),
-                        _buildShareButtons(context),
-                        const SizedBox(height: 16),
-                        _buildCameraPreview(context),
-                        const SizedBox(height: 16),
-                        _buildActionButtons(context),
                       ],
                     ),
                   ),
                 ),
-              );
-            },
+              )
+            else
+              _buildCameraPlaceholder(context),
+
+            // Top: status line + translucent decoded-text box.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildStatusBar(context, ctrl),
+                      if (reticleEdgeGap > 120) ...[
+                        const SizedBox(height: 8),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: reticleEdgeGap - 120,
+                          ),
+                          child: _buildDecodedTextBox(context, ctrl),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Bottom: all four actions in one row.
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _buildBottomButtons(context, ctrl),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Shown when the camera is not available yet.
+  Widget _buildCameraPlaceholder(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.camera_alt, size: 64, color: Colors.white54),
+          SizedBox(height: 12),
+          Text(
+            'Camera preview',
+            style: TextStyle(color: Colors.white54),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  /// Status line: state, WPM, and the measured capture FPS
+  /// while decoding.
+  Widget _buildStatusBar(BuildContext context, DecodingController ctrl) {
+    final (color, label) = switch (ctrl.status) {
+      DecodingStatus.idle => (Colors.white70, 'Idle'),
+      DecodingStatus.listening => (Colors.greenAccent, 'Watching…'),
+      DecodingStatus.paused => (Colors.amber, 'Paused'),
+    };
+    final details = <String>[
+      if (ctrl.currentWpm > 0) '${ctrl.currentWpm} WPM',
+      if (ctrl.isListening && ctrl.captureFps > 0) '${ctrl.captureFps} FPS',
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 10, color: color),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              details.isEmpty ? label : '$label  ·  ${details.join('  ·  ')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Half-transparent, editable box with the decoded text.
+  Widget _buildDecodedTextBox(
+    BuildContext context,
+    DecodingController ctrl,
+  ) {
+    if (_textController.text != ctrl.decodedText) {
+      _textController.text = ctrl.decodedText;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: TextField(
+        controller: _textController,
+        style: const TextStyle(color: Colors.white),
+        maxLines: 3,
+        minLines: 1,
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          isDense: true,
+          hintText: 'Decoded text will appear here…',
+          hintStyle: TextStyle(color: Colors.white38),
+        ),
+        onChanged: ctrl.updateText,
+      ),
+    );
+  }
+
+  /// Start/Pause, Clear, Copy, Share — all four actions in a
+  /// single bottom row.
+  Widget _buildBottomButtons(
+    BuildContext context,
+    DecodingController ctrl,
+  ) {
+    final isStart = ctrl.isIdle;
+    final isPause = ctrl.isListening;
+    final hasText = ctrl.decodedText.isNotEmpty;
+
+    Widget action({
+      required VoidCallback? onPressed,
+      required IconData icon,
+      required String label,
+      bool primary = false,
+    }) {
+      final style = primary
+          ? FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: const StadiumBorder(),
+            )
+          : OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: const StadiumBorder(),
+            );
+      final child = Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 18),
+          const SizedBox(width: 6),
+          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+        ],
+      );
+      return Expanded(
+        child: primary
+            ? FilledButton(
+                onPressed: onPressed,
+                style: style,
+                child: child,
+              )
+            : OutlinedButton(
+                onPressed: onPressed,
+                style: style,
+                child: child,
+              ),
+      );
+    }
+
+    return Row(
+      children: [
+        action(
+          onPressed: isStart
+              ? _onStartPressed
+              : isPause
+              ? _onPausePressed
+              : _onResumePressed,
+          icon: isPause ? Icons.pause : Icons.play_arrow,
+          label: isStart
+              ? 'Start'
+              : isPause
+              ? 'Pause'
+              : 'Resume',
+          primary: true,
+        ),
+        const SizedBox(width: 8),
+        action(
+          onPressed: hasText || !ctrl.isIdle ? _onClearPressed : null,
+          icon: Icons.clear,
+          label: 'Clear',
+        ),
+        const SizedBox(width: 8),
+        action(
+          onPressed: hasText ? _onCopyPressed : null,
+          icon: Icons.copy,
+          label: 'Copy',
+        ),
+        const SizedBox(width: 8),
+        action(
+          onPressed: hasText ? _onSharePressed : null,
+          icon: Icons.share,
+          label: 'Share',
+        ),
+      ],
     );
   }
 
@@ -261,267 +490,6 @@ class _SeeScreenState extends State<SeeScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        const Icon(Icons.camera_alt, size: 28),
-        const SizedBox(width: 12),
-        Text(
-          'Watch',
-          style: theme.textTheme.headlineSmall,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatusIndicator(BuildContext context) {
-    final theme = Theme.of(context);
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        final (color, label) = switch (ctrl.status) {
-          DecodingStatus.idle => (
-            theme.colorScheme.outline,
-            'Idle',
-          ),
-          DecodingStatus.listening => (
-            theme.colorScheme.primary,
-            ctrl.cameraError != null
-                ? 'Watching… (${ctrl.cameraError})'
-                : 'Watching… (${ctrl.cameraCaptureType})',
-          ),
-          DecodingStatus.paused => (
-            theme.colorScheme.tertiary,
-            'Paused',
-          ),
-        };
-        return Row(
-          children: [
-            Icon(Icons.circle, size: 12, color: color),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: color,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildWpmDisplay(BuildContext context) {
-    final theme = Theme.of(context);
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        if (ctrl.currentWpm == 0) return const SizedBox.shrink();
-        return Row(
-          children: [
-            Icon(Icons.speed, size: 16, color: theme.colorScheme.outline),
-            const SizedBox(width: 4),
-            Text(
-              '${ctrl.currentWpm} WPM',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildDecodedTextInput(BuildContext context) {
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        _textController.text = ctrl.decodedText;
-        _textController.selection = TextSelection.fromPosition(
-          TextPosition(offset: _textController.text.length),
-        );
-        return TextField(
-          controller: _textController,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            labelText: 'Decoded text',
-            alignLabelWithHint: true,
-            hintText: 'Decoded text will appear here…',
-          ),
-          onChanged: ctrl.updateText,
-        );
-      },
-    );
-  }
-
-  Widget _buildShareButtons(BuildContext context) {
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        if (ctrl.decodedText.isEmpty) return const SizedBox.shrink();
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            OutlinedButton.icon(
-              onPressed: _onCopyPressed,
-              icon: const Icon(Icons.copy, size: 18),
-              label: const Text('Copy'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: const StadiumBorder(),
-              ),
-            ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: _onSharePressed,
-              icon: const Icon(Icons.share, size: 18),
-              label: const Text('Share'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: const StadiumBorder(),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildCameraPreview(BuildContext context) {
-    final theme = Theme.of(context);
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        final isActive = ctrl.isListening;
-        final camController = _cameraCapture.controller;
-
-        return AspectRatio(
-          aspectRatio: 4 / 3,
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: isActive
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outline,
-                width: 2,
-              ),
-              borderRadius: BorderRadius.circular(8),
-              color: theme.colorScheme.surfaceContainerLow,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  if (camController != null &&
-                      camController.value.isInitialized)
-                    CameraPreview(camController)
-                  else
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.camera_alt,
-                          size: 48,
-                          color: theme.colorScheme.outline,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Camera preview',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                      ],
-                    ),
-                  if (isActive)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'SCANNING',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onPrimary,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// Start/Pause/Resume and Clear buttons side by side,
-  /// consistent with Send screens.
-  Widget _buildActionButtons(BuildContext context) {
-    return Consumer<DecodingController>(
-      builder: (context, ctrl, _) {
-        final isStart = ctrl.isIdle;
-        final isPause = ctrl.isListening;
-
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            FilledButton.icon(
-              onPressed: isStart
-                  ? _onStartPressed
-                  : isPause
-                  ? _onPausePressed
-                  : _onResumePressed,
-              icon: Icon(isPause ? Icons.pause : Icons.play_arrow),
-              label: Text(
-                isStart
-                    ? 'Start'
-                    : isPause
-                    ? 'Pause'
-                    : 'Resume',
-              ),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
-                ),
-                shape: const StadiumBorder(),
-              ),
-            ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: ctrl.decodedText.isEmpty && ctrl.isIdle
-                  ? null
-                  : _onClearPressed,
-              icon: const Icon(Icons.clear),
-              label: const Text('Clear'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
-                ),
-                shape: const StadiumBorder(),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   void _navigateToSettings(BuildContext context) {
     unawaited(
       Navigator.of(context).push(
@@ -537,4 +505,76 @@ class _SeeScreenState extends State<SeeScreen> {
       ),
     );
   }
+}
+
+/// Draws the aiming reticle: four corner brackets, a faint full
+/// square outline, and a small center dot.
+///
+/// The reticle marks the decoder's target area — scanning and
+/// tracking only consider pixels inside it, so the user must
+/// keep the transmitting light within the brackets.
+class TargetReticlePainter extends CustomPainter {
+  TargetReticlePainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bracket = size.width * 0.22;
+    final backPaint = Paint()
+      ..color = Colors.black54
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    final outline = Paint()
+      ..color = color.withValues(alpha: 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    final rect = Offset.zero & size;
+
+    // Faint outline of the full target area.
+    canvas.drawRect(rect, outline);
+
+    final paths = <Path>[
+      Path()
+        ..moveTo(0, bracket)
+        ..lineTo(0, 0)
+        ..lineTo(bracket, 0),
+      Path()
+        ..moveTo(size.width - bracket, 0)
+        ..lineTo(size.width, 0)
+        ..lineTo(size.width, bracket),
+      Path()
+        ..moveTo(size.width, size.height - bracket)
+        ..lineTo(size.width, size.height)
+        ..lineTo(size.width - bracket, size.height),
+      Path()
+        ..moveTo(bracket, size.height)
+        ..lineTo(0, size.height)
+        ..lineTo(0, size.height - bracket),
+    ];
+    for (final p in paths) {
+      canvas
+        ..drawPath(p, backPaint)
+        ..drawPath(p, paint);
+    }
+
+    // Center dot.
+    final center = Offset(size.width / 2, size.height / 2);
+    final dotBack = Paint()..color = Colors.black54;
+    final dot = Paint()..color = color;
+    canvas
+      ..drawCircle(center, 4, dotBack)
+      ..drawCircle(center, 2.5, dot);
+  }
+
+  @override
+  bool shouldRepaint(TargetReticlePainter old) => old.color != color;
 }

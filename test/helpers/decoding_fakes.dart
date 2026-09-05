@@ -45,7 +45,9 @@ class FakeCameraCapture implements CameraCapture {
 
   bool _isActive = false;
   bool _isInitialized = false;
+  final double _measuredFps = 0;
   void Function(VideoFrame frame)? _onFrame;
+  DebugCaptureEventCallback? _onDebugEvent;
 
   @override
   Future<bool> hasPermission() async {
@@ -67,6 +69,17 @@ class FakeCameraCapture implements CameraCapture {
   @override
   Future<void> stop() async {
     _isActive = false;
+  }
+
+  @override
+  double get measuredFps => _measuredFps;
+
+  @override
+  DebugCaptureEventCallback? get onDebugEvent => _onDebugEvent;
+
+  @override
+  set onDebugEvent(DebugCaptureEventCallback? callback) {
+    _onDebugEvent = callback;
   }
 
   @override

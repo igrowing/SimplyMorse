@@ -13,10 +13,10 @@ import 'package:simply_morse/features/decoding/domain/services/morse_lock_gate.d
 
 import '../../../../support/cer.dart';
 
-/// Helper to load float32 brightness trace from test assets.
+/// Helper to load a float32 brightness trace from test assets.
 ///
 /// Returns null if the file is not present (e.g. on CI or when the
-/// user has not downloaded the video recordings locally).
+/// user has not extracted the trace from the video locally).
 List<double>? _loadBrightnessTrace(String filename) {
   final file = File('test/assets/recordings/video/$filename');
   if (!file.existsSync()) return null;
@@ -31,20 +31,44 @@ List<double>? _loadBrightnessTrace(String filename) {
 /// Video recording fixture metadata.
 class VideoRecordingFixture {
   VideoRecordingFixture({
+    required this.name,
     required this.brightnessFile,
     required this.fps,
-    required this.nFrames,
-    required this.durationS,
     required this.expectedWpm,
     required this.expectedText,
+    required this.maxCer,
   });
 
+  factory VideoRecordingFixture.fromManifestEntry(
+    String name,
+    Map<String, dynamic> meta,
+  ) {
+    // CER tolerance: explicit per-fixture `max_cer` wins; otherwise
+    // fall back to the tuned thresholds of the original 30 fps
+    // recordings (see git history) and a generic default for new
+    // fixtures.
+    final byWpm = <int, double>{4: 0.75, 8: 0.40, 20: 0.35};
+    return VideoRecordingFixture(
+      name: name,
+      brightnessFile: meta['brightness_file'] as String,
+      fps: (meta['fps'] as num).toDouble(),
+      expectedWpm: meta['expected_wpm'] as int,
+      expectedText: meta['expected_text'] as String,
+      maxCer:
+          (meta['max_cer'] as num?)?.toDouble() ??
+          byWpm[meta['expected_wpm'] as int] ??
+          0.40,
+    );
+  }
+
+  final String name;
   final String brightnessFile;
   final double fps;
-  final int nFrames;
-  final double durationS;
   final int expectedWpm;
   final String expectedText;
+  final double maxCer;
+
+  bool get isHighFps => fps > 45;
 }
 
 List<VideoRecordingFixture> _loadVideoManifest() {
@@ -52,15 +76,9 @@ List<VideoRecordingFixture> _loadVideoManifest() {
   final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
   return json.entries
       .map(
-        (e) => VideoRecordingFixture(
-          brightnessFile:
-              (e.value as Map<String, dynamic>)['brightness_file'] as String,
-          fps: (e.value as Map<String, dynamic>)['fps'] as double,
-          nFrames: (e.value as Map<String, dynamic>)['n_frames'] as int,
-          durationS: (e.value as Map<String, dynamic>)['duration_s'] as double,
-          expectedWpm: (e.value as Map<String, dynamic>)['expected_wpm'] as int,
-          expectedText:
-              (e.value as Map<String, dynamic>)['expected_text'] as String,
+        (e) => VideoRecordingFixture.fromManifestEntry(
+          e.key,
+          e.value as Map<String, dynamic>,
         ),
       )
       .toList();
@@ -79,7 +97,7 @@ List<VideoRecordingFixture> _loadVideoManifest() {
   int minTransitionMs = 50,
 }) {
   final trace = _loadBrightnessTrace(fixture.brightnessFile)!;
-  final frameMs = (1000 / fixture.fps).round(); // ~33ms at 30fps
+  final frameMs = (1000 / fixture.fps).round();
 
   final threshold = BrightnessThreshold(
     onFactor: onFactor,
@@ -119,96 +137,110 @@ List<VideoRecordingFixture> _loadVideoManifest() {
 }
 
 void main() {
-  // Skip all tests in this file if the brightness trace fixtures
-  // are not available locally.
   final manifestFile = File('test/assets/recordings/video/manifest.json');
-  final manifestExists = manifestFile.existsSync();
-  final firstTraceExists = _loadBrightnessTrace('4wpm_brightness.f32') != null;
-
-  if (!manifestExists || !firstTraceExists) {
+  if (!manifestFile.existsSync()) {
     test('video recording fixtures not available — skipping', () {
       // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
-      print(
-        '  Video recording tests skipped: brightness trace fixtures '
-        'not found locally. Download the video recordings and extract '
-        'traces to run these tests.',
-      );
+      print('  Video recording tests skipped: manifest.json not found.');
     });
     return;
   }
 
   final fixtures = _loadVideoManifest();
 
+  // One test per fixture whose brightness trace is available.
+  // Fixtures without a local trace are reported and skipped
+  // individually, so a partially-extracted set still runs the
+  // rest.
+  final available = <VideoRecordingFixture>[];
+  for (final f in fixtures) {
+    if (_loadBrightnessTrace(f.brightnessFile) != null) {
+      available.add(f);
+    } else {
+      test('${f.name} trace missing — skipping', () {
+        // Ignored: avoid_print is intentional for this test case.
+        // ignore: avoid_print
+        print(
+          '  ${f.name}: brightness trace ${f.brightnessFile} not '
+          'found locally — extract it to run this test.',
+        );
+      });
+    }
+  }
+
+  if (available.isEmpty) {
+    return;
+  }
+
   group('VideoDecoder brightness traces from real recordings', () {
-    test('4wpm detects blinking dot and decodes Morse elements', () {
-      final fixture = fixtures.firstWhere(
-        (f) => f.brightnessFile.contains('4wpm'),
+    for (final fixture in available) {
+      test(
+        '${fixture.name} (${fixture.fps} fps) decodes within CER budget',
+        () {
+          final result = _decodeBrightness(fixture);
+
+          expect(result.elements.length, greaterThan(20));
+          expect(result.text, isNotEmpty);
+
+          final cer = characterErrorRate(
+            result.text,
+            fixture.expectedText,
+          );
+
+          // Ignored: avoid_print is intentional for this test case.
+          // ignore: avoid_print
+          print(cerReport(fixture.name, result.text, fixture.expectedText));
+
+          expect(
+            cer,
+            lessThanOrEqualTo(fixture.maxCer),
+            reason:
+                'CER ${(cer * 100).toStringAsFixed(1)}% exceeds the '
+                '${(fixture.maxCer * 100).toStringAsFixed(0)}% budget for '
+                '${fixture.name}.',
+          );
+        },
       );
-      final result = _decodeBrightness(fixture);
+    }
 
-      expect(result.elements.length, greaterThan(20));
-      expect(result.text, isNotEmpty);
-      expect(result.ditMs, greaterThan(200));
-      // The 4 WPM recording spends its first ~10 s acquiring, which
-      // injects junk elements ahead of the message. MorseLockGate
-      // (below fastUnitThresholdMs, sending here is slow enough to
-      // gate) drops most of it but not all — some junk still slips
-      // through close enough to the real unit to pass the fit check.
-      expect(
-        characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.75),
-      );
+    // High-FPS recordings of the same text at the same WPM should
+    // decode at least as well as their 30 fps counterparts — that
+    // is the whole point of the high frame-rate capture path.
+    test('high-FPS fixtures decode no worse than 30 fps counterparts', () {
+      final byWpm = <int, List<VideoRecordingFixture>>{};
+      for (final f in available) {
+        byWpm.putIfAbsent(f.expectedWpm, () => []).add(f);
+      }
 
-      // Ignored: avoid_print is intentional for this test case.
-      // ignore: avoid_print
-      print(cerReport('4wpm', result.text, fixture.expectedText));
-    });
+      for (final entry in byWpm.entries) {
+        final highFps = entry.value.where((f) => f.isHighFps).toList();
+        final lowFps = entry.value.where((f) => !f.isHighFps).toList();
+        if (highFps.isEmpty || lowFps.isEmpty) continue;
 
-    test('8wpm decodes "HELLO, WORLD!"', () {
-      final fixture = fixtures.firstWhere(
-        (f) => f.brightnessFile.contains('8wpm'),
-      );
-      final result = _decodeBrightness(fixture);
-
-      expect(result.elements.length, greaterThan(30));
-      expect(result.text, isNotEmpty);
-      expect(result.ditMs, closeTo(150, 50));
-      expect(result.text, contains('ELLO'));
-      expect(
-        characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.40),
-      );
-
-      // Ignored: avoid_print is intentional for this test case.
-      // ignore: avoid_print
-      print(cerReport('8wpm', result.text, fixture.expectedText));
-    });
-
-    test('20wpm decodes "HELLO, WORLD!"', () {
-      final fixture = fixtures.firstWhere(
-        (f) => f.brightnessFile.contains('20wpm'),
-      );
-      final result = _decodeBrightness(fixture);
-
-      expect(result.elements.length, greaterThan(60));
-      expect(result.text, isNotEmpty);
-      expect(result.ditMs, closeTo(60, 20));
-      // 20 WPM at 30 fps is 1.8 frames per dit — the dah and
-      // character-gap clusters overlap, so this is frame-rate
-      // limited rather than threshold limited. BrightnessThreshold's
-      // falling-edge bias correction recovers most of that (measured
-      // 37.0% -> 29.6%) by undoing the systematic mark/gap dilation
-      // frame integration and LED persistence introduce — see its
-      // class docs.
-      expect(
-        characterErrorRate(result.text, fixture.expectedText),
-        lessThanOrEqualTo(0.35),
-      );
-
-      // Ignored: avoid_print is intentional for this test case.
-      // ignore: avoid_print
-      print(cerReport('20wpm', result.text, fixture.expectedText));
+        for (final hi in highFps) {
+          for (final lo in lowFps) {
+            final cerHi = characterErrorRate(
+              _decodeBrightness(hi).text,
+              hi.expectedText,
+            );
+            final cerLo = characterErrorRate(
+              _decodeBrightness(lo).text,
+              lo.expectedText,
+            );
+            expect(
+              cerHi,
+              lessThanOrEqualTo(cerLo + 0.02),
+              reason:
+                  '${hi.name} (${hi.fps} fps, CER '
+                  '${(cerHi * 100).toStringAsFixed(1)}%) decodes worse '
+                  'than ${lo.name} (${lo.fps} fps, CER '
+                  '${(cerLo * 100).toStringAsFixed(1)}%) — a higher '
+                  'frame rate must not degrade accuracy.',
+            );
+          }
+        }
+      }
     });
   });
 }

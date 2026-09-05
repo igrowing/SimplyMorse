@@ -40,6 +40,21 @@ class VideoDebugLogger {
     );
   }
 
+  /// Logs a camera capture lifecycle event: init attempts,
+  /// frame-rate fallbacks, exposure mode, and periodic measured
+  /// frame rates.
+  void logCapture({
+    required int timestampMs,
+    required String event,
+    String? detail,
+  }) {
+    if (!enabled || _sink == null) return;
+    _writeln(
+      '$timestampMs,capture,$event,0,0,0,0,0,0,0,0,0,0,0,0,'
+      '${detail ?? ''}',
+    );
+  }
+
   void logScanning({
     required int timestampMs,
     required double maxVariance,

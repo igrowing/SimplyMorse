@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
+import 'package:simply_morse/features/decoding/domain/services/frame_rate_meter.dart';
 
 /// Platform implementation of [CameraCapture] using the
 /// `camera` package.
@@ -11,6 +12,15 @@ import 'package:simply_morse/features/decoding/domain/services/camera_capture.da
 /// Captures low-resolution frames, extracts luminance from
 /// the YUV420 Y plane, downsamples to ~80×60, and exposes
 /// the [CameraController] for preview rendering.
+///
+/// Frame-rate strategy: video decoding accuracy is limited by
+/// frame rate (a 20 WPM dit is 1.8 frames at 30 fps), so
+/// [initialize] first asks for the highest capture rate at the
+/// lowest resolution, and falls back step by step to the
+/// platform default when a rate is not supported. The actually
+/// delivered rate is measured while streaming and exposed via
+/// [measuredFps] — a request that the platform silently
+/// downgrades is detectable there, not in the requested value.
 ///
 /// On web, camera frame streaming (`startImageStream`) is
 /// not supported — methods return early and [isInitialized]
@@ -22,6 +32,7 @@ class CameraCaptureImpl implements CameraCapture {
   bool _isActive = false;
   bool _isHighFrameRate = false;
   int _frameRate = _defaultFrameRate;
+  final FrameRateMeter _frameRateMeter = FrameRateMeter();
 
   /// The underlying [CameraController], exposed so the
   /// presentation layer can render the live preview via
@@ -42,6 +53,12 @@ class CameraCaptureImpl implements CameraCapture {
   int get frameRate => _frameRate;
 
   @override
+  double get measuredFps => _frameRateMeter.fps;
+
+  @override
+  DebugCaptureEventCallback? onDebugEvent;
+
+  @override
   Future<bool> hasPermission() async {
     if (kIsWeb) return false;
     try {
@@ -59,7 +76,10 @@ class CameraCaptureImpl implements CameraCapture {
     if (kIsWeb) return;
 
     final cameras = await availableCameras();
-    if (cameras.isEmpty) return;
+    if (cameras.isEmpty) {
+      _emitDebug('init_failed', detail: 'no camera available');
+      return;
+    }
 
     // Try progressively lower capture rates.
     //
@@ -70,6 +90,11 @@ class CameraCaptureImpl implements CameraCapture {
     // quantisation. Not every device offers every rate, and asking for
     // an unsupported one fails at initialize(), so fall back in order.
     for (final fps in _preferredFrameRates) {
+      final request = fps == null ? 'platform default' : '$fps fps';
+      _emitDebug(
+        'init_attempt',
+        detail: 'requesting low resolution @ $request',
+      );
       final controller = CameraController(
         cameras.first,
         ResolutionPreset.low,
@@ -81,22 +106,35 @@ class CameraCaptureImpl implements CameraCapture {
         await controller.initialize();
         _controller = controller;
         _frameRate = fps ?? _defaultFrameRate;
+        _emitDebug(
+          'init_ok',
+          detail: 'low resolution @ $_frameRate fps granted',
+        );
         break;
-      } on CameraException {
+      } on CameraException catch (e) {
         await controller.dispose();
+        _emitDebug(
+          'init_fallback',
+          detail: '$request failed (code: ${e.code}, ${e.description})',
+        );
       }
     }
 
-    if (_controller == null) return;
+    if (_controller == null) {
+      _emitDebug('init_failed', detail: 'no supported capture rate');
+      return;
+    }
 
     // Lock exposure for consistent brightness detection.
     try {
       await _controller!.setExposureMode(
         ExposureMode.locked,
       );
+      _emitDebug('exposure_locked');
     } on CameraException {
       // Not all devices support locked exposure —
       // continue with auto exposure.
+      _emitDebug('exposure_auto', detail: 'locked mode unsupported');
     }
 
     _isHighFrameRate = _frameRate > _defaultFrameRate;
@@ -115,11 +153,14 @@ class CameraCaptureImpl implements CameraCapture {
     if (kIsWeb) return;
     if (_controller == null || !isInitialized) return;
     _isActive = true;
+    _frameRateMeter.reset();
 
     unawaited(
       _controller!.startImageStream((image) {
         if (!_isActive) return;
-        onFrame(_processImage(image));
+        final frame = _processImage(image);
+        _frameRateMeter.add(frame.timestampMs);
+        onFrame(frame);
       }),
     );
   }
@@ -130,6 +171,14 @@ class CameraCaptureImpl implements CameraCapture {
     if (_controller != null && _controller!.value.isStreamingImages) {
       await _controller!.stopImageStream();
     }
+  }
+
+  void _emitDebug(String event, {String? detail}) {
+    onDebugEvent?.call(
+      timestampMs: DateTime.now().millisecondsSinceEpoch,
+      event: event,
+      detail: detail,
+    );
   }
 
   /// Extracts luminance from the YUV420 Y plane and

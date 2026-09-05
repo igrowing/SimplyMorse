@@ -87,7 +87,7 @@ void main() {
         bytes.length ~/ 4,
       );
 
-      final frameMs = (1000 / (meta['fps'] as double)).round();
+      final frameMs = (1000 / (meta['fps'] as num).toDouble()).round();
       final threshold = BrightnessThreshold();
       final elements = <DecodedElement>[];
       final gate = MorseLockGate(onElement: elements.add);

@@ -88,7 +88,21 @@ Future<void> configureDependencies() async {
       ),
     )
     ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
-    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger())
+    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger());
+
+  // Camera capture lifecycle events (frame-rate requests,
+  // fallbacks, exposure mode) go to the video debug log when
+  // logging is enabled.
+  cameraCapture.onDebugEvent =
+      ({required timestampMs, required event, detail}) {
+        getIt<VideoDebugLogger>().logCapture(
+          timestampMs: timestampMs,
+          event: event,
+          detail: detail,
+        );
+      };
+
+  getIt
     ..registerFactory<VideoDecoder>(VideoDecoder.new)
     ..registerFactory<DecodingController>(
       () => DecodingController(

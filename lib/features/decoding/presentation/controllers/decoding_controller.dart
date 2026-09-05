@@ -113,6 +113,16 @@ class DecodingController extends ChangeNotifier {
       !(_mode == DecodingMode.video) ||
       (_cameraCapture?.isHighFrameRate ?? false);
 
+  /// Measured capture rate of the live camera stream, in FPS.
+  ///
+  /// This is the rate the device actually delivers (the requested
+  /// rate may be silently downgraded), measured over roughly the
+  /// last second of frames. Returns 0 when not streaming.
+  int get captureFps {
+    if (_mode != DecodingMode.video) return 0;
+    return _cameraCapture?.measuredFps.round() ?? 0;
+  }
+
   /// Returns a human-readable description of the camera capture
   /// mode: 'High speed', 'High resolution', or 'Error: `<reason>`'.
   String get cameraCaptureType {

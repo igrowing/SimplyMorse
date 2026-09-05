@@ -70,7 +70,8 @@ enum DecoderState {
 ///
 /// **Monotonic tone definition** (the lock criteria):
 /// - One sharp tone: spectral peak-to-average ratio ≥
-///   [onThresholdFactor] (single dominant frequency)
+///   [onThresholdFactor] (single dominant frequency), with
+///   spectral concentration ≥ [minConcentration]
 /// - Detected for at least [minToneMs] (160 ms, ~5 FFT frames at
 ///   32 ms/frame — see that field for why the 50 ms in the spec is
 ///   not attainable)
@@ -83,7 +84,8 @@ enum DecoderState {
 ///
 /// Pipeline:
 /// 1. **Scanning** — continuously runs FFT frames over 400–1000 Hz.
-///    Each frame checks if the dominant bin has SNR ≥ 4 (monotonic).
+///    Each frame checks if the dominant bin has SNR ≥ 4 and spectral
+///    concentration ≥ [minConcentration] (monotonic).
 ///    Runs of consecutive monotonic frames are tracked as "detection
 ///    events". The decoder locks when either:
 ///    - A single run lasts ≥ [longToneMs], OR
@@ -129,6 +131,7 @@ class AudioDecoder {
     this.minToneMs = 160,
     this.longToneMs = 500,
     this.requiredDetections = 3,
+    this.minConcentration = 0.60,
     this.hysteresisDb = 2.5,
     this.minSeparationDb = 6.0,
     this.thresholdOffsetDb = 3.0,
@@ -208,6 +211,25 @@ class AudioDecoder {
   /// reject a false frequency: it costs a correct lock on two of the
   /// five reference recordings. Three is used instead.
   final int requiredDetections;
+
+  /// Minimum fraction of the in-band power that must sit in the
+  /// dominant bin and its two immediate neighbours for a frame to
+  /// count as monotonic (spectral concentration).
+  ///
+  /// Peak-to-average SNR alone can be met by frames where a noise
+  /// spike or a broadband burst happens to peak in one bin while
+  /// the rest of the band still carries substantial energy. A
+  /// real keyed tone concentrates nearly all its in-band energy
+  /// around one frequency; measuring what fraction the peak
+  /// neighbourhood holds rejects "loud but spread out" frames that
+  /// SNR passes. The rectangular FFT window leaks a tone across
+  /// ~3-5 bins, so the threshold stays well below 1.0.
+  /// 0.85 rejects genuine dits. Measured on the reference
+  /// recordings: 0.55/0.60/0.65 all keep the 12-error baseline
+  /// while rejecting voice/burst frames (concentration
+  /// 0.1-0.4) outright; 0.75 trims exactly one character but
+  /// leaves no margin against the tone floor.
+  final double minConcentration;
 
   /// Glitch-merge threshold as a fraction of the estimated dit, once
   /// enough elements have been seen to estimate one.
@@ -501,12 +523,26 @@ class AudioDecoder {
     // Update noise floor estimator with band average.
     _noiseFloor.update(avgOther);
 
+    // Spectral concentration: the share of total in-band power in
+    // the dominant bin ±1. A keyed tone holds nearly all its energy
+    // there; voice and bursts leave most of the band lit and fail
+    // the check even when their SNR passes.
+    final bandTotal = otherPower + bestPower;
+    var peakNeighborhood = bestPower;
+    if (bestBin - 1 >= 0) peakNeighborhood += power[bestBin - 1];
+    if (bestBin + 1 < power.length) peakNeighborhood += power[bestBin + 1];
+    final concentration = bandTotal > 0 ? peakNeighborhood / bandTotal : 0.0;
+
     // Monotonic check: is this frame a single dominant tone?
     final snr = avgOther > 0 ? bestPower / avgOther : 999.0;
     // A frame is monotonic only if there's a real signal (bestBin >= 0)
-    // with sufficient peak-to-average ratio. Pure silence has
-    // avgOther=0 which makes snr default to 999 — reject it.
-    final isMonotonic = bestBin >= 0 && snr >= onThresholdFactor;
+    // with sufficient peak-to-average ratio AND concentrated energy.
+    // Pure silence has avgOther=0 which makes snr default to 999 —
+    // the concentration check rejects it too.
+    final isMonotonic =
+        bestBin >= 0 &&
+        snr >= onThresholdFactor &&
+        concentration >= minConcentration;
 
     if (isMonotonic) {
       if (_runBin != null && (bestBin - _runBin!).abs() <= 1) {

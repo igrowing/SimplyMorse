@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -6,6 +8,7 @@ import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
+import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
@@ -110,7 +113,10 @@ void main() {
 
     testWidgets('shows decoded text input field', (tester) async {
       await pumpScreen(tester);
-      expect(find.text('Decoded text'), findsOneWidget);
+      expect(
+        find.text('Decoded text will appear here…'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows camera preview placeholder when not initialized', (
@@ -120,19 +126,14 @@ void main() {
       expect(find.text('Camera preview'), findsOneWidget);
     });
 
-    testWidgets('shows SCANNING indicator when watching', (tester) async {
+    testWidgets('no reticle before the camera initializes', (
+      tester,
+    ) async {
       await pumpScreen(tester);
-
-      await tester.ensureVisible(find.text('Start'));
-      await tester.tap(find.text('Start'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('SCANNING'), findsOneWidget);
-    });
-
-    testWidgets('does not show SCANNING indicator when idle', (tester) async {
-      await pumpScreen(tester);
-      expect(find.text('SCANNING'), findsNothing);
+      // In the test harness no real camera is available, so the
+      // placeholder shows and the reticle must NOT be painted —
+      // it belongs to the live preview only.
+      expect(find.byKey(const Key('targeting-reticle')), findsNothing);
     });
 
     testWidgets('shows Idle status when not started', (tester) async {
@@ -173,12 +174,73 @@ void main() {
   });
 
   group('SeeScreen share/clipboard', () {
-    testWidgets('does not show Copy/Share when no decoded text', (
+    testWidgets('Copy/Share are disabled when no decoded text', (
       tester,
     ) async {
       await pumpScreen(tester);
-      expect(find.text('Copy'), findsNothing);
-      expect(find.text('Share'), findsNothing);
+      // The buttons are always visible in the bottom row but
+      // inert until there is text to act on.
+      final copy = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Copy'),
+      );
+      final share = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Share'),
+      );
+      expect(copy.onPressed, isNull);
+      expect(share.onPressed, isNull);
+    });
+
+    testWidgets('Copy/Share enable once text is decoded', (tester) async {
+      await pumpScreen(tester);
+
+      await tester.ensureVisible(find.text('Start'));
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
+
+      cameraCapture.emit(
+        VideoFrame(
+          luminance: List<double>.filled(80 * 60, 0.5),
+          width: 80,
+          height: 60,
+          timestampMs: 0,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Type text so the buttons have something to act on.
+      await tester.enterText(
+        find.byType(TextField),
+        'HELLO',
+      );
+      await tester.pumpAndSettle();
+
+      final copy = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Copy'),
+      );
+      expect(copy.onPressed, isNotNull);
+    });
+  });
+
+  group('TargetReticlePainter', () {
+    test('paints without throwing and reports repaint on color change', () {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      const size = Size.square(120);
+
+      TargetReticlePainter(color: Colors.white).paint(canvas, size);
+
+      final picture = recorder.endRecording();
+      expect(picture, isNotNull);
+
+      final painter = TargetReticlePainter(color: Colors.white);
+      expect(
+        painter.shouldRepaint(TargetReticlePainter(color: Colors.green)),
+        isTrue,
+      );
+      expect(
+        painter.shouldRepaint(TargetReticlePainter(color: Colors.white)),
+        isFalse,
+      );
     });
   });
 
