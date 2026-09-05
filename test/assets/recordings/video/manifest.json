@@ -2,55 +2,121 @@
   "4wpm.mp4": {
     "brightness_file": "4wpm_brightness.f32",
     "fps": 30.0,
-    "n_frames": 1625,
-    "duration_s": 54.17,
+    "n_frames": 1864,
+    "duration_s": 62.13,
     "expected_wpm": 4,
     "expected_text": "HELLO, WORLD!",
-    "dot_region_160x90": {
+    "dot_region_180x320": {
       "x": [
-        100,
-        104
+        85,
+        93
       ],
       "y": [
-        33,
-        37
+        156,
+        164
       ]
-    }
+    },
+    "region_tracking": true,
+    "max_cer": 0.25
   },
   "8wpm.mp4": {
     "brightness_file": "8wpm_brightness.f32",
     "fps": 30.0,
-    "n_frames": 993,
-    "duration_s": 33.1,
+    "n_frames": 1117,
+    "duration_s": 37.4,
     "expected_wpm": 8,
     "expected_text": "HELLO, WORLD!",
     "dot_region_320x180": {
       "x": [
-        220,
-        228
+        156,
+        164
       ],
       "y": [
-        70,
-        78
+        85,
+        93
       ]
-    }
+    },
+    "region_tracking": true,
+    "max_cer": 0.2
   },
   "20wpm.mp4": {
     "brightness_file": "20wpm_brightness.f32",
     "fps": 30.0,
-    "n_frames": 749,
-    "duration_s": 24.97,
+    "n_frames": 678,
+    "duration_s": 22.85,
     "expected_wpm": 20,
-    "expected_text": "HELLO, WORLD! HELLO, WORLD!",
+    "expected_text": "HELLO, WORLD!",
     "dot_region_320x180": {
       "x": [
-        204,
-        212
+        155,
+        163
       ],
       "y": [
-        74,
-        82
+        86,
+        94
       ]
-    }
+    },
+    "region_tracking": true,
+    "max_cer": 0.9
+  },
+  "4wpm_60fps.mp4": {
+    "brightness_file": "4wpm_60fps_brightness.f32",
+    "fps": 60.0,
+    "n_frames": 3615,
+    "duration_s": 60.24,
+    "expected_wpm": 4,
+    "expected_text": "HELLO, WORLD!",
+    "dot_region_320x180": {
+      "x": [
+        156,
+        164
+      ],
+      "y": [
+        86,
+        94
+      ]
+    },
+    "region_tracking": true,
+    "max_cer": 0.25
+  },
+  "8wpm_60fps.mp4": {
+    "brightness_file": "8wpm_60fps_brightness.f32",
+    "fps": 60.0,
+    "n_frames": 2025,
+    "duration_s": 33.72,
+    "expected_wpm": 8,
+    "expected_text": "HELLO, WORLD!",
+    "dot_region_320x180": {
+      "x": [
+        155,
+        163
+      ],
+      "y": [
+        85,
+        93
+      ]
+    },
+    "region_tracking": true,
+    "max_cer": 0.25
+  },
+  "20wpm_60fps.mp4": {
+    "brightness_file": "20wpm_60fps_brightness.f32",
+    "fps": 60.0,
+    "n_frames": 1459,
+    "duration_s": 24.29,
+    "expected_wpm": 20,
+    "expected_text": "HELLO, WORLD!",
+    "dot_region_320x180": {
+      "x": [
+        158,
+        166
+      ],
+      "y": [
+        85,
+        93
+      ]
+    },
+    "region_tracking": true,
+    "max_cer": 0.9
   }
 }

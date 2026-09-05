@@ -193,15 +193,59 @@ class MorseLockGate {
     return marks[marks.length ~/ 2] >= fastUnitThresholdMs;
   }
 
+  /// Fraction of the buffer that may fail the fit without failing
+  /// the window. Genuine sending at fine timing resolution always
+  /// carries a few jitter outliers — measured on the 60 fps
+  /// reference recordings, one long dit (~1.35 units) and one short
+  /// inter-character gap per ~12 elements — while the junk runs
+  /// this gate exists to catch are off by large multiples across
+  /// *most* of the window. A small outlier budget separates them:
+  /// genuine windows fail on only 1-2 elements, junk windows on
+  /// nearly all of them.
+  static const double _maxOutlierFraction = 1 / 6;
+
+  /// Upper bound on the mark-unit : space-unit ratio. Genuine video
+  /// timing is asymmetric (marks run ~1.3x spaces on the reference
+  /// recordings) but stays near 1; junk timing makes the two
+  /// medians unrelated, and this bound rejects it without relying
+  /// on the per-element fit alone.
+  static const double _maxUnitRatio = 2;
+
   bool _fits() {
     final markDurations =
         _buffer.where((e) => e.isOn).map((e) => e.durationMs).toList()..sort();
     if (markDurations.length < minMarksToLock) return false;
 
-    final unit = markDurations[markDurations.length ~/ 2]; // median
-    if (unit <= 0) return false;
+    final unitMark = markDurations[markDurations.length ~/ 2]; // median
+    if (unitMark <= 0) return false;
 
+    // Video measurement is asymmetric: auto-exposure settling and
+    // threshold hysteresis systematically lengthen marks and shorten
+    // gaps (measured ~1.3x on the reference recordings), so spaces
+    // are fitted against a space-derived unit, not the mark unit.
+    // Long spaces are excluded from that estimate — mixing
+    // intra-character and inter-character gaps risks a median that
+    // matches neither.
+    final spaceDurations =
+        _buffer
+            .where((e) => !e.isOn && e.durationMs <= (5 * unitMark) / 2)
+            .map((e) => e.durationMs)
+            .toList()
+          ..sort();
+    final unitSpace = spaceDurations.length >= 3
+        ? spaceDurations[spaceDurations.length ~/ 2]
+        : unitMark;
+    if (unitSpace <= 0) return false;
+
+    final unitRatio = unitMark / unitSpace;
+    if (unitRatio < 1 / _maxUnitRatio || unitRatio > _maxUnitRatio) {
+      return false;
+    }
+
+    final maxOutliers = (_buffer.length * _maxOutlierFraction).floor();
+    var outliers = 0;
     for (final e in _buffer) {
+      final unit = e.isOn ? unitMark : unitSpace;
       final ratio = e.durationMs / unit;
       if (!e.isOn && ratio > 5) continue; // a long pause proves nothing
       final fits = [1, 3].any((c) {
@@ -212,7 +256,10 @@ class MorseLockGate {
         );
         return (e.durationMs - target).abs() <= allowed;
       });
-      if (!fits) return false;
+      if (!fits) {
+        outliers++;
+        if (outliers > maxOutliers) return false;
+      }
     }
     return true;
   }

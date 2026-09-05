@@ -49,6 +49,9 @@ class MorseDecoder {
   /// merge characters that should be separated — a short
   /// character gap jittered to 2.1 × dit would become an
   /// intra-gap, merging two characters into an invalid code.
+  ///
+  /// At fast speeds this multiplier is tightened automatically —
+  /// see [_effectiveGapThreshold].
   final double gapThreshold;
 
   /// Multiplier of dit duration at or above which an off-element
@@ -57,6 +60,83 @@ class MorseDecoder {
   /// 6.0 is the practical sweet spot that tolerates timing
   /// jitter without splitting words prematurely.
   final double wordGapThreshold;
+
+  /// Dit duration at or above which [gapThreshold] is used
+  /// as-is. Slow camera signals keep clean ITU ratios (measured
+  /// on the reference recordings: at 4 WPM a 300 ms unit shows
+  /// intra-gaps <= 400 ms vs char-gaps >= 900 ms, so the 2.0
+  /// multiplier has ample margin), so the nominal boundary is
+  /// best there.
+  static const double _slowDitMs = 250;
+
+  /// Dit-estimate : intra-gap-median ratio above which the
+  /// element stream carries the camera-lag signature (marks
+  /// stretched by exposure settling and threshold hysteresis
+  /// while gaps stay near nominal — measured ~1.3-1.6 on the
+  /// reference video recordings vs ~1.0 for audio and synthetic
+  /// streams). Only lag-distorted streams get the tightened
+  /// gap boundary; clean ones keep the nominal multiplier, so
+  /// fast *audio* decoding is unaffected.
+  static const double _lagSignatureRatio = 1.15;
+
+  /// Dit duration at or below which the gap multiplier reaches
+  /// its tightened floor. Video measurement is asymmetric —
+  /// auto-exposure settling and threshold hysteresis stretch
+  /// marks roughly +40 % while gaps stay near nominal — so the
+  /// measured intra/char gap ratio compresses as the unit
+  /// shrinks (measured at 20 WPM: intra-gaps up to ~117 ms vs
+  /// char-gaps from ~145 ms on a ~95 ms dit). The 2.0 multiplier
+  /// would sit at ~190 ms and merge those characters; ~1.4
+  /// (1.32 x dit) separates the measured clusters exactly.
+  static const double _fastDitMs = 110;
+
+  /// Fraction by which [gapThreshold] is tightened once the dit
+  /// estimate reaches [_fastDitMs]: 2.0 -> 1.4.
+  static const double _fastTightening = 0.3;
+
+  /// The effective intra/char boundary multiplier for a given
+  /// dit estimate — WPM-adaptive by design.
+  ///
+  /// Camera-derived element streams systematically distort the
+  /// ITU timing ratios at fast speeds: marks carry exposure and
+  /// hysteresis lag while gaps do not, so both the dit estimate
+  /// and the inter-character gaps compress. A single fixed
+  /// multiplier cannot serve 4 WPM and 20 WPM recordings alike
+  /// (fixed 2.0 measured: clean at <= 8 WPM, letter-merging at
+  /// 20 WPM; fixed 1.4 measured: fine at 20 WPM but splits the
+  /// "!" of an 8 WPM recording), so it is interpolated by the
+  /// estimated dit duration.
+  double _effectiveGapThreshold(
+    double dit,
+    List<DecodedElement> elements,
+  ) {
+    if (dit >= _slowDitMs) return gapThreshold;
+    if (!_isLagDistorted(elements, dit)) return gapThreshold;
+    if (dit <= _fastDitMs) {
+      return gapThreshold * (1 - _fastTightening);
+    }
+    final t = (_slowDitMs - dit) / (_slowDitMs - _fastDitMs);
+    return gapThreshold * (1 - _fastTightening * t);
+  }
+
+  /// Whether the stream shows the camera-lag signature: the dit
+  /// estimate (25th-percentile mark) is more than
+  /// [_lagSignatureRatio]x the median short gap. The dit, not
+  /// the median mark, is the right reference — a dah is 3x the
+  /// unit by design and would false-positive every well-formed
+  /// stream.
+  bool _isLagDistorted(List<DecodedElement> elements, double dit) {
+    final shortGaps = elements
+        .where((e) => !e.isOn)
+        .map((e) => e.durationMs.toDouble())
+        .where((d) => d >= _noiseFloorMs && d < 2 * dit)
+        .toList();
+    if (shortGaps.length < 3) return false;
+    shortGaps.sort();
+    final gapMed = _percentile(shortGaps, 0.5);
+    if (gapMed <= 0) return false;
+    return dit / gapMed > _lagSignatureRatio;
+  }
 
   /// Maximum dits/dahs per character before the buffer is
   /// discarded as a timing error. The longest standard Morse
@@ -121,10 +201,14 @@ class MorseDecoder {
     final dit = ditMs ?? _estimateDitDuration(elements);
     if (dit <= 0) return '';
 
+    // The intra/char boundary is WPM-adaptive — see
+    // [_effectiveGapThreshold].
+    final effectiveGapThreshold = _effectiveGapThreshold(dit, elements);
+
     // Estimate the gap-dit (Farnsworth dit). In standard timing
     // this equals the mark-dit; in Farnsworth timing it is
     // larger and used for char-gap / word-gap classification.
-    final gapDit = _estimateGapDit(elements, dit);
+    final gapDit = _estimateGapDit(elements, dit, effectiveGapThreshold);
 
     final buffer = StringBuffer();
     final morseBuilder = StringBuffer();
@@ -150,7 +234,7 @@ class MorseDecoder {
         // Intra-element gaps are at character speed, so use
         // the mark-dit for the intra/inter boundary.
         final ratio = el.durationMs / dit;
-        if (ratio < gapThreshold) {
+        if (ratio < effectiveGapThreshold) {
           continue;
         }
         // Inter-character and inter-word gaps may be at
@@ -223,11 +307,12 @@ class MorseDecoder {
   double _estimateGapDit(
     List<DecodedElement> elements,
     double markDit,
+    double effectiveGapThreshold,
   ) {
     final longGaps = elements
         .where((e) => !e.isOn)
         .map((e) => e.durationMs.toDouble())
-        .where((d) => d >= markDit * gapThreshold)
+        .where((d) => d >= markDit * effectiveGapThreshold)
         .toList();
 
     if (longGaps.length < _minGapsForFarnsworth) return markDit;
