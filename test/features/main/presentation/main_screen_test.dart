@@ -15,6 +15,9 @@ void main() {
 
   group('MainScreen', () {
     Future<void> pumpScreen(WidgetTester tester) async {
+      tester
+        ..view.physicalSize = const Size(800, 900)
+        ..view.devicePixelRatio = 1.0;
       await tester.pumpWidget(
         MaterialApp(
           home: MainScreen(
@@ -87,6 +90,62 @@ void main() {
     ) async {
       await pumpScreen(tester);
       expect(find.text('Not available on web'), findsNothing);
+    });
+  });
+
+  group('MainScreen layout', () {
+    testWidgets('narrow layout stacks receiving group under Send', (
+      tester,
+    ) async {
+      tester
+        ..view.physicalSize = const Size(560, 900)
+        ..view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScreen(
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            displayTimeout: DisplayTimeout.system,
+            onDisplayTimeoutChanged: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Send sits above the receiving group with clear spacing…
+      final sendRect = tester.getRect(find.text('Send'));
+      final listenRect = tester.getRect(find.text('Listen'));
+      expect(listenRect.top, greaterThan(sendRect.bottom + 31));
+      // …and Listen and Watch share a horizontal row.
+      final watchRect = tester.getRect(find.text('Watch'));
+      expect(watchRect.top, closeTo(listenRect.top, 1));
+    });
+
+    testWidgets('wide layout stacks receiving group vertically', (
+      tester,
+    ) async {
+      tester
+        ..view.physicalSize = const Size(1200, 800)
+        ..view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScreen(
+            themeController: themeController,
+            screenTimeoutService: screenTimeoutService,
+            displayTimeout: DisplayTimeout.system,
+            onDisplayTimeoutChanged: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Watch sits below Listen in the same column…
+      final listenRect = tester.getRect(find.text('Listen'));
+      final watchRect = tester.getRect(find.text('Watch'));
+      expect(watchRect.top, greaterThan(listenRect.bottom));
+      // …and the group sits beside the Send button.
+      final sendRect = tester.getRect(find.text('Send'));
+      expect(listenRect.left, greaterThan(sendRect.right));
     });
   });
 }

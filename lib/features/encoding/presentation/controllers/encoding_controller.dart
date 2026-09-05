@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
@@ -45,10 +44,12 @@ class EncodingController extends ChangeNotifier {
   bool _initialized = false;
   bool _isRepeatCancelled = false;
 
-  /// Notifier for the initial-delay countdown.
-  /// Non-null while the countdown is active (value = seconds remaining).
-  /// Null when no countdown is running.
-  final ValueNotifier<int?> countdownRemaining = ValueNotifier<int?>(null);
+  /// Countdown through the initial delay (seconds remaining,
+  /// null when idle). Owned by the transmitter, which applies
+  /// the delay on the single code path shared by audio, torch,
+  /// and display — the UI overlay observes this.
+  ValueListenable<int?> get countdownRemaining =>
+      _transmitter.countdownRemaining;
 
   /// Notifier for the repeat-delay countdown.
   /// Non-null while waiting between repeats (value = seconds remaining).
@@ -222,29 +223,15 @@ class EncodingController extends ChangeNotifier {
     await _historyRepo.save(_text);
     _history = await _historyRepo.getAll();
 
-    // Run initial-delay countdown in the controller so the UI
-    // can show a countdown overlay. The transmitter receives
-    // settings with initialDelaySec = 0 (delay already consumed).
-    if (_initialDelaySec > 0) {
-      final seconds = _initialDelaySec.round();
-      for (var i = seconds; i >= 1; i--) {
-        if (!_transmission.isTransmitting) {
-          countdownRemaining.value = null;
-          return;
-        }
-        countdownRemaining.value = i;
-        await Future<void>.delayed(const Duration(seconds: 1));
-      }
-      countdownRemaining.value = null;
-      if (!_transmission.isTransmitting) return;
-    }
-
+    // The initial delay runs inside the transmitter (which also
+    // drives the countdown notifier), so every output method —
+    // sound included — starts only after it elapses.
     final settings = EncodingSettings(
       mode: mode,
       speedWpm: _speedWpm,
       toneHz: _toneHz,
       lightMethod: lightMethod,
-      initialDelaySec: 0,
+      initialDelaySec: _initialDelaySec,
     );
 
     final symbols = _encoder.encode(_text, settings);
@@ -275,7 +262,6 @@ class EncodingController extends ChangeNotifier {
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.idle,
     );
-    countdownRemaining.value = null;
     repeatCountdown.value = null;
     notifyListeners();
   }
@@ -285,14 +271,12 @@ class EncodingController extends ChangeNotifier {
     await _transmitter.stop();
     _text = '';
     _transmission = const TransmissionState();
-    countdownRemaining.value = null;
     repeatCountdown.value = null;
     notifyListeners();
   }
 
   @override
   void dispose() {
-    countdownRemaining.dispose();
     repeatCountdown.dispose();
     _transmitter.dispose();
     super.dispose();

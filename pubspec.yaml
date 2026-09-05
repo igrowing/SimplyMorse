@@ -31,6 +31,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   very_good_analysis: ">=10.3.0 <12.0.0"
+  # Pigeon channel definitions used by the test wakelock mock.
+  wakelock_plus_platform_interface: ^1.7.0
 
 flutter:
   uses-material-design: true

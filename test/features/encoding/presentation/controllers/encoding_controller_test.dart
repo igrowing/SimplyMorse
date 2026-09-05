@@ -253,28 +253,27 @@ void main() {
         );
       });
 
-      test('runs countdown before transmit when delay > 0', () async {
+      test('passes initial delay to the transmitter', () async {
         await controller.init();
         await controller.updateInitialDelay(1);
         controller.updateText('SOS');
 
-        // The countdown should fire during send()
-        final countdownValues = <int?>[];
-        controller.countdownRemaining.addListener(() {
-          countdownValues.add(controller.countdownRemaining.value);
-        });
-
         await controller.send();
 
-        // Transmitter receives delay = 0 (countdown consumed it)
-        expect(transmitter.lastSettings!.initialDelaySec, 0);
-        // Countdown went through 1 -> null
-        expect(countdownValues, contains(1));
-        expect(controller.countdownRemaining.value, isNull);
+        // The transmitter owns the countdown now: the controller
+        // hands the real delay over, so every output method —
+        // sound included — starts only after it elapses.
+        expect(transmitter.lastSettings!.initialDelaySec, 1);
+        // The countdown notifier is the transmitter's.
+        expect(
+          controller.countdownRemaining,
+          same(transmitter.countdownRemaining),
+        );
       });
 
       test('transmits immediately when delay is 0', () async {
         await controller.init();
+        await controller.updateInitialDelay(0);
         controller.updateText('SOS');
         await controller.send();
 

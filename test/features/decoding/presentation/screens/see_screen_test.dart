@@ -112,6 +112,24 @@ void main() {
       expect(find.text('Clear'), findsOneWidget);
     });
 
+    testWidgets(
+      'bottom actions are split into two rows',
+      (tester) async {
+        await pumpScreen(tester);
+
+        // First row: Start/Pause + Clear. Second row: Copy + Share,
+        // strictly below the first row.
+        final startRect = tester.getRect(find.text('Start'));
+        final clearRect = tester.getRect(find.text('Clear'));
+        final copyRect = tester.getRect(find.text('Copy'));
+        final shareRect = tester.getRect(find.text('Share'));
+
+        expect(clearRect.top, closeTo(startRect.top, 1));
+        expect(copyRect.top, greaterThan(startRect.bottom));
+        expect(shareRect.top, closeTo(copyRect.top, 1));
+      },
+    );
+
     testWidgets('shows decoded text input field', (tester) async {
       await pumpScreen(tester);
       expect(

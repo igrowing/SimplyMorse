@@ -42,6 +42,15 @@ class MorseTransmitter {
   /// The UI watches this to blink the screen/panel.
   final ValueNotifier<bool> displayBlink = ValueNotifier<bool>(false);
 
+  /// Countdown through the initial delay, shared by every
+  /// output method. Non-null (seconds remaining) while the
+  /// delay is running, null otherwise. The UI shows a
+  /// countdown overlay from this. Living on the transmitter
+  /// — the domain layer that actually applies the delay —
+  /// guarantees audio, torch, and display all start only
+  /// after the countdown, on one code path.
+  final ValueNotifier<int?> countdownRemaining = ValueNotifier<int?>(null);
+
   Timer? _progressTimer;
   bool _isRunning = false;
 
@@ -56,13 +65,25 @@ class MorseTransmitter {
 
     _isRunning = true;
 
-    // Apply initial delay before starting anything.
+    // Initial delay: applied here, on the single path every
+    // output method (audio, torch, display) goes through, so
+    // none of them can start before the countdown finishes.
     if (settings.initialDelaySec > 0) {
-      await Future<void>.delayed(
-        Duration(
-          milliseconds: (settings.initialDelaySec * 1000).round(),
-        ),
-      );
+      final totalMs = (settings.initialDelaySec * 1000).round();
+      final wholeSeconds = totalMs ~/ 1000;
+      for (var i = wholeSeconds; i >= 1; i--) {
+        if (!_isRunning) {
+          countdownRemaining.value = null;
+          return;
+        }
+        countdownRemaining.value = i;
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+      final remainderMs = totalMs % 1000;
+      if (remainderMs > 0) {
+        await Future<void>.delayed(Duration(milliseconds: remainderMs));
+      }
+      countdownRemaining.value = null;
       if (!_isRunning) return;
     }
 
@@ -118,6 +139,7 @@ class MorseTransmitter {
     _isRunning = false;
     _progressTimer?.cancel();
     _progressTimer = null;
+    countdownRemaining.value = null;
     await _player?.stop();
     await _torchService.disable();
     displayBlink.value = false;
@@ -128,6 +150,7 @@ class MorseTransmitter {
     _progressTimer?.cancel();
     unawaited(_player?.dispose());
     displayBlink.dispose();
+    countdownRemaining.dispose();
   }
 
   Uint8List _generateWav(

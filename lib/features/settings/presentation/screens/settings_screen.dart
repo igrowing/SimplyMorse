@@ -206,24 +206,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        SegmentedButton<DisplayTimeout>(
-          segments: const [
-            ButtonSegment(
-              value: DisplayTimeout.system,
-              label: Text('System'),
-            ),
-            ButtonSegment(
-              value: DisplayTimeout.tripleSystem,
-              label: Text('3× System'),
-            ),
-            ButtonSegment(
-              value: DisplayTimeout.alwaysOn,
-              label: Text('Always on'),
-            ),
-          ],
-          selected: {widget.displayTimeout},
-          onSelectionChanged: (selection) {
-            widget.onDisplayTimeoutChanged(selection.first);
+        // The selection is observed from the service, not from
+        // the constructor parameter: pushed routes keep the
+        // constructor values captured at push time, so a
+        // parameter-driven selection would not refresh when the
+        // mode changes while this screen is open.
+        ValueListenableBuilder<DisplayTimeout>(
+          valueListenable: widget.screenTimeoutService.modeListenable,
+          builder: (context, mode, _) {
+            return SegmentedButton<DisplayTimeout>(
+              segments: const [
+                ButtonSegment(
+                  value: DisplayTimeout.system,
+                  label: Text('System'),
+                ),
+                ButtonSegment(
+                  value: DisplayTimeout.tripleSystem,
+                  label: Text('3× System'),
+                ),
+                ButtonSegment(
+                  value: DisplayTimeout.alwaysOn,
+                  label: Text('Always on'),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: (selection) {
+                widget.onDisplayTimeoutChanged(selection.first);
+              },
+            );
           },
         ),
       ],

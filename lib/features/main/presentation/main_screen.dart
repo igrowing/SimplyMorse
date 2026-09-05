@@ -34,48 +34,109 @@ class MainScreen extends StatelessWidget {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            runSpacing: 16,
-            children: _mainButtons(context),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Wide (landscape-style) layout: the receiving
+              // group stacks vertically beside Send, so the
+              // two modes read as a group. Narrow layout: the
+              // receiving buttons stay side by side under Send,
+              // with clear vertical separation from it.
+              final wide = constraints.maxWidth >= 600;
+              final receiveGroup = wide
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _SubButton(
+                          icon: Icons.mic,
+                          label: 'Listen',
+                          onTap: () => _navigateToListen(context),
+                        ),
+                        const SizedBox(height: 12),
+                        _SubButton(
+                          icon: Icons.camera_alt,
+                          label: 'Watch',
+                          disabledOnWeb: kIsWeb,
+                          onTap: kIsWeb
+                              ? null
+                              : () => _navigateToWatch(context),
+                        ),
+                      ],
+                    )
+                  : Wrap(
+                      alignment: WrapAlignment.center,
+                      runSpacing: 8,
+                      children: [
+                        _SubButton(
+                          icon: Icons.mic,
+                          label: 'Listen',
+                          onTap: () => _navigateToListen(context),
+                        ),
+                        _SubButton(
+                          icon: Icons.camera_alt,
+                          label: 'Watch',
+                          disabledOnWeb: kIsWeb,
+                          onTap: kIsWeb
+                              ? null
+                              : () => _navigateToWatch(context),
+                        ),
+                      ],
+                    );
+
+              if (wide) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      child: _MainButton(
+                        icon: Icons.send,
+                        label: 'Send',
+                        onTap: () => _navigateToSend(context),
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      child: receiveGroup,
+                    ),
+                  ],
+                );
+              }
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    child: _MainButton(
+                      icon: Icons.send,
+                      label: 'Send',
+                      onTap: () => _navigateToSend(context),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    child: receiveGroup,
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
-  }
-
-  List<Widget> _mainButtons(BuildContext context) {
-    return [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        child: _MainButton(
-          icon: Icons.send,
-          label: 'Send',
-          onTap: () => _navigateToSend(context),
-        ),
-      ),
-      // Receive group: two side-by-side buttons
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          runSpacing: 8,
-          children: [
-            _SubButton(
-              icon: Icons.mic,
-              label: 'Listen',
-              onTap: () => _navigateToListen(context),
-            ),
-            _SubButton(
-              icon: Icons.camera_alt,
-              label: 'Watch',
-              disabledOnWeb: kIsWeb,
-              onTap: kIsWeb ? null : () => _navigateToWatch(context),
-            ),
-          ],
-        ),
-      ),
-    ];
   }
 
   void _navigateToSend(BuildContext context) {

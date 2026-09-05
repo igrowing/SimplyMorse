@@ -346,6 +346,10 @@ void main() {
 
           await tester.ensureVisible(find.text('Send'));
           await tester.pumpAndSettle();
+          // Keep the transmission running: the initial delay is
+          // owned by the (real) transmitter now, so the fake
+          // must not auto-complete it before the frame is shown.
+          transmitter.autoComplete = false;
           await tester.tap(find.text('Send'));
           // One frame into the transmission: the input box is
           // replaced in place by the progress view, not by a
@@ -369,7 +373,10 @@ void main() {
           expect(spans.map((s) => (s as TextSpan).text).join(), 'SOS');
 
           // After completion the editable input returns, with
-          // the text intact.
+          // the text intact. Let the fake complete the
+          // transmission now.
+          transmitter.autoComplete = true;
+          transmitter.lastCompleteCallback!();
           await tester.pumpAndSettle();
           expect(find.byType(TransmissionProgressText), findsNothing);
           expect(find.byType(TextField), findsOneWidget);

@@ -21,12 +21,18 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 /// Screen for visual Morse decoding via camera.
 ///
 /// Full-screen camera preview with a targeting overlay:
-/// - the live preview fills the screen (letterboxed, so the
-///   full frame stays visible and the reticle maps 1:1 to the
-///   decoder's target area),
-/// - a centered reticle shows where to aim the transmitting
-///   light — scanning is confined to this area by
-///   [VideoDecoder.targetAreaFraction],
+/// - the live preview fills the screen edge to edge
+///   (cover-fit, center-cropped): the captured frame is
+///   scaled up to at least the display size, so what is shown
+///   keeps the source's aspect ratio and simply crops the
+///   excess instead of letterboxing into a small strip. The
+///   reticle and the tracked-spot overlay live inside the same
+///   full-frame coordinate space, so they stay mapped 1:1 to
+///   the decoder's target area at any crop,
+/// - a centered corner-bracket reticle shows where to aim the
+///   transmitting light — scanning is confined to this area by
+///   [VideoDecoder.targetAreaFraction], the inside is clean so
+///   nothing blocks the view of the light,
 /// - a debug aid drawn while the decoder is locked on the source:
 ///   a yellow circle of twice the detected spot's diameter tracks
 ///   the brightness-reading region, with a dot/dash label above
@@ -34,8 +40,8 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 ///   (see [TrackedSpotPainter]),
 /// - the top holds the status line (state, WPM, measured FPS)
 ///   and a translucent box with the decoded text,
-/// - the bottom holds all four actions: start/pause, clear,
-///   copy, share.
+/// - the bottom holds the four actions in two rows:
+///   start/pause + clear, then copy + share.
 ///
 /// The top and bottom overlays are sized so they never cover
 /// the reticle.
@@ -172,24 +178,26 @@ class _SeeScreenState extends State<SeeScreen> {
         final screenW = constraints.maxWidth;
         final screenH = constraints.maxHeight;
 
-        // Letterboxed (BoxFit.contain) preview rect — the full
-        // frame stays visible, so the centered reticle maps
-        // exactly onto the decoder's target area in frame
-        // coordinates.
-        var previewW = screenW;
-        var previewH = screenH;
+        // Cover-fit (BoxFit.cover) preview geometry: the frame
+        // is scaled to cover the whole screen, the excess is
+        // center-cropped. The scaled frame size is needed for
+        // the reticle's on-screen side — the reticle lives in
+        // the frame's coordinate space, which can now extend
+        // beyond the screen on one axis.
+        var scaledW = screenW;
+        var scaledH = screenH;
         if (previewReady) {
           final aspect = camController.value.aspectRatio;
           if (screenW / screenH > aspect) {
-            previewH = screenH;
-            previewW = previewH * aspect;
+            scaledW = screenW;
+            scaledH = screenW / aspect;
           } else {
-            previewW = screenW;
-            previewH = previewW / aspect;
+            scaledH = screenH;
+            scaledW = screenH * aspect;
           }
         }
         final reticleSide =
-            VideoDecoder.defaultTargetAreaFraction * min(previewW, previewH);
+            VideoDecoder.defaultTargetAreaFraction * min(scaledW, scaledH);
         // Vertical gap between the screen's top/bottom edge and
         // the reticle's bounding box — the overlays must stay
         // inside it so they never cover the target.
@@ -198,11 +206,17 @@ class _SeeScreenState extends State<SeeScreen> {
         return Stack(
           fit: StackFit.expand,
           children: [
-            // Live preview with the targeting reticle.
+            // Live preview with the targeting reticle: the
+            // frame is cover-fitted and center-cropped to fill
+            // the screen (ClipRect removes the overflow), so no
+            // black bars shrink the picture. The overlays inside
+            // the child Stack stay in the full frame's 1:1
+            // coordinate space, so the crop cannot misplace
+            // them.
             if (previewReady)
-              Center(
+              ClipRect(
                 child: FittedBox(
-                  fit: BoxFit.contain,
+                  fit: BoxFit.cover,
                   child: SizedBox(
                     width: 100,
                     height: 100 / camController.value.aspectRatio,
@@ -385,8 +399,9 @@ class _SeeScreenState extends State<SeeScreen> {
     );
   }
 
-  /// Start/Pause, Clear, Copy, Share — all four actions in a
-  /// single bottom row.
+  /// The four actions in two rows: Start/Pause + Clear on the
+  /// first, Copy + Share on the second — each button stays wide
+  /// enough to read and tap comfortably.
   Widget _buildBottomButtons(
     BuildContext context,
     DecodingController ctrl,
@@ -435,39 +450,48 @@ class _SeeScreenState extends State<SeeScreen> {
       );
     }
 
-    return Row(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        action(
-          onPressed: isStart
-              ? _onStartPressed
-              : isPause
-              ? _onPausePressed
-              : _onResumePressed,
-          icon: isPause ? Icons.pause : Icons.play_arrow,
-          label: isStart
-              ? 'Start'
-              : isPause
-              ? 'Pause'
-              : 'Resume',
-          primary: true,
+        Row(
+          children: [
+            action(
+              onPressed: isStart
+                  ? _onStartPressed
+                  : isPause
+                  ? _onPausePressed
+                  : _onResumePressed,
+              icon: isPause ? Icons.pause : Icons.play_arrow,
+              label: isStart
+                  ? 'Start'
+                  : isPause
+                  ? 'Pause'
+                  : 'Resume',
+              primary: true,
+            ),
+            const SizedBox(width: 8),
+            action(
+              onPressed: hasText || !ctrl.isIdle ? _onClearPressed : null,
+              icon: Icons.clear,
+              label: 'Clear',
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        action(
-          onPressed: hasText || !ctrl.isIdle ? _onClearPressed : null,
-          icon: Icons.clear,
-          label: 'Clear',
-        ),
-        const SizedBox(width: 8),
-        action(
-          onPressed: hasText ? _onCopyPressed : null,
-          icon: Icons.copy,
-          label: 'Copy',
-        ),
-        const SizedBox(width: 8),
-        action(
-          onPressed: hasText ? _onSharePressed : null,
-          icon: Icons.share,
-          label: 'Share',
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            action(
+              onPressed: hasText ? _onCopyPressed : null,
+              icon: Icons.copy,
+              label: 'Copy',
+            ),
+            const SizedBox(width: 8),
+            action(
+              onPressed: hasText ? _onSharePressed : null,
+              icon: Icons.share,
+              label: 'Share',
+            ),
+          ],
         ),
       ],
     );
@@ -532,8 +556,11 @@ class _SeeScreenState extends State<SeeScreen> {
   }
 }
 
-/// Draws the aiming reticle: four corner brackets, a faint full
-/// square outline, and a small center dot.
+/// Draws the aiming reticle: four corner brackets and nothing
+/// else — the inside of the target area stays clean so the
+/// transmitting light is never visually blocked. (While the
+/// decoder is locked on the source, the tracked-spot debug
+/// circle is drawn there.)
 ///
 /// The reticle marks the decoder's target area — scanning and
 /// tracking only consider pixels inside it, so the user must
@@ -556,16 +583,6 @@ class TargetReticlePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
-
-    final outline = Paint()
-      ..color = color.withValues(alpha: 0.35)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    final rect = Offset.zero & size;
-
-    // Faint outline of the full target area.
-    canvas.drawRect(rect, outline);
 
     final paths = <Path>[
       Path()
@@ -590,14 +607,6 @@ class TargetReticlePainter extends CustomPainter {
         ..drawPath(p, backPaint)
         ..drawPath(p, paint);
     }
-
-    // Center dot.
-    final center = Offset(size.width / 2, size.height / 2);
-    final dotBack = Paint()..color = Colors.black54;
-    final dot = Paint()..color = color;
-    canvas
-      ..drawCircle(center, 4, dotBack)
-      ..drawCircle(center, 2.5, dot);
   }
 
   @override

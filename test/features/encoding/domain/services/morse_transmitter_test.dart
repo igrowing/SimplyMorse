@@ -239,6 +239,69 @@ void main() {
         expect(completed, isTrue);
       });
 
+      test('ticks the countdown notifier before any output', () async {
+        const settings = EncodingSettings(
+          mode: EncodingMode.flash,
+          speedWpm: 100,
+          toneHz: 700,
+          lightMethod: LightMethod.flashLed,
+          initialDelaySec: 1,
+        );
+        final symbols = encoder.encode('E', settings);
+        final events = encoder.buildTimeline(symbols, settings);
+
+        final ticks = <int?>[];
+        void listener() => ticks.add(transmitter.countdownRemaining.value);
+        transmitter.countdownRemaining.addListener(listener);
+
+        final future = transmitter.transmit(
+          events: events,
+          settings: settings,
+          onProgress: (_) {},
+          onComplete: () {},
+        );
+
+        // Synchronously after the call: the countdown is running
+        // and no output method has started yet.
+        expect(transmitter.countdownRemaining.value, 1);
+        expect(torch.calls, isEmpty);
+
+        await future;
+
+        expect(transmitter.countdownRemaining.value, isNull);
+        expect(torch.calls, isNotEmpty);
+        expect(ticks, [1, null]);
+        transmitter.countdownRemaining.removeListener(listener);
+      });
+
+      test('stop during the countdown clears it and outputs nothing', () async {
+        const settings = EncodingSettings(
+          mode: EncodingMode.flash,
+          speedWpm: 100,
+          toneHz: 700,
+          lightMethod: LightMethod.flashLed,
+          initialDelaySec: 1,
+        );
+        final symbols = encoder.encode('E', settings);
+        final events = encoder.buildTimeline(symbols, settings);
+
+        final future = transmitter.transmit(
+          events: events,
+          settings: settings,
+          onProgress: (_) {},
+          onComplete: () {},
+        );
+        expect(transmitter.countdownRemaining.value, 1);
+
+        await transmitter.stop();
+        await future;
+
+        expect(transmitter.countdownRemaining.value, isNull);
+        // stop() disables the torch as cleanup, but the light
+        // was never turned on during the aborted countdown.
+        expect(torch.calls, isNot(contains(true)));
+      });
+
       test('zero delay starts immediately', () async {
         const settings = EncodingSettings(
           mode: EncodingMode.flash,
