@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
+import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
+import '../../../../helpers/fakes.dart';
 import '../../../../helpers/wakelock_mock.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   mockWakelockToggleChannel();
+  final fakeRepo = FakeSettingsRepository();
+  GetIt.instance.registerSingleton<SettingsRepository>(fakeRepo);
+  tearDownAll(GetIt.instance.reset);
 
   group('SettingsScreen display timeout switch', () {
     testWidgets(
@@ -55,6 +61,63 @@ void main() {
         // does not outlive the widget tree.
         service.dispose();
       },
+    );
+  });
+  testWidgets('Farnsworth switch reflects and persists the setting', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          themeController: ThemeController(),
+          screenTimeoutService: ScreenTimeoutService(),
+          themeMode: ThemeMode.system,
+          displayTimeout: DisplayTimeout.system,
+          onDisplayTimeoutChanged: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final switchFinder = find.byWidgetPredicate(
+      (w) =>
+          w is SwitchListTile &&
+          w.title is Text &&
+          (w.title as Text?)?.data == 'Farnsworth timing',
+    );
+    expect(switchFinder, findsOneWidget);
+    expect(fakeRepo.saveFarnsworthCount, 0);
+
+    // Enabled and reflecting the persisted value (false).
+    await tester.tap(
+      find.descendant(
+        of: switchFinder,
+        matching: find.byType(Switch),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(fakeRepo.farnsworthEnabled, isTrue);
+    expect(fakeRepo.saveFarnsworthCount, 1);
+    expect(
+      (tester.widget(switchFinder) as SwitchListTile?)?.value,
+      isTrue,
+    );
+
+    // Toggling back persists false.
+    await tester.tap(
+      find.descendant(
+        of: switchFinder,
+        matching: find.byType(Switch),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(fakeRepo.farnsworthEnabled, isFalse);
+    expect(fakeRepo.saveFarnsworthCount, 2);
+    expect(
+      (tester.widget(switchFinder) as SwitchListTile?)?.value,
+      isFalse,
     );
   });
 }

@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
+import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
@@ -203,6 +205,68 @@ void main() {
       final symbols = encoder.encode('', settings);
       final events = encoder.buildTimeline(symbols, settings);
       expect(events, isEmpty);
+    });
+  });
+
+  /// Encodes [text], builds the tone timeline, and feeds it
+  /// through [MorseDecoder] — the full encode/decode roundtrip.
+  String roundtrip(
+    MorseEncoder encoder,
+    EncodingSettings settings,
+    String text,
+  ) {
+    final symbols = encoder.encode(text, settings);
+    final events = encoder.buildTimeline(symbols, settings);
+    final elements = events
+        .map((e) => DecodedElement(isOn: e.isOn, durationMs: e.durationMs))
+        .toList();
+    return MorseDecoder().decodeElements(elements);
+  }
+
+  group('Farnsworth roundtrip', () {
+    test('Farnsworth-timed transmission decodes correctly', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+        farnsworthEnabled: true,
+        farnsworthEffectiveWpm: 10,
+      );
+      expect(roundtrip(encoder, settings, 'PARIS'), 'PARIS');
+      expect(roundtrip(encoder, settings, 'SOS SOS'), 'SOS SOS');
+    });
+
+    test('standard timing still decodes (regression guard)', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+      );
+      expect(roundtrip(encoder, settings, 'PARIS'), 'PARIS');
+      expect(roundtrip(encoder, settings, 'SOS SOS'), 'SOS SOS');
+    });
+
+    test('Farnsworth gaps are longer than standard gaps', () {
+      const standard = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+      );
+      const farnsworth = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+        farnsworthEnabled: true,
+        farnsworthEffectiveWpm: 10,
+      );
+      expect(
+        farnsworth.charGapMs,
+        greaterThan(standard.charGapMs),
+      );
+      expect(
+        farnsworth.wordGapMs,
+        greaterThan(standard.wordGapMs),
+      );
     });
   });
 }

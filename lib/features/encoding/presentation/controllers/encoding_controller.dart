@@ -226,12 +226,17 @@ class EncodingController extends ChangeNotifier {
     // The initial delay runs inside the transmitter (which also
     // drives the countdown notifier), so every output method —
     // sound included — starts only after it elapses.
+    // Read fresh so a Farnsworth toggle made while the
+    // controller is alive takes effect on the next send.
+    final farnsworthEnabled = await _settingsRepo.getFarnsworthEnabled();
+
     final settings = EncodingSettings(
       mode: mode,
       speedWpm: _speedWpm,
       toneHz: _toneHz,
       lightMethod: lightMethod,
       initialDelaySec: _initialDelaySec,
+      farnsworthEnabled: farnsworthEnabled,
     );
 
     final symbols = _encoder.encode(_text, settings);

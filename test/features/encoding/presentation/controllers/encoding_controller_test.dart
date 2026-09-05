@@ -34,6 +34,37 @@ void main() {
     controller.dispose();
   });
 
+  group('Farnsworth setting', () {
+    test(
+      'transmission settings carry the persisted Farnsworth flag',
+      () async {
+        settingsRepo.farnsworthEnabled = true;
+        await controller.init();
+        controller.updateText('SOS');
+        await controller.send();
+
+        expect(transmitter.lastSettings, isNotNull);
+        expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
+      },
+    );
+
+    test(
+      'changing the flag affects the next transmission',
+      () async {
+        await controller.init();
+
+        settingsRepo.farnsworthEnabled = false;
+        controller.updateText('SOS');
+        await controller.send();
+        expect(transmitter.lastSettings!.farnsworthEnabled, isFalse);
+
+        settingsRepo.farnsworthEnabled = true;
+        await controller.send();
+        expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
+      },
+    );
+  });
+
   group('EncodingController', () {
     group('init', () {
       test('loads settings and history', () async {

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
+import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -29,6 +31,29 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  bool _farnsworthEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadFarnsworthEnabled());
+  }
+
+  Future<void> _loadFarnsworthEnabled() async {
+    final enabled = await GetIt.instance<SettingsRepository>()
+        .getFarnsworthEnabled();
+    if (mounted) {
+      setState(() => _farnsworthEnabled = enabled);
+    }
+  }
+
+  Future<void> _onFarnsworthChanged(bool enabled) async {
+    setState(() => _farnsworthEnabled = enabled);
+    await GetIt.instance<SettingsRepository>().saveFarnsworthEnabled(
+      enabled: enabled,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -125,8 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            value: false, // Will be wired to controller in a follow-up
-            onChanged: null, // Disabled until decoder supports it
+            value: _farnsworthEnabled,
+            onChanged: _onFarnsworthChanged,
             contentPadding: EdgeInsets.zero,
           ),
         ),

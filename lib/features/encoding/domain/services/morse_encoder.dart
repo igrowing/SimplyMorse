@@ -108,19 +108,22 @@ class MorseEncoder {
         }
       }
 
-      // Inter-character gap
+      // Inter-character gap. Around a word-gap symbol no extra
+      // gap is added: the word symbol's own event above IS the
+      // word gap. Emitting adjacent gaps too stretched every
+      // word gap to 21 units instead of the standard 7 (caught
+      // by the encoder/decoder roundtrip test).
       if (i < symbols.length - 1) {
         final next = symbols[i + 1];
-        final gap = (next.isWordGap || symbol.isWordGap)
-            ? settings.wordGapMs.round()
-            : settings.charGapMs.round();
-        events.add(
-          ToneEvent(
-            isOn: false,
-            durationMs: gap,
-            charIndex: i,
-          ),
-        );
+        if (!next.isWordGap && !symbol.isWordGap) {
+          events.add(
+            ToneEvent(
+              isOn: false,
+              durationMs: settings.charGapMs.round(),
+              charIndex: i,
+            ),
+          );
+        }
       }
     }
 

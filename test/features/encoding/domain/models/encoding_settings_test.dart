@@ -5,6 +5,46 @@ import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
 
 void main() {
   group('EncodingSettings timing', () {
+    test('Farnsworth off keeps standard ITU gaps', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+      );
+      expect(settings.charGapMs, closeTo(180, 0.001));
+      expect(settings.wordGapMs, closeTo(420, 0.001));
+      expect(settings.intraGapMs, closeTo(60, 0.001));
+    });
+
+    test('Farnsworth on stretches char and word gaps, not intra', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+        farnsworthEnabled: true,
+        farnsworthEffectiveWpm: 10,
+      );
+      // ARRL formula: a PARIS word carries 31 units at char
+      // speed plus 19 stretched gap units, totalling 60 / 10 s.
+      // gapUnit = (6000ms - 31*60ms) / 19 = 217.89ms.
+      expect(settings.charGapMs, closeTo(653.7, 0.1));
+      expect(settings.wordGapMs, closeTo(1525.3, 0.1));
+      // Intra-element gap stays at character speed.
+      expect(settings.intraGapMs, closeTo(60, 0.001));
+    });
+
+    test('Farnsworth degenerates to ITU when effective >= speed', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 10,
+        toneHz: 700,
+        farnsworthEnabled: true,
+        farnsworthEffectiveWpm: 10,
+      );
+      expect(settings.charGapMs, closeTo(360, 0.001));
+      expect(settings.wordGapMs, closeTo(840, 0.001));
+    });
+
     test('ditMs follows PARIS standard: 1200 / WPM', () {
       const settings7wpm = EncodingSettings(
         mode: EncodingMode.sound,
