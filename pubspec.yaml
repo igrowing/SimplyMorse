@@ -27,6 +27,9 @@ dependencies:
   wakelock_plus: ^1.8.0
 
 dev_dependencies:
+  # Lets tests fake CameraPlatform.instance so CameraController can
+  # initialize without a real camera — see FakeCameraPlatform.
+  camera_platform_interface: ^2.13.1
   flutter_launcher_icons: ^0.14.4
   flutter_test:
     sdk: flutter

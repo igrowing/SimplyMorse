@@ -181,8 +181,27 @@ class CameraCaptureImpl implements CameraCapture {
     );
   }
 
-  /// Extracts luminance from the YUV420 Y plane and
-  /// downsamples to ~80×60.
+  /// Extracts luminance from the YUV420 Y plane and downsamples to
+  /// ~80×60, taking the BRIGHTEST source pixel in each output
+  /// cell's block rather than a single strided sample.
+  ///
+  /// A single-sample point-pick (reading e.g. pixel (4y, 4x) out of
+  /// each 4×4 block and discarding the other 15) is O(target) —
+  /// independent of sensor resolution, which is why it was used
+  /// here: the decoder targets up to 120 fps, and a full block scan
+  /// is ~16x more per-frame Dart arithmetic. But it aliases: the
+  /// transmitting light's on-screen footprint is often a handful of
+  /// pixels, and whether the strided grid happens to land on it is
+  /// pure luck — a source can flicker in and out of the downsampled
+  /// buffer as it drifts by sub-sample amounts (hand shake), which
+  /// looks to the decoder like the signal itself is unstable.
+  ///
+  /// Taking the block's max instead costs the same O(source) scan a
+  /// mean/box-filter would, but never dilutes or misses a bright
+  /// spot the way a point-sample (misses unless the stride lands on
+  /// it) or a mean (dilutes it toward the surrounding background,
+  /// proportionally to how small the spot is) can — whichever pixel
+  /// in the block is brightest survives into the output cell.
   VideoFrame _processImage(CameraImage image) {
     const targetWidth = 80;
     const targetHeight = 60;
@@ -198,15 +217,23 @@ class CameraCaptureImpl implements CameraCapture {
 
     final luminance = <double>[];
     for (var y = 0; y < targetHeight; y++) {
+      final startY = y * scaleY;
+      final endY = min(startY + scaleY, srcHeight);
       for (var x = 0; x < targetWidth; x++) {
-        final srcY = min(y * scaleY, srcHeight - 1);
-        final srcX = min(x * scaleX, srcWidth - 1);
-        final idx = srcY * bytesPerRow + srcX;
-        if (idx < bytes.length) {
-          luminance.add(bytes[idx] / 255);
-        } else {
-          luminance.add(0);
+        final startX = x * scaleX;
+        final endX = min(startX + scaleX, srcWidth);
+
+        var maxByte = 0;
+        for (var srcY = startY; srcY < endY; srcY++) {
+          final rowBase = srcY * bytesPerRow;
+          for (var srcX = startX; srcX < endX; srcX++) {
+            final idx = rowBase + srcX;
+            if (idx >= bytes.length) continue;
+            final v = bytes[idx];
+            if (v > maxByte) maxByte = v;
+          }
         }
+        luminance.add(maxByte / 255);
       }
     }
 

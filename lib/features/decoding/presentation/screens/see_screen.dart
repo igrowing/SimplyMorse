@@ -184,10 +184,20 @@ class _SeeScreenState extends State<SeeScreen> {
         // the reticle's on-screen side — the reticle lives in
         // the frame's coordinate space, which can now extend
         // beyond the screen on one axis.
+        //
+        // camController.value.aspectRatio is always the camera's
+        // raw SENSOR (landscape) aspect ratio, regardless of how
+        // the phone is held — CameraPreview itself corrects for
+        // this internally (see its `_isLandscape()` check), but
+        // that correction only kicks in when CameraPreview is
+        // given a loose box to size itself; the tight box handed
+        // to it below needs the same correction applied up front.
+        final isPortrait = screenH > screenW;
         var scaledW = screenW;
         var scaledH = screenH;
         if (previewReady) {
-          final aspect = camController.value.aspectRatio;
+          final sensorAspect = camController.value.aspectRatio;
+          final aspect = isPortrait ? 1 / sensorAspect : sensorAspect;
           if (screenW / screenH > aspect) {
             scaledW = screenW;
             scaledH = screenW / aspect;
@@ -215,11 +225,21 @@ class _SeeScreenState extends State<SeeScreen> {
             // them.
             if (previewReady)
               ClipRect(
-                child: FittedBox(
-                  fit: BoxFit.cover,
+                child: OverflowBox(
+                  // scaledW/scaledH is already the exact cover-fit
+                  // size (computed above, orientation-corrected) —
+                  // give the preview box that size directly and let
+                  // it overflow the screen on whichever axis cover
+                  // crops, instead of laying out at an arbitrary
+                  // size and relying on a FittedBox to rescale (and,
+                  // pre-fix, rescale the wrong-shaped box).
+                  minWidth: scaledW,
+                  maxWidth: scaledW,
+                  minHeight: scaledH,
+                  maxHeight: scaledH,
                   child: SizedBox(
-                    width: 100,
-                    height: 100 / camController.value.aspectRatio,
+                    width: scaledW,
+                    height: scaledH,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -257,7 +277,10 @@ class _SeeScreenState extends State<SeeScreen> {
                             }
                             return CustomPaint(
                               key: const Key('tracked-spot-overlay'),
-                              painter: TrackedSpotPainter(info: info),
+                              painter: TrackedSpotPainter(
+                                info: info,
+                                isPortrait: isPortrait,
+                              ),
                             );
                           },
                         ),
@@ -625,44 +648,98 @@ class TargetReticlePainter extends CustomPainter {
 /// circle should hug the light as it moves; lag or jitter shows
 /// tracking trouble).
 ///
-/// Geometry: [TrackOverlayInfo] carries the region center as frame
-/// fractions and the region size in processing-frame pixels
-/// (80×60). The preview stack this painter lives in shows the full
-/// captured frame 1:1, so center = fraction × canvas size and the
-/// spot's diameter = `regionSizePx / 80 × canvas.width`. Both the
-/// processing frame and the captured frame are 4:3, so the
-/// horizontal scale maps the region square faithfully.
+/// Geometry: [TrackOverlayInfo] carries the region center as
+/// fractions of the RAW processing buffer (80×60, always in SENSOR
+/// — landscape — orientation, see `CameraCaptureImpl._processImage`)
+/// and the region size in that same buffer's pixels. The preview
+/// stack this painter lives in shows the buffer cover-fitted into a
+/// box shaped for the *display* orientation, which in portrait is
+/// rotated 90° relative to the buffer — so a raw fraction cannot be
+/// read directly as a canvas fraction; see
+/// [frameFractionToDisplayFraction].
 class TrackedSpotPainter extends CustomPainter {
-  TrackedSpotPainter({required this.info});
+  TrackedSpotPainter({required this.info, required this.isPortrait});
 
   final TrackOverlayInfo info;
+
+  /// Whether the canvas this painter draws into is portrait-shaped
+  /// (taller than wide) rather than landscape — see
+  /// [frameFractionToDisplayFraction].
+  final bool isPortrait;
 
   /// Width of the processing frame the region size is expressed
   /// in — see `CameraCaptureImpl._processImage`.
   static const double _processingWidth = 80;
 
-  /// Tracked-region center in preview coordinates.
+  /// Height of the processing frame — see [_processingWidth].
+  static const double _processingHeight = 60;
+
+  /// Rotates a fraction-of-processing-buffer point into a
+  /// fraction-of-canvas point.
   ///
-  /// The preview stack shows the full captured frame 1:1, so a
-  /// fraction of the frame is the same fraction of the canvas.
-  static Offset centerOf(TrackOverlayInfo info, Size size) => Offset(
-    info.centerX * size.width,
-    info.centerY * size.height,
-  );
+  /// The processing buffer is always captured in the camera's raw
+  /// SENSOR orientation (landscape-shaped), regardless of how the
+  /// phone is held. In landscape UI orientation the displayed
+  /// picture is that same buffer un-rotated, so a buffer fraction
+  /// already is a canvas fraction. In portrait, the display is
+  /// rotated 90° relative to the buffer (the standard rear-camera
+  /// mounting, sensorOrientation ≈ 90°), so the point must undergo
+  /// the same rotation: a point at (fx, fy) in a 90°-clockwise-
+  /// rotated image moves to (1 - fy, fx).
+  ///
+  /// This follows the standard sensor-mounting convention, but has
+  /// not been checked against a physical device for every UI
+  /// orientation — if the yellow tracking circle lands rotated or
+  /// mirrored on a real phone, this is the formula to revisit.
+  static Offset frameFractionToDisplayFraction(
+    Offset frameFraction, {
+    required bool isPortrait,
+  }) {
+    if (!isPortrait) return frameFraction;
+    return Offset(1 - frameFraction.dy, frameFraction.dx);
+  }
+
+  /// Tracked-region center in preview coordinates.
+  static Offset centerOf(
+    TrackOverlayInfo info,
+    Size size, {
+    required bool isPortrait,
+  }) {
+    final f = frameFractionToDisplayFraction(
+      Offset(info.centerX, info.centerY),
+      isPortrait: isPortrait,
+    );
+    return Offset(f.dx * size.width, f.dy * size.height);
+  }
 
   /// The debug circle's radius: twice the detected spot's
   /// *diameter*, i.e. the spot's full size serves as the radius.
-  static double radiusOf(TrackOverlayInfo info, Size size) =>
-      spotDiameterOf(info, size);
+  static double radiusOf(
+    TrackOverlayInfo info,
+    Size size, {
+    required bool isPortrait,
+  }) => spotDiameterOf(info, size, isPortrait: isPortrait);
 
   /// The detected spot's diameter in preview pixels.
-  static double spotDiameterOf(TrackOverlayInfo info, Size size) =>
-      info.regionSizePx * size.width / _processingWidth;
+  ///
+  /// [TrackOverlayInfo.regionSizePx] is measured along the
+  /// processing buffer's own axes. In portrait, the buffer axis
+  /// that maps onto the canvas's *width* is the buffer's HEIGHT
+  /// axis (60px) — the 90° rotation swaps them — not its width
+  /// (80px); see [frameFractionToDisplayFraction].
+  static double spotDiameterOf(
+    TrackOverlayInfo info,
+    Size size, {
+    required bool isPortrait,
+  }) {
+    final referenceWidth = isPortrait ? _processingHeight : _processingWidth;
+    return info.regionSizePx * size.width / referenceWidth;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = centerOf(info, size);
-    final spotDiameter = spotDiameterOf(info, size);
+    final center = centerOf(info, size, isPortrait: isPortrait);
+    final spotDiameter = spotDiameterOf(info, size, isPortrait: isPortrait);
     final circlePaint = Paint()
       ..color = Colors.yellow
       ..style = PaintingStyle.stroke
@@ -670,7 +747,11 @@ class TrackedSpotPainter extends CustomPainter {
     // Double the spot's diameter: the circle visually envelops
     // the light with a clear margin, so tracking quality is easy
     // to judge at a glance.
-    canvas.drawCircle(center, radiusOf(info, size), circlePaint);
+    canvas.drawCircle(
+      center,
+      radiusOf(info, size, isPortrait: isPortrait),
+      circlePaint,
+    );
 
     // Label: live classification of the mark in progress. Hidden
     // while the signal is off, and until enough marks have been
@@ -713,5 +794,6 @@ class TrackedSpotPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(TrackedSpotPainter old) => old.info != info;
+  bool shouldRepaint(TrackedSpotPainter old) =>
+      old.info != info || old.isPortrait != isPortrait;
 }

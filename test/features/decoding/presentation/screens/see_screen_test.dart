@@ -1,5 +1,8 @@
+import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:camera/camera.dart';
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -17,6 +20,7 @@ import 'package:simply_morse/features/decoding/presentation/controllers/decoding
 import 'package:simply_morse/features/decoding/presentation/screens/see_screen.dart';
 
 import '../../../../helpers/decoding_fakes.dart';
+import '../../../../helpers/fake_camera_platform.dart';
 import '../../../../helpers/fake_feedback_service.dart';
 import '../../../../helpers/fake_share_service.dart';
 
@@ -303,30 +307,107 @@ void main() {
       isDash: false,
     );
 
-    test('maps fraction center onto the preview canvas', () {
-      final center = TrackedSpotPainter.centerOf(info(), canvasSize);
+    test('maps fraction center onto the preview canvas (landscape)', () {
+      final center = TrackedSpotPainter.centerOf(
+        info(),
+        canvasSize,
+        isPortrait: false,
+      );
 
       expect(center.dx, closeTo(80, 0.001));
       expect(center.dy, closeTo(60, 0.001));
     });
 
-    test('circle diameter is double the detected spot diameter', () {
-      // 8 processing px on an 80-px-wide frame scale 2x onto a
-      // 160-px-wide canvas: spot diameter 16, circle radius 16
-      // (i.e. diameter 32 = 2 x 16).
-      expect(
-        TrackedSpotPainter.spotDiameterOf(info(), canvasSize),
-        closeTo(16, 0.001),
+    test(
+      'circle diameter is double the detected spot diameter (landscape)',
+      () {
+        // 8 processing px on an 80-px-wide frame scale 2x onto a
+        // 160-px-wide canvas: spot diameter 16, circle radius 16
+        // (i.e. diameter 32 = 2 x 16).
+        expect(
+          TrackedSpotPainter.spotDiameterOf(
+            info(),
+            canvasSize,
+            isPortrait: false,
+          ),
+          closeTo(16, 0.001),
+        );
+        expect(
+          TrackedSpotPainter.radiusOf(info(), canvasSize, isPortrait: false),
+          closeTo(16, 0.001),
+        );
+      },
+    );
+
+    group('rotation between the raw processing buffer and the canvas', () {
+      // Off-center fractions so a rotation actually moves the
+      // point — (0.5, 0.5) is a fixed point of the rotation and
+      // can't distinguish "rotated" from "not rotated".
+      const offCenterInfo = TrackOverlayInfo(
+        centerX: 0.9,
+        centerY: 0.1,
+        regionSizePx: 8,
+        signalOn: true,
+        markClassified: true,
+        isDash: false,
       );
-      expect(
-        TrackedSpotPainter.radiusOf(info(), canvasSize),
-        closeTo(16, 0.001),
+
+      test('landscape: buffer fraction maps straight onto the canvas', () {
+        final center = TrackedSpotPainter.centerOf(
+          offCenterInfo,
+          canvasSize,
+          isPortrait: false,
+        );
+        expect(center.dx, closeTo(0.9 * canvasSize.width, 0.001));
+        expect(center.dy, closeTo(0.1 * canvasSize.height, 0.001));
+      });
+
+      test(
+        'portrait: buffer fraction is rotated 90° before mapping onto the '
+        'canvas',
+        () {
+          // A 90°-clockwise rotation sends buffer fraction (fx, fy)
+          // to canvas fraction (1 - fy, fx) — see
+          // frameFractionToDisplayFraction's doc comment. For
+          // (0.9, 0.1) that is (0.9, 0.9): the point sits near the
+          // buffer's RIGHT edge, which becomes the canvas's BOTTOM
+          // edge after the rotation — not near the top, as a plain
+          // (unrotated) mapping would place it.
+          const portraitCanvas = Size(120, 160);
+          final center = TrackedSpotPainter.centerOf(
+            offCenterInfo,
+            portraitCanvas,
+            isPortrait: true,
+          );
+          expect(center.dx, closeTo(0.9 * portraitCanvas.width, 0.001));
+          expect(center.dy, closeTo(0.9 * portraitCanvas.height, 0.001));
+        },
+      );
+
+      test(
+        "portrait: spot diameter scales off the buffer's HEIGHT axis",
+        () {
+          // In portrait the canvas's width axis corresponds to the
+          // buffer's 60px-tall axis (rotation swaps the axes), not
+          // its 80px-wide axis — 8 processing px on that 60px axis,
+          // scaled onto a 120-px-wide canvas: 8/60 * 120 = 16.
+          const portraitCanvas = Size(120, 160);
+          expect(
+            TrackedSpotPainter.spotDiameterOf(
+              offCenterInfo,
+              portraitCanvas,
+              isPortrait: true,
+            ),
+            closeTo(16, 0.001),
+          );
+        },
       );
     });
 
     testWidgets('paints without throwing for on and off marks', (tester) async {
-      final painter = TrackedSpotPainter(info: info());
+      final painter = TrackedSpotPainter(info: info(), isPortrait: false);
       final painterOff = TrackedSpotPainter(
+        isPortrait: false,
         info: const TrackOverlayInfo(
           centerX: 0.5,
           centerY: 0.5,
@@ -362,5 +443,112 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+  });
+
+  group('SeeScreen live preview geometry (regression)', () {
+    // Reproduces the bug: the preview box that wraps CameraPreview
+    // is sized from `camController.value.aspectRatio` directly
+    // (see_screen.dart ~L221-222), which is always the SENSOR
+    // (landscape) aspect ratio. In portrait that box is never
+    // rotated to match, so cover-fitting it onto a portrait screen
+    // blows the picture up far beyond what a correct cover-fit
+    // would — the "enormously zoomed and stretched" symptom.
+    late CameraPlatform originalCameraPlatform;
+
+    setUp(() {
+      originalCameraPlatform = CameraPlatform.instance;
+      CameraPlatform.instance = FakeCameraPlatform(
+        // Sensor reports a 16:9 landscape buffer, as a typical
+        // ResolutionPreset.low back camera does.
+        previewSize: const Size(1280, 720),
+      );
+    });
+
+    tearDown(() {
+      CameraPlatform.instance = originalCameraPlatform;
+    });
+
+    testWidgets(
+      'cover-fits a portrait screen without over-zooming the picture',
+      (tester) async {
+        tester
+          ..view.physicalSize = const Size(400, 800)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final camImpl = GetIt.instance<CameraCaptureImpl>();
+        await camImpl.initialize();
+        expect(camImpl.controller!.value.isInitialized, isTrue);
+
+        await pumpScreen(tester);
+
+        // Global (post-transform) rect, so it reflects the actual
+        // on-screen appearance including the FittedBox cover-scale
+        // — not just the widget's pre-transform layout size.
+        final previewRect = tester.getRect(find.byType(CameraPreview));
+
+        // The available body height (screen minus the app bar) is
+        // what actually drives the cover-fit scale here, so derive
+        // the expected width from the *measured* height rather than
+        // hardcoding it — keeps the test independent of chrome
+        // height. What must hold regardless is the aspect ratio:
+        // the frame's correct display aspect in portrait is
+        // 720/1280 = 0.5625 (width/height) — the sensor's aspect
+        // inverted for portrait — not the raw sensor 1280/720.
+        //
+        // The bug instead cover-fits the raw, uninverted 1280/720
+        // aspect, so width comes out ~3.16x (1280/720 ÷ 720/1280)
+        // too wide for the same height — the "zoomed in" symptom.
+        final expectedWidth = previewRect.height * (720 / 1280);
+        expect(previewRect.width, closeTo(expectedWidth, 5));
+      },
+    );
+
+    testWidgets(
+      'reticle matches the portrait-corrected target area, not the raw '
+      'sensor one',
+      (tester) async {
+        // Reproduces a second bug with the same root cause: the
+        // separate `scaledW`/`reticleEdgeGap` computation in
+        // _buildBody (see_screen.dart ~L190, used to size the
+        // reticle and to gate whether the decoded-text overlay has
+        // room to show) also read the raw, uninverted
+        // camController.value.aspectRatio.
+        tester
+          ..view.physicalSize = const Size(400, 800)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final camImpl = GetIt.instance<CameraCaptureImpl>();
+        await camImpl.initialize();
+
+        await pumpScreen(tester);
+
+        // Ground truth: the body height, which is driven by the
+        // screen (not the aspect bug — cover-fit is height-driven
+        // here regardless of which aspect is used, so this stays a
+        // safe anchor even while the width computation is broken),
+        // combined with the KNOWN correct display aspect for a
+        // 1280x720 sensor in portrait (720/1280 = 0.5625 — the
+        // sensor aspect inverted, not the raw 1280/720). Using the
+        // preview's own measured WIDTH here instead would make this
+        // test tautological: the reticle and the preview box share
+        // the same (buggy or fixed) aspect computation, so they'd
+        // always agree with each other even when both are wrong.
+        final previewHeight = tester.getSize(find.byType(CameraPreview)).height;
+        const correctDisplayAspect = 720 / 1280;
+        final expectedSide =
+            VideoDecoder.defaultTargetAreaFraction *
+            min(previewHeight * correctDisplayAspect, previewHeight);
+
+        final reticleSize = tester.getSize(
+          find.byKey(const Key('targeting-reticle')),
+        );
+        expect(reticleSize.width, closeTo(expectedSide, 1));
+        expect(reticleSize.height, closeTo(expectedSide, 1));
+      },
+    );
   });
 }

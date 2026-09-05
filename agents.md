@@ -101,6 +101,7 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 ## 3. Strict Error Handling & Failure Protocols
 * **No Silent Swallowing:** Never wrap blocks in blank `catch (e) {}` statements. Errors must be captured, transformed into typed domain `Failure` objects, and explicitly pushed to the presentation layer or logged.
 * **Explicit Failure Over Default Data:** When parsing JSON data, configuration files, or network responses, **never fall back to implicit placeholder or default values** (e.g., an empty string `""` or a current timestamp `DateTime.now()`) if validation fails. Return an explicit `null` or throw a parsing exception. It is always better for the application to fail loudly and traceably than to operate silently with corrupted or hallucinated baseline data.
+* **Unit test per bug:** On every reported bug, create at least one (or more, as needed) unit test first to confirm the bug (expect the unit test to fail). On the bug fix finish, verify and confirm with the newly written unit test that the bug is fixed.
 
 ---
 
@@ -109,10 +110,12 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 When assigned a development ticket or bug fix, you must execute the task according to this chronological checklist. Do not skip steps. Apply `kotlin.incremental=false` in `android\gradle.properties` if not applied yet.
 
 ### Step 1: Establish Environment Baseline
-Before changing a single line of production code, verify the codebase is in a functional state to isolate future errors:
-1. Run `flutter pub get` to resolve any local dependencies.
-2. Run `flutter analyze` to guarantee the starting code is clear of syntax or static compilation errors.
-3. Run `flutter test` to ensure existing unit and widget test files currently pass.
+Before changing a single line of production code:
+A. pull the changes from current remote repo in work. In team coding, we should take into account peer code changes.
+B. verify the codebase is in a functional state to isolate future errors:
+  1. Run `flutter pub get` to resolve any local dependencies.
+  2. Run `flutter analyze` to guarantee the starting code is clear of syntax or static compilation errors.
+  3. Run `flutter test` to ensure existing unit and widget test files currently pass.
 
 ### Step 2: Implement Changes and Handle Code-Gen
 1. Execute your structural modifications localized to the corresponding clean architecture feature layer.
@@ -121,11 +124,11 @@ Before changing a single line of production code, verify the codebase is in a fu
 `dart run build_runner build --delete-conflicting-outputs`
 
 3. On changes in production code follow the rules:
-  * Add unit test on added functins and classes.
+  * Add unit test on added functions and classes.
   * On removal of obsolete, non-used, merged functions remove according unit tests.
   * On changes in functions adapt related unit tests accordingly. 
-
 4. **Don't repeat yourself** restriction - when any functionality is needed to implement, review existing classes and function for similar functionality. Often you will find that what's needed is already implemented. Then just call and reuse it. If slight modification to the existing functionality is needed and that function has only 1-2 invocations, enhance that function and adapt the existing invokations. If signigicant modification needed or too many calls exist to the implemented function then add a function which has larger functional span and then the older, narrower span function, can use the new one to avoid code duplication. Add new functions only if there is no similar fucntionality is already implemented.
+
 
 ### Step 3: Self-Correction & Automated Cleaning
 Before presenting your changes for human review, clean your workspace of transient tracking code:
