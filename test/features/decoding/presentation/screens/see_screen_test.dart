@@ -76,8 +76,49 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Pumps SeeScreen pushed on top of a dummy home route, so
+  /// `Navigator.canPop()` is true inside it — [pumpScreen] makes it
+  /// the app's only (home) route, where nothing can be popped, so
+  /// it can't exercise the back button at all.
+  Future<void> pumpScreenWithBackStack(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SeeScreen(
+                      themeController: ThemeController(),
+                      screenTimeoutService: ScreenTimeoutService(),
+                      displayTimeout: DisplayTimeout.system,
+                      onDisplayTimeoutChanged: (_) {},
+                    ),
+                  ),
+                ),
+                child: const Text('Open Watch'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open Watch'));
+    await tester.pumpAndSettle();
+  }
+
   group('SeeScreen high-fps camera', () {
     testWidgets('displays Watch header', (tester) async {
+      // The AppBar (and its title) is portrait-only — landscape
+      // drops it for a small back button instead, to reclaim
+      // vertical space (see 'SeeScreen landscape layout' below).
+      tester
+        ..view.physicalSize = const Size(400, 800)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       await pumpScreen(tester);
       expect(find.text('Watch'), findsOneWidget);
     });
@@ -718,7 +759,10 @@ void main() {
       CameraPlatform.instance = originalCameraPlatform;
     });
 
-    Future<void> pumpLandscape(WidgetTester tester) async {
+    Future<void> pumpLandscape(
+      WidgetTester tester, {
+      bool withBackStack = false,
+    }) async {
       tester
         ..view.physicalSize = const Size(800, 400)
         ..view.devicePixelRatio = 1.0;
@@ -728,7 +772,11 @@ void main() {
       final camImpl = GetIt.instance<CameraCaptureImpl>();
       await camImpl.initialize();
 
-      await pumpScreen(tester);
+      if (withBackStack) {
+        await pumpScreenWithBackStack(tester);
+      } else {
+        await pumpScreen(tester);
+      }
     }
 
     testWidgets('decoded text box is visible (not gated away)', (
@@ -784,6 +832,44 @@ void main() {
       final statusRect = tester.getRect(find.textContaining('Idle'));
 
       expect(statusRect.top, lessThan(screenRect.height * 0.25));
+    });
+
+    testWidgets('has no AppBar (title text is gone)', (tester) async {
+      await pumpLandscape(tester);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.text('Watch'), findsNothing);
+    });
+
+    testWidgets(
+      'shows a back button in the upper-left corner when it can pop',
+      (tester) async {
+        await pumpLandscape(tester, withBackStack: true);
+
+        final screenRect = tester.getRect(find.byType(MaterialApp));
+        final backButtonRect = tester.getRect(find.byIcon(Icons.arrow_back));
+
+        expect(backButtonRect.left, lessThan(screenRect.width * 0.15));
+        expect(backButtonRect.top, lessThan(screenRect.height * 0.25));
+      },
+    );
+
+    testWidgets('back button pops the route', (tester) async {
+      await pumpLandscape(tester, withBackStack: true);
+      expect(find.text('Open Watch'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Open Watch'), findsOneWidget);
+    });
+
+    testWidgets('no back button when there is nothing to pop to', (
+      tester,
+    ) async {
+      // pumpScreen (not pumpScreenWithBackStack) makes SeeScreen
+      // the app's only route.
+      await pumpLandscape(tester);
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
     });
   });
 }

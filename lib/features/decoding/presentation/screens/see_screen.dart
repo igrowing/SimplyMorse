@@ -178,13 +178,24 @@ class _SeeScreenState extends State<SeeScreen> {
     if (kIsWeb) {
       return _buildWebPlaceholder(context);
     }
+    // The full AppBar (title + settings icon, kToolbarHeight tall)
+    // is dropped in landscape — that fixed height is a much bigger
+    // fraction of a landscape screen's already-short vertical space
+    // than of a portrait one. Landscape gets just a small
+    // translucent back button instead, folded into the status row
+    // (see _buildLandscapeBody) rather than reserved app-bar space;
+    // Settings becomes reachable by rotating to portrait.
+    final size = MediaQuery.sizeOf(context);
+    final isLandscape = size.width > size.height;
     return ChangeNotifierProvider.value(
       value: _controller,
       child: Scaffold(
-        appBar: AppTopBar(
-          titleText: 'Watch',
-          onSettingsTap: () => _navigateToSettings(context),
-        ),
+        appBar: isLandscape
+            ? null
+            : AppTopBar(
+                titleText: 'Watch',
+                onSettingsTap: () => _navigateToSettings(context),
+              ),
         backgroundColor: Colors.black,
         body: Consumer<DecodingController>(
           builder: (context, ctrl, _) => _buildBody(context, ctrl),
@@ -332,10 +343,11 @@ class _SeeScreenState extends State<SeeScreen> {
   /// preview stopped guaranteeing a tall gap above the reticle (it
   /// simply never showed — see the portrait branch's comment) and
   /// put the action buttons in a bottom strip that's awkward to
-  /// reach one-handed in landscape. Status bar stays pinned to the
-  /// top; decoded text gets a dedicated left panel that's always
-  /// visible; actions become a right-hand column, within thumb
-  /// reach of a landscape grip.
+  /// reach one-handed in landscape. No AppBar (see [build]) — a
+  /// small translucent back button sits directly left of the status
+  /// bar instead, both pinned to the top; decoded text gets a
+  /// dedicated left panel that's always visible; actions become a
+  /// right-hand column, within thumb reach of a landscape grip.
   Widget _buildLandscapeBody(
     BuildContext context,
     DecodingController ctrl,
@@ -348,7 +360,14 @@ class _SeeScreenState extends State<SeeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildStatusBar(context, ctrl),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildBackButton(context),
+                const SizedBox(width: 8),
+                _buildStatusBar(context, ctrl),
+              ],
+            ),
             const SizedBox(height: 8),
             Expanded(
               child: Row(
@@ -378,6 +397,27 @@ class _SeeScreenState extends State<SeeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Small translucent back button standing in for the AppBar that
+  /// [build] omits in landscape — same action (`maybePop`) and
+  /// tooltip as [AppTopBar]'s own back button, just without the
+  /// fixed-height bar around it. Hidden when there's nowhere to pop
+  /// back to (matching AppTopBar's own behavior).
+  Widget _buildBackButton(BuildContext context) {
+    if (!Navigator.of(context).canPop()) return const SizedBox.shrink();
+    return Material(
+      color: Colors.black45,
+      shape: const CircleBorder(),
+      child: IconButton(
+        icon: const Icon(Icons.arrow_back, color: Colors.white),
+        onPressed: () => Navigator.of(context).maybePop(),
+        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        padding: EdgeInsets.zero,
       ),
     );
   }
