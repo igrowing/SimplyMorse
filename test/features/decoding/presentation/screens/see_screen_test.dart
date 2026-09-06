@@ -446,13 +446,20 @@ void main() {
   });
 
   group('SeeScreen live preview geometry (regression)', () {
-    // Reproduces the bug: the preview box that wraps CameraPreview
-    // is sized from `camController.value.aspectRatio` directly
-    // (see_screen.dart ~L221-222), which is always the SENSOR
-    // (landscape) aspect ratio. In portrait that box is never
-    // rotated to match, so cover-fitting it onto a portrait screen
-    // blows the picture up far beyond what a correct cover-fit
-    // would — the "enormously zoomed and stretched" symptom.
+    // Originally reproduced a stretch bug: the preview box that
+    // wraps CameraPreview was sized from
+    // `camController.value.aspectRatio` directly (see_screen.dart
+    // ~L221-222 at the time), which is always the SENSOR (landscape)
+    // aspect ratio. In portrait that box was never rotated to
+    // match, so fitting it onto a portrait screen blew the picture
+    // up and distorted its proportions.
+    //
+    // The screen has since moved from cover-fit (fills the screen,
+    // crops the excess) to contain-fit / letterbox (the full frame
+    // always visible, black bars fill the rest) — the tests below
+    // cover both: the aspect ratio staying correct (unaffected by
+    // which fit mode is active) and the letterbox itself (no crop,
+    // bars on the axis with room to spare).
     late CameraPlatform originalCameraPlatform;
 
     setUp(() {
@@ -469,7 +476,7 @@ void main() {
     });
 
     testWidgets(
-      'cover-fits a portrait screen without over-zooming the picture',
+      'keeps the correct aspect ratio in portrait (no stretch)',
       (tester) async {
         tester
           ..view.physicalSize = const Size(400, 800)
@@ -483,25 +490,82 @@ void main() {
 
         await pumpScreen(tester);
 
-        // Global (post-transform) rect, so it reflects the actual
-        // on-screen appearance including the FittedBox cover-scale
-        // — not just the widget's pre-transform layout size.
         final previewRect = tester.getRect(find.byType(CameraPreview));
 
-        // The available body height (screen minus the app bar) is
-        // what actually drives the cover-fit scale here, so derive
-        // the expected width from the *measured* height rather than
-        // hardcoding it — keeps the test independent of chrome
-        // height. What must hold regardless is the aspect ratio:
-        // the frame's correct display aspect in portrait is
+        // The frame's correct display aspect in portrait is
         // 720/1280 = 0.5625 (width/height) — the sensor's aspect
-        // inverted for portrait — not the raw sensor 1280/720.
-        //
-        // The bug instead cover-fits the raw, uninverted 1280/720
-        // aspect, so width comes out ~3.16x (1280/720 ÷ 720/1280)
-        // too wide for the same height — the "zoomed in" symptom.
+        // inverted for portrait — not the raw sensor 1280/720. This
+        // must hold under either fit mode, so derive the expected
+        // width from the *measured* height rather than hardcoding
+        // either dimension.
         final expectedWidth = previewRect.height * (720 / 1280);
         expect(previewRect.width, closeTo(expectedWidth, 5));
+      },
+    );
+
+    testWidgets(
+      'letterboxes a portrait screen — bars top/bottom, no crop',
+      (tester) async {
+        tester
+          ..view.physicalSize = const Size(400, 800)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final camImpl = GetIt.instance<CameraCaptureImpl>();
+        await camImpl.initialize();
+
+        await pumpScreen(tester);
+
+        final screenRect = tester.getRect(find.byType(MaterialApp));
+        final previewRect = tester.getRect(find.byType(CameraPreview));
+
+        // Contain-fit: the frame is never larger than the screen on
+        // either axis (no crop) ...
+        expect(previewRect.width, lessThanOrEqualTo(screenRect.width + 0.5));
+        expect(previewRect.height, lessThanOrEqualTo(screenRect.height + 0.5));
+        // ... and in portrait, a 16:9 sensor is proportionally
+        // wider than the screen, so it's constrained by width —
+        // the full screen width is used, with bars above/below.
+        expect(previewRect.width, closeTo(screenRect.width, 1));
+        expect(previewRect.height, lessThan(screenRect.height));
+      },
+    );
+
+    testWidgets(
+      'letterboxes a landscape screen — bars left/right, no crop',
+      (tester) async {
+        tester
+          ..view.physicalSize = const Size(800, 400)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final camImpl = GetIt.instance<CameraCaptureImpl>();
+        await camImpl.initialize();
+
+        await pumpScreen(tester);
+
+        final screenRect = tester.getRect(find.byType(MaterialApp));
+        final previewRect = tester.getRect(find.byType(CameraPreview));
+
+        // No crop on either axis ...
+        expect(previewRect.width, lessThanOrEqualTo(screenRect.width + 0.5));
+        expect(previewRect.height, lessThanOrEqualTo(screenRect.height + 0.5));
+        // ... and here the body (screen minus the app bar) is
+        // proportionally wider than a 16:9 sensor, so contain-fit
+        // is constrained by height, leaving the frame narrower than
+        // the screen — bars on the sides. Under the old cover-fit
+        // this would instead stretch to the full screen width
+        // (cropping the excess height), so this is the assertion
+        // that actually distinguishes contain from cover.
+        expect(previewRect.width, lessThan(screenRect.width * 0.95));
+        // Correct, unswapped aspect for landscape (no bar-induced
+        // distortion of the frame's own shape).
+        expect(
+          previewRect.width / previewRect.height,
+          closeTo(1280 / 720, 0.02),
+        );
       },
     );
 

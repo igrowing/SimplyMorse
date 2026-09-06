@@ -21,14 +21,16 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 /// Screen for visual Morse decoding via camera.
 ///
 /// Full-screen camera preview with a targeting overlay:
-/// - the live preview fills the screen edge to edge
-///   (cover-fit, center-cropped): the captured frame is
-///   scaled up to at least the display size, so what is shown
-///   keeps the source's aspect ratio and simply crops the
-///   excess instead of letterboxing into a small strip. The
-///   reticle and the tracked-spot overlay live inside the same
-///   full-frame coordinate space, so they stay mapped 1:1 to
-///   the decoder's target area at any crop,
+/// - the live preview is letterboxed (contain-fit, no crop): the
+///   full captured frame is always visible, scaled to the largest
+///   size that fits the screen, with black bars filling the rest
+///   — on the sides in landscape (the screen is proportionally
+///   wider than the frame), top/bottom in portrait (the screen is
+///   proportionally taller). Nothing outside the frame is ever
+///   hidden, so the full field of view stays available for aiming.
+///   The reticle and the tracked-spot overlay live inside the same
+///   full-frame coordinate space, so they stay mapped 1:1 to the
+///   decoder's target area regardless of letterbox size,
 /// - a centered corner-bracket reticle shows where to aim the
 ///   transmitting light — scanning is confined to this area by
 ///   [VideoDecoder.targetAreaFraction], the inside is clean so
@@ -199,32 +201,41 @@ class _SeeScreenState extends State<SeeScreen> {
         final screenW = constraints.maxWidth;
         final screenH = constraints.maxHeight;
 
-        // Cover-fit (BoxFit.cover) preview geometry: the frame
-        // is scaled to cover the whole screen, the excess is
-        // center-cropped. The scaled frame size is needed for
-        // the reticle's on-screen side — the reticle lives in
-        // the frame's coordinate space, which can now extend
-        // beyond the screen on one axis.
+        // Contain-fit (BoxFit.contain) preview geometry: the frame
+        // is scaled to the largest size that fits entirely within
+        // the screen, so it's never cropped — the AspectRatio
+        // widget below does the actual layout, but the reticle's
+        // on-screen side (and the gap that gates the decoded-text
+        // overlay) needs that same resulting size ahead of it, so
+        // it's computed here too.
         //
         // camController.value.aspectRatio is always the camera's
         // raw SENSOR (landscape) aspect ratio, regardless of how
         // the phone is held — CameraPreview itself corrects for
         // this internally (see its `_isLandscape()` check), but
         // that correction only kicks in when CameraPreview is
-        // given a loose box to size itself; the tight box handed
-        // to it below needs the same correction applied up front.
+        // given a loose box to size itself; the box handed to it
+        // below needs the same correction applied up front.
         final isPortrait = screenH > screenW;
         var scaledW = screenW;
         var scaledH = screenH;
+        var aspect = screenW / screenH;
         if (previewReady) {
           final sensorAspect = camController.value.aspectRatio;
-          final aspect = isPortrait ? 1 / sensorAspect : sensorAspect;
+          aspect = isPortrait ? 1 / sensorAspect : sensorAspect;
+          // Contain fit picks the axis that keeps the OTHER axis
+          // within bounds — the mirror image of cover-fit's choice,
+          // which instead picks whichever axis overflows the other.
           if (screenW / screenH > aspect) {
-            scaledW = screenW;
-            scaledH = screenW / aspect;
-          } else {
+            // Screen is proportionally wider than the frame: match
+            // height, bars left/right (typically landscape).
             scaledH = screenH;
             scaledW = screenH * aspect;
+          } else {
+            // Screen is proportionally taller than the frame: match
+            // width, bars top/bottom (typically portrait).
+            scaledW = screenW;
+            scaledH = screenW / aspect;
           }
         }
         final reticleSide =
@@ -237,76 +248,64 @@ class _SeeScreenState extends State<SeeScreen> {
         return Stack(
           fit: StackFit.expand,
           children: [
-            // Live preview with the targeting reticle: the
-            // frame is cover-fitted and center-cropped to fill
-            // the screen (ClipRect removes the overflow), so no
-            // black bars shrink the picture. The overlays inside
+            // Live preview with the targeting reticle: the frame
+            // is contain-fitted (AspectRatio picks the largest box
+            // of the right shape that fits the screen), so the
+            // full field of view is always visible — black bars
+            // (the Scaffold's background) fill the rest on
+            // whichever axis has room to spare. The overlays inside
             // the child Stack stay in the full frame's 1:1
-            // coordinate space, so the crop cannot misplace
-            // them.
+            // coordinate space, so they line up regardless of how
+            // big the letterboxed box ends up.
             if (previewReady)
-              ClipRect(
-                child: OverflowBox(
-                  // scaledW/scaledH is already the exact cover-fit
-                  // size (computed above, orientation-corrected) —
-                  // give the preview box that size directly and let
-                  // it overflow the screen on whichever axis cover
-                  // crops, instead of laying out at an arbitrary
-                  // size and relying on a FittedBox to rescale (and,
-                  // pre-fix, rescale the wrong-shaped box).
-                  minWidth: scaledW,
-                  maxWidth: scaledW,
-                  minHeight: scaledH,
-                  maxHeight: scaledH,
-                  child: SizedBox(
-                    width: scaledW,
-                    height: scaledH,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CameraPreview(camController),
-                        Center(
-                          child: LayoutBuilder(
-                            builder: (context, box) {
-                              final side =
-                                  VideoDecoder.defaultTargetAreaFraction *
-                                  min(box.maxWidth, box.maxHeight);
-                              return CustomPaint(
-                                key: const Key('targeting-reticle'),
-                                size: Size.square(side),
-                                painter: TargetReticlePainter(
-                                  color: ctrl.isListening
-                                      ? Colors.greenAccent
-                                      : Colors.white,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        // Debug aid: while the decoder is locked on
-                        // the source, a yellow circle of twice the
-                        // detected spot's diameter marks the tracked
-                        // region and a dot/dash label shows the live
-                        // mark classification. Painted in the same
-                        // coordinate space as the full camera frame,
-                        // so the fraction-based telemetry maps 1:1.
-                        ValueListenableBuilder<TrackOverlayInfo?>(
-                          valueListenable: ctrl.trackOverlay,
-                          builder: (context, info, _) {
-                            if (info == null) {
-                              return const SizedBox.shrink();
-                            }
+              Center(
+                child: AspectRatio(
+                  aspectRatio: aspect,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CameraPreview(camController),
+                      Center(
+                        child: LayoutBuilder(
+                          builder: (context, box) {
+                            final side =
+                                VideoDecoder.defaultTargetAreaFraction *
+                                min(box.maxWidth, box.maxHeight);
                             return CustomPaint(
-                              key: const Key('tracked-spot-overlay'),
-                              painter: TrackedSpotPainter(
-                                info: info,
-                                isPortrait: isPortrait,
+                              key: const Key('targeting-reticle'),
+                              size: Size.square(side),
+                              painter: TargetReticlePainter(
+                                color: ctrl.isListening
+                                    ? Colors.greenAccent
+                                    : Colors.white,
                               ),
                             );
                           },
                         ),
-                      ],
-                    ),
+                      ),
+                      // Debug aid: while the decoder is locked on
+                      // the source, a yellow circle of twice the
+                      // detected spot's diameter marks the tracked
+                      // region and a dot/dash label shows the live
+                      // mark classification. Painted in the same
+                      // coordinate space as the full camera frame,
+                      // so the fraction-based telemetry maps 1:1.
+                      ValueListenableBuilder<TrackOverlayInfo?>(
+                        valueListenable: ctrl.trackOverlay,
+                        builder: (context, info, _) {
+                          if (info == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return CustomPaint(
+                            key: const Key('tracked-spot-overlay'),
+                            painter: TrackedSpotPainter(
+                              info: info,
+                              isPortrait: isPortrait,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               )
