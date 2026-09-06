@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
@@ -11,6 +13,7 @@ import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
+import 'package:simply_morse/features/decoding/data/video_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
@@ -871,5 +874,83 @@ void main() {
       await pumpLandscape(tester);
       expect(find.byIcon(Icons.arrow_back), findsNothing);
     });
+  });
+
+  group('SeeScreen video debug log (TEMP DEBUG)', () {
+    // The log file lives in getApplicationDocumentsDirectory(),
+    // which on a real device is app-private internal storage no
+    // Files app can browse — showing just the path (the original
+    // approach) left the user with no way to actually retrieve it.
+    // Sharing the file directly sidesteps needing filesystem access
+    // at all.
+    const pathProviderChannel = MethodChannel(
+      'plugins.flutter.io/path_provider',
+    );
+
+    setUp(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(pathProviderChannel, (methodCall) async {
+            if (methodCall.method == 'getApplicationDocumentsDirectory') {
+              return Directory.systemTemp.path;
+            }
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(pathProviderChannel, null);
+    });
+
+    /// Re-registers DecodingController with a real, enabled
+    /// VideoDebugLogger — the default registration in the outer
+    /// setUp above has none, matching how most tests don't need it.
+    Future<void> enableVideoDebugLogging() async {
+      await GetIt.instance.unregister<DecodingController>();
+      GetIt.instance.registerFactory<DecodingController>(
+        () => DecodingController(
+          morseDecoder: morseDecoder,
+          audioDecoder: audioDecoder,
+          audioCapture: audioCapture,
+          videoDecoder: videoDecoder,
+          cameraCapture: cameraCapture,
+          videoDebugLogger: VideoDebugLogger(enabled: true),
+        ),
+      );
+    }
+
+    testWidgets(
+      'offers to share the log file on Start, instead of just a path',
+      (tester) async {
+        await enableVideoDebugLogging();
+        await pumpScreen(tester);
+
+        await tester.ensureVisible(find.text('Start'));
+        await tester.tap(find.text('Start'));
+        // The SnackBar appears after a short delay (see
+        // _onStartPressed) while VideoDebugLogger.start() resolves
+        // getApplicationDocumentsDirectory() — pump through it
+        // rather than settling immediately.
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(find.text('Video debug log ready'), findsOneWidget);
+        // Not find.text('Share') — the bottom action bar already
+        // has its own "Share" button for the decoded text.
+        expect(find.byType(SnackBarAction), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(SnackBarAction),
+            matching: find.text('Share'),
+          ),
+          findsOneWidget,
+        );
+        // The SnackBarAction must not be a dead end: it needs an
+        // onPressed to actually do the sharing.
+        final action = tester.widget<SnackBarAction>(
+          find.byType(SnackBarAction),
+        );
+        expect(action.onPressed, isNotNull);
+      },
+    );
   });
 }

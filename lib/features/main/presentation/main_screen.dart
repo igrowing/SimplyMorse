@@ -5,7 +5,7 @@ import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/listen_screen.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/see_screen.dart';
-import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
+import 'package:simply_morse/features/encoding/presentation/screens/send_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
@@ -143,7 +143,7 @@ class MainScreen extends StatelessWidget {
     unawaited(
       Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => SendModeScreen(
+          builder: (_) => SendScreen(
             themeController: themeController,
             screenTimeoutService: screenTimeoutService,
             displayTimeout: displayTimeout,

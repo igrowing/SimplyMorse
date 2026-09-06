@@ -29,8 +29,8 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 ///
 /// On mobile with Display output, active transmission
 /// shows a full-screen blink overlay with only a Stop button.
-class SendModeScreen extends StatefulWidget {
-  const SendModeScreen({
+class SendScreen extends StatefulWidget {
+  const SendScreen({
     required this.themeController,
     required this.screenTimeoutService,
     required this.displayTimeout,
@@ -44,10 +44,10 @@ class SendModeScreen extends StatefulWidget {
   final ValueChanged<DisplayTimeout> onDisplayTimeoutChanged;
 
   @override
-  State<SendModeScreen> createState() => _SendModeScreenState();
+  State<SendScreen> createState() => _SendScreenState();
 }
 
-class _SendModeScreenState extends State<SendModeScreen> {
+class _SendScreenState extends State<SendScreen> {
   late final EncodingController _controller;
   late final FeedbackService _feedbackService;
   final _textController = TextEditingController();

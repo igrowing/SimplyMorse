@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
@@ -122,35 +123,67 @@ class _SeeScreenState extends State<SeeScreen> {
 
     _controller.start();
 
-    // TEMP DEBUG: surface the video debug log's file path so it
-    // can be found without adb/console access. Remove this block
-    // together with the `enabled: true` override in injection.dart
-    // once the video decoder investigation is done. The path is
-    // set asynchronously inside VideoDebugLogger.start() (it awaits
-    // getApplicationDocumentsDirectory()), so give it a moment.
+    // TEMP DEBUG: see _showVideoDebugLogSnackBar's doc comment.
+    // The path is set asynchronously inside VideoDebugLogger.start()
+    // (it awaits getApplicationDocumentsDirectory()), so give it a
+    // moment before reading it.
     if (_controller.isVideoDebugLoggingEnabled) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      final path = _controller.videoDebugLogPath;
-      debugPrint('Video debug log: $path');
-      if (mounted && path != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Video debug log:\n$path'),
-            duration: const Duration(seconds: 6),
-          ),
-        );
-      }
+      _showVideoDebugLogSnackBar();
     }
   }
 
   Future<void> _onPausePressed() async {
     await _feedbackService.lightImpact();
     _controller.pause();
+
+    // TEMP DEBUG: re-offer the share action once there's actually
+    // decoder data in the log (at Start, the file has only just
+    // been created) — see _showVideoDebugLogSnackBar.
+    if (_controller.isVideoDebugLoggingEnabled) {
+      _showVideoDebugLogSnackBar();
+    }
   }
 
   Future<void> _onResumePressed() async {
     await _feedbackService.lightImpact();
     _controller.resume();
+  }
+
+  /// TEMP DEBUG: offers to share the video debug log's CSV file.
+  /// Remove this together with the `enabled: true` override in
+  /// injection.dart once the video decoder investigation is done.
+  ///
+  /// The file lives in `getApplicationDocumentsDirectory()`, which
+  /// on Android is app-PRIVATE internal storage (`/data/user/0/`
+  /// followed by the package name, not anything under
+  /// `/storage/emulated/0/`) — no Files app can browse it, and it
+  /// isn't reachable over
+  /// USB/MTP either. Showing the path alone (the previous approach
+  /// here) is therefore useless without adb or a rooted device.
+  /// Sharing the file directly via the system share sheet sidesteps
+  /// needing filesystem access at all — the user can send it to
+  /// email/Drive/etc. or open it with an app that understands CSV.
+  void _showVideoDebugLogSnackBar() {
+    final path = _controller.videoDebugLogPath;
+    debugPrint('Video debug log: $path');
+    if (!mounted || path == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Video debug log ready'),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () {
+            unawaited(
+              SharePlus.instance.share(
+                ShareParams(files: [XFile(path)]),
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _onClearPressed() async {

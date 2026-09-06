@@ -8,7 +8,7 @@ import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
-import 'package:simply_morse/features/encoding/presentation/screens/send_mode_screen.dart';
+import 'package:simply_morse/features/encoding/presentation/screens/send_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/transmission_progress_text.dart';
 import '../../../../helpers/fake_feedback_service.dart';
 import '../../../../helpers/fakes.dart';
@@ -49,7 +49,7 @@ void main() {
       ..view.devicePixelRatio = 1.0;
     await tester.pumpWidget(
       MaterialApp(
-        home: SendModeScreen(
+        home: SendScreen(
           themeController: ThemeController(),
           screenTimeoutService: ScreenTimeoutService(),
           displayTimeout: DisplayTimeout.system,
@@ -60,7 +60,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  group('SendModeScreen', () {
+  group('SendScreen', () {
     group('common elements', () {
       testWidgets('displays app top bar with name', (tester) async {
         await pumpScreen(tester);
@@ -107,7 +107,7 @@ void main() {
                       unawaited(
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => SendModeScreen(
+                            builder: (_) => SendScreen(
                               themeController: ThemeController(),
                               screenTimeoutService: ScreenTimeoutService(),
                               displayTimeout: DisplayTimeout.system,
