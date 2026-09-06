@@ -381,11 +381,14 @@ void main() {
             historySize: 15,
             confirmFrames: 3,
             lostFrameLimit: 5,
-            // Short hold: the decoder now rides out brief
-            // low-variance stretches (word gaps), so a genuine
-            // disappearance is only declared lost once the hold
-            // window elapses with no recovery.
+            // Short hold, and a fast-forgetting threshold: the
+            // decoder rides out brief low-variance stretches (word
+            // gaps, long marks) for as long as the region still
+            // resolves contrast, so a genuine disappearance is only
+            // declared lost once BOTH the hold window has elapsed and
+            // that contrast has decayed away.
             signalHoldMs: 200,
+            threshold: BrightnessThreshold(decayFactor: 0.85),
           );
 
           // Lock on
@@ -429,11 +432,13 @@ void main() {
       (VideoDecoder, List<TrackOverlayInfo?>) runWithGap({
         required int gapMs,
         int signalHoldMs = 3000,
+        BrightnessThreshold? threshold,
       }) {
         final dec = VideoDecoder(
           historySize: 30,
           confirmFrames: 3,
           signalHoldMs: signalHoldMs,
+          threshold: threshold,
         );
         final infos = <TrackOverlayInfo?>[];
         dec.onTrackOverlay = infos.add;
@@ -481,12 +486,50 @@ void main() {
         expect(tracked.last.holding, isFalse);
       });
 
-      test('gives up the lock once the hold window elapses', () {
-        final (_, infos) = runWithGap(gapMs: 4000, signalHoldMs: 1000);
+      test('holds through a long mark that outlasts signalHoldMs', () {
+        // Regression from a slow (~7 WPM) field capture: the lock was
+        // lost every ~20-30 s when a dah plus the pause after it ran
+        // past the fixed 3 s hold window, even though the reading
+        // region was still plainly ON the whole time. The threshold
+        // still has full dynamic range there, so the lock must hold.
+        final dec = VideoDecoder(
+          historySize: 30,
+          confirmFrames: 3,
+          signalHoldMs: 1000,
+        );
+        final infos = <TrackOverlayInfo?>[];
+        dec.onTrackOverlay = infos.add;
 
-        // The gap outlasts the hold, so the lock is dropped mid-gap
-        // (overlay goes null) rather than being held on a stale
-        // position forever.
+        var t = 0;
+        for (var i = 0; i < 24; i++, t += 150) {
+          dec.processFrame(_makeFrame(timestampMs: t, sourceOn: i.isEven));
+        }
+        expect(dec.state, VideoDecoderState.locked);
+
+        // A single ON mark far longer than signalHoldMs — variance in
+        // the block decays to zero but the source is still lit.
+        for (final end = t + 4000; t < end; t += 33) {
+          dec.processFrame(_makeFrame(timestampMs: t, sourceOn: true));
+        }
+
+        expect(dec.state, VideoDecoderState.locked);
+        expect(infos.contains(null), isFalse);
+      });
+
+      test('gives up the lock once the hold window elapses', () {
+        // A fast-forgetting threshold so the reading region's on/off
+        // contrast collapses within the gap — without that the lock
+        // is (correctly) held for as long as the region still
+        // resolves a confident level. See VideoDecoder.signalHoldMs.
+        final (_, infos) = runWithGap(
+          gapMs: 4000,
+          signalHoldMs: 1000,
+          threshold: BrightnessThreshold(decayFactor: 0.9),
+        );
+
+        // The gap outlasts the hold and the contrast is gone, so the
+        // lock is dropped mid-gap (overlay goes null) rather than
+        // held on a stale position forever.
         expect(infos.contains(null), isTrue);
       });
     });
@@ -640,13 +683,17 @@ void main() {
       );
 
       test('nulls the overlay when the signal is lost', () {
-        // Short hold window so the dark stretch below actually times
-        // the lock out rather than being held through.
-        final dec = VideoDecoder(signalHoldMs: 300);
+        // Short hold window, and a fast-forgetting threshold so the
+        // reading region's contrast decays inside the dark stretch —
+        // both conditions must fail before a lock is given up.
+        final dec = VideoDecoder(
+          signalHoldMs: 300,
+          threshold: BrightnessThreshold(decayFactor: 0.9),
+        );
         final infos = feed(dec, [
           for (var i = 0; i < 12; i++) (300, i.isEven),
           // Steady dark frames past the hold window: lock must drop.
-          (1200, false),
+          (1500, false),
         ]);
 
         expect(dec.state, VideoDecoderState.scanning);

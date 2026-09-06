@@ -178,6 +178,7 @@ class VideoDecoder {
     this.searchRadius = 2,
     this.lostFrameLimit = 10,
     this.signalHoldMs = 3000,
+    this.holdContrastFactor = 4,
     this.minRegionSize = 8,
     this.maxRegionSize = 32,
     this.backgroundMarginPx = 8,
@@ -222,9 +223,34 @@ class VideoDecoder {
   /// still read there every frame, so the OFF gap is timed
   /// correctly and the lock resumes seamlessly when the source
   /// blinks again. If the hold expires with no recovery, the
-  /// signal is declared lost. 3 s covers inter-word gaps down to
-  /// roughly 2.5 WPM.
+  /// signal is declared lost.
+  ///
+  /// This is only the countdown that runs once there is *no* other
+  /// evidence of the source. A long single mark or a long pause
+  /// between letters/repetitions produces neither block variance nor
+  /// a threshold edge for seconds at a time, yet the reading region
+  /// is still resolving a confident level — [holdContrastFactor]
+  /// keeps the lock alive through those. Measured on slow (~7 WPM)
+  /// hand-held and tripod field captures, *every* lock loss was this
+  /// fixed 3 s window expiring during a legitimate 3-4 s gap.
   final int signalHoldMs;
+
+  /// Keeps a lock alive, past [signalHoldMs], for as long as the
+  /// brightness threshold still has real dynamic range — its tracked
+  /// max minus min stays at least `holdContrastFactor x
+  /// BrightnessThreshold.minRange`.
+  ///
+  /// A source sending a long mark or sitting in a long gap drives the
+  /// block variance to zero, but the region keeps reading a clean ON
+  /// (or clean OFF) level, so the min/max span stays wide. Only once
+  /// the source is genuinely gone do the two converge and the span
+  /// collapse — at which point [signalHoldMs] since the last real
+  /// blink takes over. Higher = lets go sooner after a true loss but
+  /// risks dropping a very slow sender mid-mark; lower = holds a
+  /// stale lock longer. At the default `BrightnessThreshold`
+  /// forgetting rate a wide span takes ~12 s to decay below the
+  /// factor-4 line.
+  final int holdContrastFactor;
 
   /// Minimum brightness-reading region size (pixels).
   final int minRegionSize;
@@ -260,12 +286,28 @@ class VideoDecoder {
   /// ignores blinking sources outside the reticle (car indicators,
   /// screens, ceiling lights) that previously competed for the lock.
   ///
-  /// Must stay in sync with the reticle drawn on the See screen,
-  /// which renders [defaultTargetAreaFraction] of the preview.
+  /// The drawn reticle uses the *smaller* [reticleFraction], not this
+  /// value: the scan area is block-quantized and its search window
+  /// and background annulus reach a little past its nominal edge, so
+  /// a light kept inside the brackets needs headroom to stay clear of
+  /// that boundary. See [reticleFraction].
   final double targetAreaFraction;
 
-  /// Default target area — see [targetAreaFraction].
+  /// Default scan area — see [targetAreaFraction].
   static const double defaultTargetAreaFraction = 0.4;
+
+  /// Side of the aiming reticle drawn on the See screen, as a
+  /// fraction of the smaller preview dimension.
+  ///
+  /// Deliberately smaller than [defaultTargetAreaFraction]. Field
+  /// captures showed a light placed near the *drawn* edge of a
+  /// reticle sized to match the scan area landing in a block only
+  /// half-covered by the scan, or with its background annulus
+  /// sampling outside the reticle — it then failed to lock or lost
+  /// the lock. A ~0.1 gap between the drawn reticle and the scan
+  /// boundary keeps anything the user can see inside the brackets
+  /// well within the area the decoder actually searches.
+  static const double reticleFraction = 0.3;
 
   // Components
   final BrightnessThreshold _threshold;
@@ -563,11 +605,18 @@ class VideoDecoder {
     // mid-message on every space. See [signalHoldMs].
     _lostFrameCount++;
 
-    final sawContrast = _threshold.range >= _threshold.minRange;
-    final withinHold =
+    // Hold if EITHER a real blink or threshold edge happened within
+    // the last [signalHoldMs] (a normal gap), OR the reading region
+    // is still resolving genuine on/off contrast (a long single mark
+    // or a slow inter-letter pause — no variance, no edge, but the
+    // source is plainly still lit / plainly still dark). See
+    // [signalHoldMs] and [holdContrastFactor].
+    final recentEvidence =
         _lastHealthyFrameMs >= 0 &&
         frame.timestampMs - _lastHealthyFrameMs < signalHoldMs;
-    final canHold = sawContrast && withinHold;
+    final contrastAlive =
+        _threshold.range >= _threshold.minRange * holdContrastFactor;
+    final canHold = recentEvidence || contrastAlive;
 
     if (_holdStartMs < 0) {
       _holdStartMs = frame.timestampMs;
@@ -644,7 +693,12 @@ class VideoDecoder {
         ? rawBrightness
         : rawBrightness - annulusBrightness;
 
+    final wasOn = _threshold.isOn;
     final isOn = _threshold.process(brightness, timestampMs: frame.timestampMs);
+    // A threshold edge is fresh evidence the source is alive — anchor
+    // the hold window to it so a slow sender that keeps producing
+    // edges is never dropped between them.
+    if (isOn != wasOn) _lastHealthyFrameMs = frame.timestampMs;
     final onDebug = onDebugTrack;
     if (onDebug != null) {
       // A whole-reticle peak, computed only when a debug sink is
@@ -966,9 +1020,10 @@ class VideoDecoder {
     final rectY = (frame.height - side) ~/ 2;
 
     // A block counts as in-target when its CENTER pixel lies
-    // inside the square. Requiring full containment would shrink
-    // the effective search area below the reticle drawn on screen
-    // and lose sources resting near its edge.
+    // inside the square — so the scanned area rounds *outward* to
+    // whole blocks, never inward. Combined with the drawn reticle
+    // being the smaller [reticleFraction], a light anywhere inside
+    // the brackets is comfortably within a fully-scanned block.
     final half = blockSize / 2;
     var minBx = ((rectX - half) / blockSize).ceil();
     var maxBx = ((rectX + side - half) / blockSize).floor();

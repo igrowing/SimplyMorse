@@ -28,8 +28,9 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 /// rest — on the sides in landscape, top/bottom in portrait.
 /// Nothing outside the frame is ever hidden, so the full field of
 /// view stays available for aiming. A centered corner-bracket
-/// reticle shows where to aim the transmitting light — scanning is
-/// confined to this area by [VideoDecoder.targetAreaFraction], the
+/// reticle shows where to aim the transmitting light — it sits
+/// inside the decoder's scan area ([VideoDecoder.targetAreaFraction])
+/// with margin to spare (see [VideoDecoder.reticleFraction]), and the
 /// inside is clean so nothing blocks the view of the light — and a
 /// debug aid drawn while the decoder is locked on the source (a
 /// yellow circle of twice the detected spot's diameter, with a
@@ -298,7 +299,7 @@ class _SeeScreenState extends State<SeeScreen> {
       }
     }
     final reticleSide =
-        VideoDecoder.defaultTargetAreaFraction * min(scaledW, scaledH);
+        VideoDecoder.reticleFraction * min(scaledW, scaledH);
     // Vertical gap between the screen's top/bottom edge and the
     // reticle's bounding box — the overlays must stay inside it so
     // they never cover the target.
@@ -502,7 +503,7 @@ class _SeeScreenState extends State<SeeScreen> {
                   child: LayoutBuilder(
                     builder: (context, box) {
                       final side =
-                          VideoDecoder.defaultTargetAreaFraction *
+                          VideoDecoder.reticleFraction *
                           min(box.maxWidth, box.maxHeight);
                       return CustomPaint(
                         key: const Key('targeting-reticle'),
@@ -608,8 +609,8 @@ class _SeeScreenState extends State<SeeScreen> {
       if (ctrl.currentWpm > 0) '${ctrl.currentWpm} WPM now',
     ];
     final style = TextStyle(color: color, fontSize: 14);
-    final detailsText = details.join('  ·  ');
-    final oneLineText = details.isEmpty ? label : '$label  ·  $detailsText';
+    final detailsText = details.join(' · ');
+    final oneLineText = details.isEmpty ? label : '$label · $detailsText';
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -918,9 +919,10 @@ class _SeeScreenState extends State<SeeScreen> {
 /// decoder is locked on the source, the tracked-spot debug
 /// circle is drawn there.)
 ///
-/// The reticle marks the decoder's target area — scanning and
-/// tracking only consider pixels inside it, so the user must
-/// keep the transmitting light within the brackets.
+/// The reticle marks a safe sub-region of the decoder's scan area
+/// (see [VideoDecoder.reticleFraction]): a light kept within the
+/// brackets is well inside the area scanning and tracking consider,
+/// clear of its block-quantized edge.
 class TargetReticlePainter extends CustomPainter {
   TargetReticlePainter({required this.color});
 

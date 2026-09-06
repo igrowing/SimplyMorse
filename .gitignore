@@ -59,7 +59,7 @@ test/assets/recordings/video/*.mp4
 #   flutter test --tags field-logs test/support/field_log_replay_test.dart
 # Delete both when done; the `field-logs` tag in dart_test.yaml can
 # stay (it is inert without the file).
-test/support/field_log_replay_test.dart
-*morse*debug*.csv
-
 /test/support/field_log_replay_test.dart
+# On-device debug captures live in the project root (any name).
+# Nested *.csv fixtures under test/ are unaffected.
+/*.csv

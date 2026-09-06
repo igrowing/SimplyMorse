@@ -659,7 +659,7 @@ void main() {
         final previewHeight = tester.getSize(find.byType(CameraPreview)).height;
         const correctDisplayAspect = 720 / 1280;
         final expectedSide =
-            VideoDecoder.defaultTargetAreaFraction *
+            VideoDecoder.reticleFraction *
             min(previewHeight * correctDisplayAspect, previewHeight);
 
         final reticleSize = tester.getSize(
@@ -688,7 +688,7 @@ void main() {
     testWidgets(
       'splits into two lines when the state + details do not fit',
       (tester) async {
-        // Narrow enough that "Idle  ·  1280×720  ·  120 FPS" cannot
+        // Narrow enough that "Idle · 1280×720 · 120 FPS" cannot
         // fit one line alongside the status icon and the pill's own
         // padding. This is a portrait shape (600 > 130), so it hits
         // the portrait layout's status bar.
@@ -713,7 +713,7 @@ void main() {
         expect(find.textContaining('1280×720'), findsOneWidget);
         expect(find.textContaining('120 FPS'), findsOneWidget);
         // The combined single-line form must NOT be present.
-        expect(find.textContaining('Idle  ·'), findsNothing);
+        expect(find.textContaining('Idle ·'), findsNothing);
       },
     );
 
@@ -736,7 +736,7 @@ void main() {
         await pumpScreen(tester);
 
         expect(
-          find.text('Idle  ·  1280×720  ·  120 FPS  ·  up to 36 WPM'),
+          find.text('Idle · 1280×720 · 120 FPS · up to 36 WPM'),
           findsOneWidget,
         );
       },
