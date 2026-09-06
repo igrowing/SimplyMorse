@@ -127,9 +127,7 @@ class CameraCaptureImpl implements CameraCapture {
 
     // Lock exposure for consistent brightness detection.
     try {
-      await _controller!.setExposureMode(
-        ExposureMode.locked,
-      );
+      await _controller!.setExposureMode(ExposureMode.locked);
       _emitDebug('exposure_locked');
     } on CameraException {
       // Not all devices support locked exposure —
@@ -147,23 +145,41 @@ class CameraCaptureImpl implements CameraCapture {
   static const int _defaultFrameRate = 30;
 
   @override
-  void startImageStream(
-    void Function(VideoFrame frame) onFrame,
-  ) {
+  void startImageStream(void Function(VideoFrame frame) onFrame) {
     if (kIsWeb) return;
     if (_controller == null || !isInitialized) return;
     _isActive = true;
     _frameRateMeter.reset();
+    _framesSinceRateReport = 0;
 
     unawaited(
       _controller!.startImageStream((image) {
         if (!_isActive) return;
         final frame = _processImage(image);
         _frameRateMeter.add(frame.timestampMs);
+        // The delivered frame rate is what decides whether a given
+        // sending speed is decodable at all — at 30 fps a 16 WPM dit
+        // spans barely two frames — and the platform may grant less
+        // than was requested without saying so. Record it periodically
+        // so a log can be read against what the camera actually did.
+        if (++_framesSinceRateReport >= _framesPerRateReport) {
+          _framesSinceRateReport = 0;
+          _emitDebug(
+            'frame_rate',
+            detail: 'measured_fps=${_frameRateMeter.fps.toStringAsFixed(1)}',
+          );
+        }
         onFrame(frame);
       }),
     );
   }
+
+  int _framesSinceRateReport = 0;
+
+  /// Frames between measured-rate reports — about three seconds at
+  /// 30 fps, often enough to see a rate change, rare enough not to
+  /// bloat the log.
+  static const int _framesPerRateReport = 90;
 
   @override
   Future<void> stop() async {

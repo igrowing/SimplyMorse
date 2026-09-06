@@ -1,14 +1,19 @@
 /// Adaptive hysteresis threshold for brightness on/off
 /// detection.
 ///
-/// Tracks a rolling minimum and maximum of the brightness
-/// signal (with exponential forgetting) and classifies
-/// each sample as "on" or "off" using two thresholds
-/// derived from the current range.
+/// Tracks the two brightness *levels* the source alternates between —
+/// lit and dark — and classifies each sample against a hysteresis
+/// band spanning them ([onFactor] / [offFactor]). A rolling minimum
+/// and maximum are still kept, but only to decide whether there is
+/// enough contrast to classify at all ([minRange]) and to seed the
+/// levels; the thresholds themselves are anchored to the levels. See
+/// the comment above [_onLevel] for what went wrong when they were
+/// anchored to the extremes instead.
 class BrightnessThreshold {
   BrightnessThreshold({
-    this.onFactor = 0.4,
+    this.onFactor = 0.6,
     this.offFactor = 0.4,
+    this.levelRate = 0.2,
     this.decayFactor = 0.995,
     this.minRange = 0.01,
     this.minTransitionMs = 50,
@@ -24,11 +29,29 @@ class BrightnessThreshold {
          'decayFactor must be in (0, 1]',
        );
 
-  /// Fraction of the range above which the signal is "on".
+  /// Fraction of the ON/OFF *level span* above which the signal is
+  /// "on". See [_onLevel] for why the span is measured between the
+  /// two tracked levels rather than between the extremes.
+  ///
+  /// 0.5 is the midpoint between the two plateaus; [onFactor] above
+  /// it and [offFactor] below it form the hysteresis band.
+  ///
+  /// These were both 0.4 by default, which is no hysteresis at all —
+  /// verified across 2894 tracking rows of three field captures, the
+  /// two thresholds came out numerically identical in every single
+  /// row, so a sample sitting mid-ramp flipped the state and flipped
+  /// it straight back. 0.6/0.4 is the band the class's own unit tests
+  /// already used, and measured best across both the reference
+  /// fixtures and the field captures.
   final double onFactor;
 
-  /// Fraction of the range below which the signal is "off".
+  /// Fraction of the level span below which the signal is "off".
   final double offFactor;
+
+  /// Weight of each new sample in the ON/OFF level estimates, in
+  /// `(0, 1]`. Higher follows real level changes (auto-exposure,
+  /// distance) faster; lower is steadier.
+  final double levelRate;
 
   /// Controls how quickly min/max forget past extremes.
   /// 1.0 = never forget (absolute min/max), lower values
@@ -67,6 +90,28 @@ class BrightnessThreshold {
   bool _isOn = false;
   bool _initialized = false;
   int _lastTransitionMs = 0;
+
+  // -- ON/OFF level tracking --
+  //
+  // The thresholds used to be a fraction of the min/max *range*. That
+  // reads the wrong reference points: `_min` is a running minimum, so
+  // it snaps to any transient darker than the real OFF plateau and
+  // then only creeps back up at `1 - decayFactor` per frame, sitting
+  // below the plateau for a long time afterwards. Measured on a 16 WPM
+  // field capture, the ON plateau was +0.065 and the OFF plateau
+  // -0.039, but `_min` sat at -0.066 and the threshold landed at
+  // -0.0125 — only 26% of the way up the plateau span instead of 50%.
+  // Marks therefore latched ON early on the rising ramp and released
+  // late on the falling one, and measured 190 ms against a 75 ms dit:
+  // every dit read as a dah.
+  //
+  // Tracking the two plateaus directly fixes the reference points. A
+  // level is only updated by samples that are unambiguously on its
+  // side — outside the hysteresis band — so ramp samples, which belong
+  // to neither plateau, cannot drag the two levels together.
+  double _onLevel = 0;
+  double _offLevel = 0;
+  bool _levelsSeeded = false;
 
   double _prevBrightness = 0;
   int _prevTimestampMs = 0;
@@ -133,7 +178,28 @@ class BrightnessThreshold {
   double get maxBrightness => _max;
 
   /// Current range (max - min).
+  ///
+  /// Still derived from the extremes: it gates whether there is
+  /// enough contrast to classify at all ([minRange]), which is a
+  /// question about the whole observed signal, not about where the
+  /// two plateaus sit.
   double get range => _max - _min;
+
+  /// Tracked brightness of the source when lit.
+  double get onLevel => _levelsSeeded ? _onLevel : _max;
+
+  /// Tracked brightness of the source when dark.
+  double get offLevel => _levelsSeeded ? _offLevel : _min;
+
+  /// Brightness at or above which an OFF signal turns ON.
+  double get onThreshold => _onThreshold;
+
+  /// Brightness at or below which an ON signal turns OFF.
+  double get offThreshold => _offThreshold;
+
+  double get _span => onLevel - offLevel;
+  double get _onThreshold => offLevel + _span * onFactor;
+  double get _offThreshold => offLevel + _span * offFactor;
 
   /// Processes a brightness sample and returns the on/off
   /// state.
@@ -192,12 +258,40 @@ class BrightnessThreshold {
       return _isOn;
     }
 
-    final onThreshold = _min + r * onFactor;
-    final offThreshold = _min + r * offFactor;
+    // Seed the plateau levels from the extremes the moment there is
+    // enough range to be meaningful; from then on they track the
+    // plateaus themselves.
+    if (!_levelsSeeded) {
+      _offLevel = _min;
+      _onLevel = _max;
+      _levelsSeeded = true;
+    }
+
+    final onThreshold = _onThreshold;
+    final offThreshold = _offThreshold;
 
     final crossed = !_isOn
         ? brightness >= onThreshold
         : brightness <= offThreshold;
+
+    // Refresh the level this sample unambiguously belongs to. Samples
+    // inside the hysteresis band are on a ramp between the plateaus
+    // and belong to neither, so they update nothing.
+    if (brightness >= onThreshold) {
+      _onLevel += (brightness - _onLevel) * levelRate;
+    } else if (brightness <= offThreshold) {
+      _offLevel += (brightness - _offLevel) * levelRate;
+    }
+
+    // Both levels also creep toward the current sample at the same
+    // rate the extremes forget. Without it a level seeded from a
+    // transient — the bright flare of auto-exposure settling, say —
+    // is never revisited: the band it defines sits beyond anything
+    // the real signal reaches, no sample ever qualifies to correct
+    // it, and the classifier latches for the rest of the session.
+    final creep = 1 - decayFactor;
+    _onLevel += (brightness - _onLevel) * creep;
+    _offLevel += (brightness - _offLevel) * creep;
 
     if (crossed &&
         (timestampMs == null || t - _lastTransitionMs >= minTransitionMs)) {
@@ -281,6 +375,9 @@ class BrightnessThreshold {
   void reset() {
     _min = 1;
     _max = 0;
+    _onLevel = 0;
+    _offLevel = 0;
+    _levelsSeeded = false;
     _isOn = false;
     _initialized = false;
     _lastTransitionMs = 0;

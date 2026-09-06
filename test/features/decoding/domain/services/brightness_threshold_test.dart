@@ -127,5 +127,42 @@ void main() {
       // No range yet — stays off
       expect(bt.isOn, isFalse);
     });
+
+    test('the default thresholds form a real hysteresis band', () {
+      // Regression: onFactor and offFactor both defaulted to 0.4, so
+      // the two thresholds were the same number and there was no dead
+      // band at all — verified across 2894 tracking rows of three
+      // field captures, on_thr equalled off_thr in every single row.
+      final bt = BrightnessThreshold();
+      for (final v in [0.0, 1.0, 0.0, 1.0]) {
+        bt.process(v, timestampMs: 0);
+      }
+      expect(bt.onThreshold, greaterThan(bt.offThreshold));
+    });
+
+    test('thresholds sit between the tracked ON and OFF levels', () {
+      // The band is anchored to the two plateaus, not to the min/max
+      // extremes: a transient darker than the OFF plateau used to drag
+      // `_min` down and pull the whole band with it, landing the
+      // threshold at 26% of the plateau span instead of the middle.
+      final bt = BrightnessThreshold();
+      var t = 0;
+      for (var i = 0; i < 40; i++) {
+        bt.process(i.isEven ? 0.8 : 0.2, timestampMs: t);
+        t += 100;
+      }
+      // One frame far darker than anything the source produces.
+      bt.process(-5, timestampMs: t);
+      t += 100;
+      for (var i = 0; i < 20; i++) {
+        bt.process(i.isEven ? 0.8 : 0.2, timestampMs: t);
+        t += 100;
+      }
+
+      expect(bt.offLevel, greaterThan(-1));
+      expect(bt.onThreshold, greaterThan(bt.offLevel));
+      expect(bt.onThreshold, lessThan(bt.onLevel));
+      expect(bt.offThreshold, greaterThan(bt.offLevel));
+    });
   });
 }

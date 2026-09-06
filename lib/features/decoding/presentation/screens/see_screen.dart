@@ -1066,7 +1066,11 @@ class TrackedSpotPainter extends CustomPainter {
     final center = centerOf(info, size, isPortrait: isPortrait);
     final spotDiameter = spotDiameterOf(info, size, isPortrait: isPortrait);
     final circlePaint = Paint()
-      ..color = Colors.yellow
+      // Dimmed while the decoder is only holding the lock through a
+      // gap (no live signal to track) rather than actively tracking.
+      ..color = info.holding
+          ? Colors.yellow.withValues(alpha: 0.35)
+          : Colors.yellow
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     // Double the spot's diameter: the circle visually envelops

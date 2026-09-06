@@ -192,6 +192,9 @@ class EncodingController extends ChangeNotifier {
   Future<void> send() async {
     if (_text.isEmpty || isTransmitting) return;
     _isRepeatCancelled = false;
+    // The initial delay only prepares the operator before the first
+    // transmission. Loop repeats skip it — the between-repeats delay
+    // already spaces them for the receiver.
     await _sendOnce();
     while (_repeatLoop && !_isRepeatCancelled) {
       // Wait between repeats
@@ -209,11 +212,11 @@ class EncodingController extends ChangeNotifier {
       repeatCountdown.value = null;
 
       if (_isRepeatCancelled) break;
-      await _sendOnce();
+      await _sendOnce(applyInitialDelay: false);
     }
   }
 
-  Future<void> _sendOnce() async {
+  Future<void> _sendOnce({bool applyInitialDelay = true}) async {
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.transmitting,
       currentCharIndex: -1,
@@ -235,7 +238,7 @@ class EncodingController extends ChangeNotifier {
       speedWpm: _speedWpm,
       toneHz: _toneHz,
       lightMethod: lightMethod,
-      initialDelaySec: _initialDelaySec,
+      initialDelaySec: applyInitialDelay ? _initialDelaySec : 0,
       farnsworthEnabled: farnsworthEnabled,
     );
 
@@ -246,9 +249,7 @@ class EncodingController extends ChangeNotifier {
       events: events,
       settings: settings,
       onProgress: (charIndex) {
-        _transmission = _transmission.copyWith(
-          currentCharIndex: charIndex,
-        );
+        _transmission = _transmission.copyWith(currentCharIndex: charIndex);
         notifyListeners();
       },
       onComplete: () {
@@ -264,9 +265,7 @@ class EncodingController extends ChangeNotifier {
   Future<void> pause() async {
     _isRepeatCancelled = true;
     await _transmitter.stop();
-    _transmission = _transmission.copyWith(
-      status: TransmissionStatus.idle,
-    );
+    _transmission = _transmission.copyWith(status: TransmissionStatus.idle);
     repeatCountdown.value = null;
     notifyListeners();
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
@@ -35,34 +37,28 @@ void main() {
   });
 
   group('Farnsworth setting', () {
-    test(
-      'transmission settings carry the persisted Farnsworth flag',
-      () async {
-        settingsRepo.farnsworthEnabled = true;
-        await controller.init();
-        controller.updateText('SOS');
-        await controller.send();
+    test('transmission settings carry the persisted Farnsworth flag', () async {
+      settingsRepo.farnsworthEnabled = true;
+      await controller.init();
+      controller.updateText('SOS');
+      await controller.send();
 
-        expect(transmitter.lastSettings, isNotNull);
-        expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
-      },
-    );
+      expect(transmitter.lastSettings, isNotNull);
+      expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
+    });
 
-    test(
-      'changing the flag affects the next transmission',
-      () async {
-        await controller.init();
+    test('changing the flag affects the next transmission', () async {
+      await controller.init();
 
-        settingsRepo.farnsworthEnabled = false;
-        controller.updateText('SOS');
-        await controller.send();
-        expect(transmitter.lastSettings!.farnsworthEnabled, isFalse);
+      settingsRepo.farnsworthEnabled = false;
+      controller.updateText('SOS');
+      await controller.send();
+      expect(transmitter.lastSettings!.farnsworthEnabled, isFalse);
 
-        settingsRepo.farnsworthEnabled = true;
-        await controller.send();
-        expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
-      },
-    );
+      settingsRepo.farnsworthEnabled = true;
+      await controller.send();
+      expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
+    });
   });
 
   group('EncodingController', () {
@@ -278,10 +274,7 @@ void main() {
           ..updateText('SOS');
         await controller.send();
 
-        expect(
-          transmitter.lastSettings!.lightMethod,
-          LightMethod.display,
-        );
+        expect(transmitter.lastSettings!.lightMethod, LightMethod.display);
       });
 
       test('passes initial delay to the transmitter', () async {
@@ -311,6 +304,24 @@ void main() {
         expect(transmitter.lastSettings!.initialDelaySec, 0);
       });
 
+      test('applies the initial delay only on the first loop pass', () async {
+        await controller.init();
+        await controller.updateInitialDelay(3);
+        await controller.updateRepeatLoop(value: true);
+        await controller.updateRepeatDelay(0);
+        controller.updateText('SOS');
+        // Stop the loop once the first repeat has been dispatched.
+        transmitter.onTransmit = (count) {
+          if (count >= 2) unawaited(controller.pause());
+        };
+
+        await controller.send();
+
+        expect(transmitter.allSettings.length, 2);
+        expect(transmitter.allSettings[0].initialDelaySec, 3);
+        expect(transmitter.allSettings[1].initialDelaySec, 0);
+      });
+
       test('saves text to history', () async {
         await controller.init();
         controller.updateText('HELLO');
@@ -320,19 +331,13 @@ void main() {
         expect(controller.history, contains('HELLO'));
       });
 
-      test(
-        'updates transmission status to completed',
-        () async {
-          await controller.init();
-          controller.updateText('E');
-          await controller.send();
+      test('updates transmission status to completed', () async {
+        await controller.init();
+        controller.updateText('E');
+        await controller.send();
 
-          expect(
-            controller.transmission.status,
-            TransmissionStatus.completed,
-          );
-        },
-      );
+        expect(controller.transmission.status, TransmissionStatus.completed);
+      });
     });
 
     group('clear', () {
@@ -342,10 +347,7 @@ void main() {
         await controller.clear();
 
         expect(controller.text, isEmpty);
-        expect(
-          controller.transmission.status,
-          TransmissionStatus.idle,
-        );
+        expect(controller.transmission.status, TransmissionStatus.idle);
       });
 
       test('stops the transmitter', () async {
@@ -383,10 +385,7 @@ void main() {
         controller.updateText('hello');
         await controller.pause();
 
-        expect(
-          controller.transmission.status,
-          TransmissionStatus.idle,
-        );
+        expect(controller.transmission.status, TransmissionStatus.idle);
       });
 
       test('notifies listeners', () async {
@@ -411,16 +410,10 @@ void main() {
         expect(controller.lightMethod, LightMethod.display);
       });
 
-      test(
-        'transmission state starts idle',
-        () {
-          expect(
-            controller.transmission.status,
-            TransmissionStatus.idle,
-          );
-          expect(controller.isTransmitting, isFalse);
-        },
-      );
+      test('transmission state starts idle', () {
+        expect(controller.transmission.status, TransmissionStatus.idle);
+        expect(controller.isTransmitting, isFalse);
+      });
     });
 
     group('displayBlink', () {

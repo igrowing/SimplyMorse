@@ -19,6 +19,7 @@ class TrackOverlayInfo extends Equatable {
     required this.signalOn,
     required this.markClassified,
     required this.isDash,
+    this.holding = false,
   });
 
   /// Tracked region center as a fraction of the frame width.
@@ -48,6 +49,13 @@ class TrackOverlayInfo extends Equatable {
   /// `true`.
   final bool isDash;
 
+  /// Whether the decoder is *holding* the lock through a
+  /// low-variance stretch (a word gap or a brief tracking wobble)
+  /// rather than actively tracking a blinking source — see
+  /// `VideoDecoder.signalHoldMs`. The reticle stays put at the last
+  /// confident position; the UI dims it to signal the difference.
+  final bool holding;
+
   @override
   List<Object?> get props => [
     centerX,
@@ -56,5 +64,6 @@ class TrackOverlayInfo extends Equatable {
     signalOn,
     markClassified,
     isDash,
+    holding,
   ];
 }

@@ -66,12 +66,20 @@ import 'package:simply_morse/features/decoding/domain/models/decoded_element.dar
 /// genuine content starts arriving rather than getting stuck on a
 /// single bad early window.
 ///
-/// **If it never locks.** [flush] still emits whatever is buffered
-/// rather than silently discarding it — a short or unusual
-/// transmission should degrade, not vanish. The same applies if
-/// [maxPatience] sliding attempts pass without a clean fit: rather
-/// than lose everything but the tail, the gate gives up gating and
-/// lets the buffered content and everything after it through as-is.
+/// **If it never locks.** How the buffer is released depends on *why*
+/// the stream ended. [flush] — a deliberate end of transmission —
+/// still emits, so a short or unusual transmission degrades rather
+/// than vanishing. [releaseOnSignalLoss] — the decoder abandoning a
+/// lock it should never have taken — emits only if the buffer
+/// actually fits Morse timing, because a video lock is cheap enough
+/// that sensor noise acquires one. The same applies if [maxPatience]
+/// sliding attempts pass without a clean fit: rather than lose
+/// everything but the tail, the gate gives up gating and lets the
+/// buffered content and everything after it through as-is.
+///
+/// **Sliding never discards.** The window advances by moving its
+/// start index over a retained history, so elements slid past are
+/// still available for the whole-history fit both release paths run.
 class MorseLockGate {
   MorseLockGate({
     required this.onElement,
@@ -141,10 +149,22 @@ class MorseLockGate {
   /// fast side of the line.
   final double fastUnitThresholdMs;
 
-  final List<DecodedElement> _buffer = [];
+  /// Every element seen since the last [reset], in order.
+  ///
+  /// The candidate window is `_history.sublist(_windowStart)` — the
+  /// window slides by advancing [_windowStart], never by dropping
+  /// elements. Dropping them (the original implementation) meant that
+  /// a stream which never found a clean fit lost everything except
+  /// the final window: measured on an 8 WPM field capture, 59 of 70
+  /// genuine elements were destroyed before [flush] ever ran.
+  final List<DecodedElement> _history = [];
+  int _windowStart = 0;
   bool _locked = false;
   bool? _isSlow;
   int _attempts = 0;
+
+  /// The elements currently under consideration.
+  List<DecodedElement> get _buffer => _history.sublist(_windowStart);
 
   /// Whether the gate has locked onto genuine Morse timing (including
   /// having decided to bypass fast content, or given up after
@@ -163,35 +183,116 @@ class MorseLockGate {
       return;
     }
 
-    _buffer.add(element);
+    _history.add(element);
+    if (_history.length - _windowStart < minElementsToLock) return;
 
-    _isSlow ??= _classifySpeed();
+    if (_isSlow == null) {
+      _isSlow = _classifySpeed();
+      // A window too junk-ridden to read a speed off must not simply
+      // be waited on: the junk is a prefix, so slide past it. The
+      // speed decision is made once and never revisited, and letting
+      // junk make it is unrecoverable — a settling flicker of 66 and
+      // 99 ms reads as a 99 ms unit, i.e. "too fast to gate", and the
+      // gate then waves the whole transmission through unchecked.
+      if (_isSlow == null) {
+        if (_spansMoreThanMorseCan(_buffer)) _windowStart++;
+        return;
+      }
+    }
     if (_isSlow == false) {
       _bypass();
       return;
     }
-    if (_isSlow == null) return; // still waiting to classify
-
-    if (_buffer.length < minElementsToLock) return;
 
     _attempts++;
-    if (_fits() || _attempts >= maxPatience) {
+    if (_fits(_buffer) || _attempts >= maxPatience) {
       _bypass();
     } else {
-      _buffer.removeAt(0);
+      _windowStart++;
     }
   }
 
+  /// Whether the window's marks span a wider range than Morse permits.
+  ///
+  /// Every Morse mark is 1 or 3 units, so the longest can only be
+  /// about 3x the shortest — generously, [_maxMarkSpread] with
+  /// measurement dilation. A window spanning far more than that (the
+  /// reference junk prefixes span 60x: 66 ms alongside 3993 ms) is not
+  /// Morse at any speed, and nothing about sending speed can be read
+  /// off it.
+  bool _spansMoreThanMorseCan(List<DecodedElement> window) {
+    final marks = window.where((e) => e.isOn).map((e) => e.durationMs).toList()
+      ..sort();
+    if (marks.length < 2 || marks.first <= 0) return false;
+    return marks.last / marks.first > _maxMarkSpread;
+  }
+
+  /// Widest longest:shortest mark ratio a genuine window can show.
+  static const double _maxMarkSpread = 6;
+
   /// Decides whether sending is slow enough to gate, from the
-  /// buffer's provisional median mark duration. Returns null if there
-  /// still aren't enough marks to tell.
+  /// buffer's provisional unit estimate. Returns null if there still
+  /// aren't enough marks to tell.
   bool? _classifySpeed() {
-    if (_buffer.length < minElementsToLock) return null;
-    final marks = _buffer.where((e) => e.isOn).map((e) => e.durationMs).toList()
+    if (_history.length - _windowStart < minElementsToLock) return null;
+    final window = _buffer;
+    final marks = window.where((e) => e.isOn).map((e) => e.durationMs).toList()
       ..sort();
     if (marks.length < minMarksToLock) return null;
-    return marks[marks.length ~/ 2] >= fastUnitThresholdMs;
+    // No speed can be read off a window that is not Morse at all.
+    if (_spansMoreThanMorseCan(window)) return null;
+    final unit = _unitFrom(marks);
+    return unit != null && unit >= fastUnitThresholdMs;
   }
+
+  /// Estimates the dit unit from a sorted list of mark durations.
+  ///
+  /// **Not the median.** A median only lands on a dit when dits
+  /// outnumber dahs, and plenty of real text is dah-heavy — measured
+  /// on an 8 WPM field capture of "HELLO, WORLD!" the decoder saw 18
+  /// dahs to 8 dits, so the median mark *was* a dah, the unit came out
+  /// 3x too large, and every genuine dit was then scored as an
+  /// outlier. The gate rejected a textbook-clean transmission.
+  ///
+  /// Instead, split the sorted marks at their largest *relative* gap:
+  /// Morse marks are bimodal by construction (1 unit and 3 units), so
+  /// the widest ratio step between neighbours is the dit/dah boundary.
+  /// The unit is the median of the short cluster. When no convincing
+  /// split exists — all dits or all dahs in this window — fall back to
+  /// the lower quartile, which is the same robust estimator the
+  /// decoder already uses for its WPM readout.
+  static double? _unitFrom(List<int> sortedMarks) {
+    if (sortedMarks.isEmpty) return null;
+
+    var splitAt = -1;
+    var bestRatio = _minDitDahRatio;
+    for (var i = 0; i < sortedMarks.length - 1; i++) {
+      final lo = sortedMarks[i];
+      if (lo <= 0) continue;
+      final ratio = sortedMarks[i + 1] / lo;
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        splitAt = i;
+      }
+    }
+
+    final short = splitAt >= 0
+        ? sortedMarks.sublist(0, splitAt + 1)
+        : sortedMarks;
+    final unit = splitAt >= 0
+        ? short[short.length ~/ 2].toDouble()
+        : sortedMarks[(sortedMarks.length * 0.25).floor()].toDouble();
+    return unit > 0 ? unit : null;
+  }
+
+  /// Smallest neighbour-to-neighbour ratio in the sorted marks that
+  /// counts as the dit/dah boundary.
+  ///
+  /// Ideal Morse puts dahs at 3x dits, but video measurement dilates
+  /// every mark by roughly a frame, which compresses the observed
+  /// ratio (measured ~2.3-2.8x on 30 fps captures). 1.8 sits below
+  /// that and comfortably above the spread *within* either cluster.
+  static const double _minDitDahRatio = 1.8;
 
   /// Fraction of the buffer that may fail the fit without failing
   /// the window. Genuine sending at fine timing resolution always
@@ -211,13 +312,13 @@ class MorseLockGate {
   /// on the per-element fit alone.
   static const double _maxUnitRatio = 2;
 
-  bool _fits() {
+  bool _fits(List<DecodedElement> window) {
     final markDurations =
-        _buffer.where((e) => e.isOn).map((e) => e.durationMs).toList()..sort();
+        window.where((e) => e.isOn).map((e) => e.durationMs).toList()..sort();
     if (markDurations.length < minMarksToLock) return false;
 
-    final unitMark = markDurations[markDurations.length ~/ 2]; // median
-    if (unitMark <= 0) return false;
+    final unitMark = _unitFrom(markDurations);
+    if (unitMark == null) return false;
 
     // Video measurement is asymmetric: auto-exposure settling and
     // threshold hysteresis systematically lengthen marks and shorten
@@ -227,13 +328,13 @@ class MorseLockGate {
     // intra-character and inter-character gaps risks a median that
     // matches neither.
     final spaceDurations =
-        _buffer
+        window
             .where((e) => !e.isOn && e.durationMs <= (5 * unitMark) / 2)
             .map((e) => e.durationMs)
             .toList()
           ..sort();
     final unitSpace = spaceDurations.length >= 3
-        ? spaceDurations[spaceDurations.length ~/ 2]
+        ? _unitFrom(spaceDurations) ?? unitMark
         : unitMark;
     if (unitSpace <= 0) return false;
 
@@ -242,9 +343,9 @@ class MorseLockGate {
       return false;
     }
 
-    final maxOutliers = (_buffer.length * _maxOutlierFraction).floor();
+    final maxOutliers = (window.length * _maxOutlierFraction).floor();
     var outliers = 0;
-    for (final e in _buffer) {
+    for (final e in window) {
       final unit = e.isOn ? unitMark : unitSpace;
       final ratio = e.durationMs / unit;
       if (!e.isOn && ratio > 5) continue; // a long pause proves nothing
@@ -264,29 +365,145 @@ class MorseLockGate {
     return true;
   }
 
-  /// Locks — flushing the buffer and passing everything after it
-  /// through unfiltered — whether because a clean fit was found, the
-  /// content was classified as too fast to safely gate, or patience
-  /// ran out.
+  /// Locks — emitting the current window and passing everything after
+  /// it through unfiltered — whether because a clean fit was found,
+  /// the content was classified as too fast to safely gate, or
+  /// patience ran out.
   void _bypass() {
     _locked = true;
-    _buffer
-      ..forEach(onElement)
-      ..clear();
+    _emitWindow(moreToCome: true);
   }
 
-  /// Emits whatever is buffered, locked or not, so a stream that
-  /// never satisfies the fit still reaches the decoder in full rather
-  /// than being silently dropped. Call at the end of a transmission.
+  /// Emits the current window and clears the history, after trimming
+  /// any junk prefix — see [_trimJunkPrefix]. [moreToCome] is true
+  /// when the gate is locking and will keep streaming elements after
+  /// this window, false when this is the last of the transmission.
+  void _emitWindow({required bool moreToCome}) {
+    _trimJunkPrefix(moreToCome: moreToCome);
+    for (var i = _windowStart; i < _history.length; i++) {
+      onElement(_history[i]);
+    }
+    _history.clear();
+    _windowStart = 0;
+  }
+
+  /// Advances the window past a leading run of impossibly long marks.
+  ///
+  /// No Morse mark is longer than 3 units, so a mark many times the
+  /// unit is not Morse at any speed — it is the camera's exposure
+  /// settling, a hand steadying the phone, or a sender-side countdown.
+  /// Every reference fixture opens with one: marks of 1.3-6.0 s
+  /// against units of 50-900 ms, i.e. 14-30 units.
+  ///
+  /// The fine-grained [_fits] check would reject these, but it only
+  /// runs for content slow enough to gate — fast sending bypasses it
+  /// entirely (see the class docs), which left the fastest fixtures
+  /// with their junk prefix intact. This check is cheap, needs no
+  /// tolerance tuning, and is safe at any speed, so it runs on every
+  /// emission path.
+  ///
+  /// The window restarts after the *last* offending mark found, since
+  /// the fixtures interleave a few plausible-looking elements with the
+  /// junk before real sending begins.
+  ///
+  /// How far to look depends on what follows. When the gate is
+  /// locking, more elements are still streaming in behind this window,
+  /// so trimming all of it costs nothing and the whole window is
+  /// searched. When this is the final buffer of a transmission there
+  /// is nothing behind it, so only the leading [_junkSearchFraction]
+  /// is searched — otherwise one late glitch would discard a message
+  /// that had already been received.
+  void _trimJunkPrefix({required bool moreToCome}) {
+    final window = _buffer;
+    if (window.isEmpty) return;
+    final marks = window.where((e) => e.isOn).map((e) => e.durationMs).toList()
+      ..sort();
+    // Too few marks to estimate a unit from; trimming against a guess
+    // would be worse than leaving the window alone.
+    if (marks.length < minMarksToLock) return;
+    final unit = _unitFrom(marks);
+    if (unit == null) return;
+
+    final limit = unit * _maxMarkUnits;
+    final searchEnd = moreToCome
+        ? window.length
+        : (window.length * _junkSearchFraction).floor();
+    var lastJunk = -1;
+    for (var i = 0; i < searchEnd; i++) {
+      final e = window[i];
+      if (e.isOn && e.durationMs > limit) lastJunk = i;
+    }
+    if (lastJunk >= 0) _windowStart += lastJunk + 1;
+  }
+
+  /// Longest mark, in units, that can still be Morse. The legal
+  /// maximum is 3 (a dah); 5 leaves room for measurement dilation
+  /// without admitting anything a sender could legitimately produce.
+  static const double _maxMarkUnits = 5;
+
+  /// Fraction of the window [_trimJunkPrefix] searches. Junk arrives
+  /// before sending starts, so looking past the first half risks
+  /// discarding a whole transmission over one late glitch.
+  static const double _junkSearchFraction = 0.5;
+
+  /// Releases the buffer at the end of a transmission — the user
+  /// stopping, or the stream ending.
+  ///
+  /// A deliberate end-of-transmission is weak evidence *for* the
+  /// content: the operator was pointing the camera at something. So
+  /// this still tries [_bestFittingWindow] first, but falls back to
+  /// emitting everything rather than dropping a short or unusual
+  /// transmission that simply never gave the fit enough to chew on.
   void flush() {
-    _buffer
-      ..forEach(onElement)
-      ..clear();
+    if (_locked) return;
+    _windowStart = _bestFittingWindow() ?? _windowStart;
+    _emitWindow(moreToCome: false);
+  }
+
+  /// Releases the buffer because the *lock* was lost, not because the
+  /// transmission ended.
+  ///
+  /// Unlike [flush] this emits nothing unless the buffered elements
+  /// actually fit Morse timing. Losing a lock is the decoder saying
+  /// "there was never a signal here", and a video lock is cheap to
+  /// acquire — sensor noise alone clears the variance threshold. On a
+  /// field capture with *nothing transmitting*, the gate correctly
+  /// refused to lock three separate times, and each time the old
+  /// unconditional flush dumped the rejected buffer downstream
+  /// anyway, printing "UDEA " out of an empty room. If it did not
+  /// prove itself while the lock was alive, it does not get to speak
+  /// on the way out.
+  void releaseOnSignalLoss() {
+    if (_locked) return;
+    final start = _bestFittingWindow();
+    if (start == null) {
+      _history.clear();
+      _windowStart = 0;
+      return;
+    }
+    _windowStart = start;
+    _emitWindow(moreToCome: false);
+  }
+
+  /// Index of the earliest window start whose suffix passes [_fits],
+  /// or null when no suffix of the retained history fits.
+  ///
+  /// Sliding during [add] only ever tested windows ending at the
+  /// element that had just arrived; by the end of a transmission the
+  /// history holds later elements those windows never saw, so a
+  /// window that failed mid-stream can fit once completed.
+  int? _bestFittingWindow() {
+    for (var start = _windowStart; start < _history.length; start++) {
+      if (_history.length - start < minElementsToLock) break;
+      if (_fits(_history.sublist(start))) return start;
+    }
+    return null;
   }
 
   /// Clears all state.
   void reset() {
-    _buffer.clear();
+    _history.clear();
+    _windowStart = 0;
     _locked = false;
     _isSlow = null;
     _attempts = 0;

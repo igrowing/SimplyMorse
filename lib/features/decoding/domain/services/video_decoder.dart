@@ -12,8 +12,11 @@ import 'package:simply_morse/features/decoding/domain/services/morse_lock_gate.d
 typedef DebugVideoScanCallback =
     void Function({
       required int timestampMs,
+      required int frameIndex,
+      required int dtMs,
       required double maxVariance,
       required double meanVariance,
+      required double minVariance,
       required int frameCount,
     });
 
@@ -21,43 +24,84 @@ typedef DebugVideoScanCallback =
 typedef DebugVideoConfirmCallback =
     void Function({
       required int timestampMs,
+      required int frameIndex,
+      required int dtMs,
       required double variance,
+      required double minVariance,
       required int confirmCount,
-      required double filterX,
-      required double filterY,
+      required double predictedX,
+      required double predictedY,
+      required double measuredX,
+      required double measuredY,
     });
 
-/// Debug callback for tracking frames.
+/// Debug callback for tracking frames — emitted on **every**
+/// locked frame, including the ones where the search window found
+/// no signal (`held` / signal-loss candidates), so the lead-up to
+/// a lock loss is fully visible in the log.
 typedef DebugVideoTrackCallback =
     void Function({
       required int timestampMs,
-      required double variance,
+      required int frameIndex,
+      required int dtMs,
+      required double searchVariance,
+      required double minVariance,
+      required int lostFrameCount,
+      required bool held,
+      required bool isFullFrame,
+      required double predictedX,
+      required double predictedY,
+      required double measuredX,
+      required double measuredY,
+      required double velocityX,
+      required double velocityY,
+      required double innovation,
+      required int peakBx,
+      required int peakBy,
+      required int winMinBx,
+      required int winMaxBx,
+      required int winMinBy,
+      required int winMaxBy,
+      required int blocksAboveFloor,
+      required double weightSum,
+      required double rawBrightness,
+      required double annulusBrightness,
       required double brightness,
       required double minBrightness,
       required double maxBrightness,
-      required double range,
       required double onThreshold,
       required double offThreshold,
       required bool isOn,
       required int regionX,
       required int regionY,
       required int regionSize,
-      required double innovation,
+      required double ditEstimateMs,
+      required int wpm,
     });
 
 /// Debug callback for video transitions.
 typedef DebugVideoTransitionCallback =
     void Function({
       required int timestampMs,
+      required int frameIndex,
       required bool isOn,
       required int durationMs,
+      required int sequence,
+      required double effectiveTransitionMs,
+      required double edgeMs,
+      required double ditEstimateMs,
+      required int wpm,
     });
 
 /// Debug callback for signal loss.
 typedef DebugVideoSignalLostCallback =
     void Function({
       required int timestampMs,
+      required int frameIndex,
       required int lostFrameCount,
+      required int heldForMs,
+      required double lastSearchVariance,
+      required double minVariance,
     });
 
 /// Debug callback for state changes.
@@ -128,6 +172,7 @@ class VideoDecoder {
     this.minVariance = 0.001,
     this.searchRadius = 2,
     this.lostFrameLimit = 10,
+    this.signalHoldMs = 3000,
     this.minRegionSize = 8,
     this.maxRegionSize = 32,
     this.backgroundMarginPx = 8,
@@ -149,8 +194,32 @@ class VideoDecoder {
   /// Search radius in blocks around the predicted position.
   final int searchRadius;
 
-  /// Consecutive low-variance frames before signal loss.
+  /// Consecutive low-variance frames before signal loss — the hard
+  /// fallback used when the lock was never backed by a real blink
+  /// (e.g. locked onto camera-autoexposure settling). Once genuine
+  /// on/off contrast has been seen, [signalHoldMs] governs instead.
   final int lostFrameLimit;
+
+  /// How long (ms) to hold a lock through a low-variance stretch
+  /// before giving it up.
+  ///
+  /// Temporal variance in the tracked block naturally decays to
+  /// zero during any legitimately long OFF period — an inter-word
+  /// gap (7 dit units), the pause between message repetitions, or a
+  /// brief moment where hand motion outruns the search window.
+  /// Dropping the lock the instant variance falls (the old
+  /// [lostFrameLimit]-only behaviour) sent the decoder back to
+  /// scanning mid-message on every word space, which showed up as
+  /// the lock "disappearing and reappearing".
+  ///
+  /// While holding, the α-β filter is frozen at its last confident
+  /// position (see [AlphaBetaFilter.freeze]) and brightness is
+  /// still read there every frame, so the OFF gap is timed
+  /// correctly and the lock resumes seamlessly when the source
+  /// blinks again. If the hold expires with no recovery, the
+  /// signal is declared lost. 3 s covers inter-word gaps down to
+  /// roughly 2.5 WPM.
+  final int signalHoldMs;
 
   /// Minimum brightness-reading region size (pixels).
   final int minRegionSize;
@@ -217,8 +286,39 @@ class VideoDecoder {
   // Timing
   int _lastFrameMs = 0;
 
+  // Per-frame cadence tracking for the debug log — independent of
+  // the state machine so scanning frames get a dt too.
+  int _frameIndex = 0;
+  int _prevFrameMs = 0;
+  int _frameDtMs = 0;
+
   // Signal loss counter
   int _lostFrameCount = 0;
+
+  /// Timestamp of the most recent frame whose search window found
+  /// real signal (variance above [minVariance]); `-1` before the
+  /// first such frame after a (re)lock. Drives the [signalHoldMs]
+  /// hold window.
+  int _lastHealthyFrameMs = -1;
+
+  /// Timestamp the current low-variance hold started, or `-1` when
+  /// not holding. See [signalHoldMs].
+  int _holdStartMs = -1;
+
+  /// Peak search-window variance seen on the last processed
+  /// tracking frame — logged with the signal-loss event.
+  double _lastSearchVariance = 0;
+
+  /// Measurement (raw search result) from the last tracking frame
+  /// where signal was present — logged alongside the filter's
+  /// prediction so the two can be compared.
+  double _lastMeasuredX = 0;
+  double _lastMeasuredY = 0;
+
+  /// Monotonic counter for emitted transitions, so the log can
+  /// order the burst the [MorseLockGate] releases when the lock
+  /// gate opens (every row in that burst shares a timestamp).
+  int _transitionSeq = 0;
 
   // Output
   void Function(DecodedElement element)? onElement;
@@ -252,18 +352,25 @@ class VideoDecoder {
   /// Turns on/off transitions into elements, merging glitches and
   /// holding the last element until [flush]. Shared with the audio
   /// decoder so both paths treat short segments the same way.
-  late final ElementBuilder _builder = ElementBuilder(
-    onElement: _lockGate.add,
-  );
+  late final ElementBuilder _builder = ElementBuilder(onElement: _lockGate.add);
 
   void _emit(DecodedElement element) {
     onDebugTransition?.call(
       timestampMs: _lastFrameMs,
+      frameIndex: _frameIndex,
       isOn: element.isOn,
       durationMs: element.durationMs,
+      sequence: _transitionSeq++,
+      effectiveTransitionMs: _threshold.effectiveTransitionMs,
+      edgeMs: _threshold.lastEdgeMs,
+      ditEstimateMs: _ditEstimateMs,
+      wpm: _wpm,
     );
     onElement?.call(element);
   }
+
+  /// Current dit-based WPM estimate (`0` until enough marks seen).
+  int get _wpm => _ditEstimateMs > 0 ? (1200 / _ditEstimateMs).round() : 0;
 
   // -- Debug callbacks --
   DebugVideoScanCallback? onDebugScan;
@@ -276,10 +383,12 @@ class VideoDecoder {
   /// Exposes current brightness-threshold internals for logging.
   double get _brightnessMin => _threshold.minBrightness;
   double get _brightnessMax => _threshold.maxBrightness;
-  double get _brightnessRange => _threshold.range;
 
   /// Processes a single video frame.
   void processFrame(VideoFrame frame) {
+    _frameIndex++;
+    _frameDtMs = _prevFrameMs > 0 ? frame.timestampMs - _prevFrameMs : 0;
+    _prevFrameMs = frame.timestampMs;
     switch (_state) {
       case VideoDecoderState.scanning:
         _scan(frame);
@@ -318,30 +427,38 @@ class VideoDecoder {
       }
     }
 
-    if (maxVariance < minVariance) {
-      onDebugScan?.call(
-        timestampMs: frame.timestampMs,
-        maxVariance: maxVariance,
-        meanVariance: 0,
-        frameCount: _history.length,
-      );
-      return;
-    }
-
+    // Computed before the accept/reject check, not after: the mean is
+    // the scene's own noise floor, and the frames that *fail* the
+    // check are exactly the ones whose noise floor is worth knowing.
+    // Reporting 0 for them (the previous behaviour) blanked out 116
+    // of 120 scanning rows in a no-signal field capture — the very
+    // measurement needed to tell noise from signal.
     final meanVariance = variances.reduce((a, b) => a + b) / variances.length;
+
+    // A full-frame blink is a *positive* finding: the whole target
+    // area is varying strongly and uniformly. It used to be inferred
+    // from the peak's failure to stand out from the mean, which is
+    // also exactly what uniform sensor noise looks like — so a noisy
+    // still scene was classified as a flashing screen, and then had
+    // background subtraction disabled on that basis. Requiring the
+    // *mean* to clear the variance floor is what separates the two:
+    // in a real full-frame blink every block swings, in a still noisy
+    // scene none of them does.
+    final fullFrame =
+        meanVariance >= minVariance && maxVariance < meanVariance * 2;
 
     onDebugScan?.call(
       timestampMs: frame.timestampMs,
+      frameIndex: _frameIndex,
+      dtMs: _frameDtMs,
       maxVariance: maxVariance,
       meanVariance: meanVariance,
+      minVariance: minVariance,
       frameCount: _history.length,
     );
 
-    if (maxVariance < meanVariance * 2) {
-      _isFullFrame = true;
-    } else {
-      _isFullFrame = false;
-    }
+    if (maxVariance < minVariance) return;
+    _isFullFrame = fullFrame;
 
     // Initialize α-β filter at the detected region center
     final centerX = _isFullFrame
@@ -374,16 +491,26 @@ class VideoDecoder {
       _confirmCount++;
       onDebugConfirm?.call(
         timestampMs: frame.timestampMs,
+        frameIndex: _frameIndex,
+        dtMs: _frameDtMs,
         variance: result.variance,
+        minVariance: minVariance,
         confirmCount: _confirmCount,
-        filterX: _filter.x,
-        filterY: _filter.y,
+        predictedX: _filter.x,
+        predictedY: _filter.y,
+        measuredX: result.centerX,
+        measuredY: result.centerY,
       );
       if (_confirmCount >= confirmFrames) {
         _state = VideoDecoderState.locked;
         _threshold.reset();
         _builder.reset();
         _lockGate.reset();
+        _smoothedRegionSize = null;
+        _lostFrameCount = 0;
+        _holdStartMs = -1;
+        _lastHealthyFrameMs = frame.timestampMs;
+        _lastSearchVariance = result.variance;
         onDebugStateChange?.call(
           timestampMs: frame.timestampMs,
           newState: 'locked',
@@ -408,19 +535,71 @@ class VideoDecoder {
     _filter.predict(dt);
 
     final result = _searchPeakVariance(frame);
+    _lastSearchVariance = result.variance;
+    final signalPresent = result.variance > minVariance;
 
-    if (result.variance > minVariance) {
+    if (signalPresent) {
       _filter.update(result.centerX, result.centerY, dt);
+      _lastMeasuredX = result.centerX;
+      _lastMeasuredY = result.centerY;
       _lostFrameCount = 0;
+      _lastHealthyFrameMs = frame.timestampMs;
+      _holdStartMs = -1;
+      _readAndClassify(frame: frame, search: result, held: false);
+      _lastFrameMs = frame.timestampMs;
+      return;
+    }
 
-      // Read brightness from the tracked region. Region size
-      // adapts to filter innovation — grows when the source moves
-      // unpredictably — but innovation is a raw per-frame error
-      // signal, noisy even when the source itself is steady (see
-      // _searchPeakVariance), so low-pass filter it: without this,
-      // the target size — and so the on-screen debug circle —
-      // visibly expands and contracts frame to frame independent of
-      // any real change in motion.
+    // No signal in the search window this frame. Rather than
+    // dropping the lock immediately, hold it through legitimately
+    // long OFF stretches (word gaps, brief tracking wobble): the
+    // block's temporal variance always decays to zero during
+    // silence, so an instant drop sent the decoder back to scanning
+    // mid-message on every space. See [signalHoldMs].
+    _lostFrameCount++;
+
+    final sawContrast = _threshold.range >= _threshold.minRange;
+    final withinHold =
+        _lastHealthyFrameMs >= 0 &&
+        frame.timestampMs - _lastHealthyFrameMs < signalHoldMs;
+    final canHold = sawContrast && withinHold;
+
+    if (_holdStartMs < 0) {
+      _holdStartMs = frame.timestampMs;
+      // Freeze the filter where it last had a confident fix so its
+      // prediction stops coasting on a stale velocity while blind.
+      _filter.freeze();
+    }
+
+    // Emit the per-frame telemetry either way — the run-up to a
+    // loss is exactly the part that used to be invisible.
+    _readAndClassify(frame: frame, search: result, held: true);
+    _lastFrameMs = frame.timestampMs;
+
+    if (!canHold && _lostFrameCount >= lostFrameLimit) {
+      _signalLost();
+    }
+  }
+
+  /// Reads the brightness-reading region at the filter's current
+  /// position, runs it through the on/off threshold and element
+  /// builder, and emits the per-frame debug telemetry and overlay
+  /// update. Shared by the normal tracking path and the
+  /// [signalHoldMs] hold path — [held] is `true` for the latter,
+  /// where the filter is frozen and [search] found nothing.
+  void _readAndClassify({
+    required VideoFrame frame,
+    required _SearchResult search,
+    required bool held,
+  }) {
+    if (!held) {
+      // Region size adapts to filter innovation — grows when the
+      // source moves unpredictably — but innovation is a raw
+      // per-frame error signal, noisy even when the source itself is
+      // steady (see _searchPeakVariance), so low-pass filter it:
+      // without this the target size — and so the on-screen debug
+      // circle — visibly expands and contracts frame to frame
+      // independent of any real change in motion.
       final targetRegionSize = (_filter.innovation * 2).clamp(
         minRegionSize.toDouble(),
         maxRegionSize.toDouble(),
@@ -429,77 +608,86 @@ class VideoDecoder {
           ? targetRegionSize
           : _smoothedRegionSize! +
                 regionSizeSmoothing * (targetRegionSize - _smoothedRegionSize!);
-      final regionSize = _smoothedRegionSize!.round();
-
-      final cx = _filter.x.round();
-      final cy = _filter.y.round();
-      final half = regionSize ~/ 2;
-
-      final rawBrightness = frame.regionMeanLuminance(
-        cx - half,
-        cy - half,
-        regionSize,
-        regionSize,
-      );
-
-      // Background-subtract for a localized source: camera
-      // auto-exposure moves the whole scene together, so the region
-      // around the beacon rises and falls with it even when the
-      // beacon itself hasn't changed state — this was measured
-      // corrupting BrightnessThreshold's min/max tracking on AE-heavy
-      // reference recordings. Subtracting the surrounding annulus'
-      // level cancels that shared drift. Skipped for a full-frame
-      // blink, where the annulus flashes in phase with the region and
-      // subtracting it would cancel the *signal*, not just drift.
-      final brightness = _isFullFrame
-          ? rawBrightness
-          : rawBrightness -
-                frame.annulusMeanLuminance(
-                  cx,
-                  cy,
-                  half,
-                  half + backgroundMarginPx,
-                );
-
-      final isOn = _threshold.process(
-        brightness,
-        timestampMs: frame.timestampMs,
-      );
-      onDebugTrack?.call(
-        timestampMs: frame.timestampMs,
-        variance: result.variance,
-        brightness: brightness,
-        minBrightness: _brightnessMin,
-        maxBrightness: _brightnessMax,
-        range: _brightnessRange,
-        onThreshold: _brightnessMin + _brightnessRange * _threshold.onFactor,
-        offThreshold: _brightnessMin + _brightnessRange * _threshold.offFactor,
-        isOn: isOn,
-        regionX: cx,
-        regionY: cy,
-        regionSize: regionSize,
-        innovation: _filter.innovation,
-      );
-      _updateOverlayTelemetry(
-        frame: frame,
-        isOn: isOn,
-        cx: cx,
-        cy: cy,
-        regionSize: regionSize,
-      );
-
-      _builder.transition(
-        nowOn: isOn,
-        timeMs: _threshold.effectiveTransitionMs,
-      );
-    } else {
-      _lostFrameCount++;
-      if (_lostFrameCount >= lostFrameLimit) {
-        _signalLost();
-      }
     }
+    _smoothedRegionSize ??= minRegionSize.toDouble();
+    final regionSize = _smoothedRegionSize!.round();
 
-    _lastFrameMs = frame.timestampMs;
+    final cx = _filter.x.round();
+    final cy = _filter.y.round();
+    final half = regionSize ~/ 2;
+
+    final rawBrightness = frame.regionMeanLuminance(
+      cx - half,
+      cy - half,
+      regionSize,
+      regionSize,
+    );
+
+    // Background-subtract for a localized source: camera
+    // auto-exposure moves the whole scene together, so the region
+    // around the beacon rises and falls with it even when the
+    // beacon itself hasn't changed state — this was measured
+    // corrupting BrightnessThreshold's min/max tracking on AE-heavy
+    // reference recordings. Subtracting the surrounding annulus'
+    // level cancels that shared drift. Skipped for a full-frame
+    // blink, where the annulus flashes in phase with the region and
+    // subtracting it would cancel the *signal*, not just drift.
+    final annulusBrightness = _isFullFrame
+        ? 0.0
+        : frame.annulusMeanLuminance(cx, cy, half, half + backgroundMarginPx);
+    final brightness = _isFullFrame
+        ? rawBrightness
+        : rawBrightness - annulusBrightness;
+
+    final isOn = _threshold.process(brightness, timestampMs: frame.timestampMs);
+    onDebugTrack?.call(
+      timestampMs: frame.timestampMs,
+      frameIndex: _frameIndex,
+      dtMs: _frameDtMs,
+      searchVariance: search.variance,
+      minVariance: minVariance,
+      lostFrameCount: _lostFrameCount,
+      held: held,
+      isFullFrame: _isFullFrame,
+      predictedX: _filter.x,
+      predictedY: _filter.y,
+      measuredX: held ? _lastMeasuredX : search.centerX,
+      measuredY: held ? _lastMeasuredY : search.centerY,
+      velocityX: _filter.vx,
+      velocityY: _filter.vy,
+      innovation: _filter.innovation,
+      peakBx: search.peakBx,
+      peakBy: search.peakBy,
+      winMinBx: search.minBx,
+      winMaxBx: search.maxBx,
+      winMinBy: search.minBy,
+      winMaxBy: search.maxBy,
+      blocksAboveFloor: search.blocksAboveFloor,
+      weightSum: search.weightSum,
+      rawBrightness: rawBrightness,
+      annulusBrightness: annulusBrightness,
+      brightness: brightness,
+      minBrightness: _brightnessMin,
+      maxBrightness: _brightnessMax,
+      onThreshold: _threshold.onThreshold,
+      offThreshold: _threshold.offThreshold,
+      isOn: isOn,
+      regionX: cx,
+      regionY: cy,
+      regionSize: regionSize,
+      ditEstimateMs: _ditEstimateMs,
+      wpm: _wpm,
+    );
+    _updateOverlayTelemetry(
+      frame: frame,
+      isOn: isOn,
+      cx: cx,
+      cy: cy,
+      regionSize: regionSize,
+      held: held,
+    );
+
+    _builder.transition(nowOn: isOn, timeMs: _threshold.effectiveTransitionMs);
   }
 
   // -- Debug overlay telemetry ------------------------------------
@@ -512,6 +700,7 @@ class VideoDecoder {
     required int cx,
     required int cy,
     required int regionSize,
+    required bool held,
   }) {
     // Track mark boundaries directly from the threshold state.
     if (isOn && _markStartMs < 0) {
@@ -541,6 +730,7 @@ class VideoDecoder {
         signalOn: isOn,
         markClassified: markClassified,
         isDash: isDash,
+        holding: held,
       ),
     );
   }
@@ -552,10 +742,7 @@ class VideoDecoder {
   void _updateDitEstimate() {
     if (_markDurationsMs.length < _minMarkSamples) return;
     final sorted = [..._markDurationsMs]..sort();
-    final idx = (sorted.length * 0.25).floor().clamp(
-      0,
-      sorted.length - 1,
-    );
+    final idx = (sorted.length * 0.25).floor().clamp(0, sorted.length - 1);
     final dit = sorted[idx].toDouble();
     if (dit > 0) _ditEstimateMs = dit;
   }
@@ -565,10 +752,19 @@ class VideoDecoder {
   void _signalLost() {
     _builder.flush();
     _clearOverlayTelemetry();
-    _lockGate.flush();
+    // Losing the lock is not the end of a transmission — it is the
+    // decoder concluding there was no transmission. Anything the lock
+    // gate is still holding failed to prove itself as Morse, so it is
+    // released only if it fits, never unconditionally. See
+    // [MorseLockGate.releaseOnSignalLoss].
+    _lockGate.releaseOnSignalLoss();
     onDebugSignalLost?.call(
       timestampMs: _lastFrameMs,
+      frameIndex: _frameIndex,
       lostFrameCount: _lostFrameCount,
+      heldForMs: _holdStartMs >= 0 ? _lastFrameMs - _holdStartMs : 0,
+      lastSearchVariance: _lastSearchVariance,
+      minVariance: minVariance,
     );
     onDebugStateChange?.call(
       timestampMs: _lastFrameMs,
@@ -581,6 +777,9 @@ class VideoDecoder {
     _state = VideoDecoderState.scanning;
     _confirmCount = 0;
     _lostFrameCount = 0;
+    _holdStartMs = -1;
+    _lastHealthyFrameMs = -1;
+    _lastSearchVariance = 0;
   }
 
   // -- Search ----------------------------------------------------
@@ -590,6 +789,14 @@ class VideoDecoder {
     variance: 0,
     centerX: 0,
     centerY: 0,
+    peakBx: 0,
+    peakBy: 0,
+    minBx: 0,
+    maxBx: 0,
+    minBy: 0,
+    maxBy: 0,
+    blocksAboveFloor: 0,
+    weightSum: 0,
   );
 
   _SearchResult _searchPeakVariance(VideoFrame frame) {
@@ -599,6 +806,14 @@ class VideoDecoder {
         variance: _blockVariance(0, 0),
         centerX: frame.width / 2,
         centerY: frame.height / 2,
+        peakBx: 0,
+        peakBy: 0,
+        minBx: 0,
+        maxBx: 0,
+        minBy: 0,
+        maxBy: 0,
+        blocksAboveFloor: 0,
+        weightSum: 0,
       );
     }
 
@@ -639,16 +854,36 @@ class VideoDecoder {
     // variance isn't recomputed twice (each call re-walks up to
     // `historySize` frames of history per block).
     var maxVariance = 0.0;
+    var peakBx = minBx;
+    var peakBy = minBy;
     final blockVariances = <double>[];
     for (var by = minBy; by <= maxBy; by++) {
       for (var bx = minBx; bx <= maxBx; bx++) {
         final v = _blockVariance(bx, by);
         blockVariances.add(v);
-        if (v > maxVariance) maxVariance = v;
+        if (v > maxVariance) {
+          maxVariance = v;
+          peakBx = bx;
+          peakBy = by;
+        }
       }
     }
 
-    if (maxVariance <= 0) return _emptyResult;
+    if (maxVariance <= 0) {
+      return _SearchResult(
+        variance: 0,
+        centerX: 0,
+        centerY: 0,
+        peakBx: peakBx,
+        peakBy: peakBy,
+        minBx: minBx,
+        maxBx: maxBx,
+        minBy: minBy,
+        maxBy: maxBy,
+        blocksAboveFloor: 0,
+        weightSum: 0,
+      );
+    }
 
     // Only blocks close to the peak count toward the centroid —
     // otherwise a large search window would let distant, barely-lit
@@ -659,11 +894,13 @@ class VideoDecoder {
     var weightSum = 0.0;
     var xSum = 0.0;
     var ySum = 0.0;
+    var blocksAboveFloor = 0;
     var i = 0;
     for (var by = minBy; by <= maxBy; by++) {
       for (var bx = minBx; bx <= maxBx; bx++) {
         final v = blockVariances[i++];
         if (v < floor) continue;
+        blocksAboveFloor++;
         weightSum += v;
         xSum += v * (bx * blockSize + blockSize / 2.0);
         ySum += v * (by * blockSize + blockSize / 2.0);
@@ -674,6 +911,14 @@ class VideoDecoder {
       variance: maxVariance,
       centerX: xSum / weightSum,
       centerY: ySum / weightSum,
+      peakBx: peakBx,
+      peakBy: peakBy,
+      minBx: minBx,
+      maxBx: maxBx,
+      minBy: minBy,
+      maxBy: maxBy,
+      blocksAboveFloor: blocksAboveFloor,
+      weightSum: weightSum,
     );
   }
 
@@ -815,6 +1060,15 @@ class VideoDecoder {
     _lostFrameCount = 0;
     _lastFrameMs = 0;
     _isFullFrame = false;
+    _frameIndex = 0;
+    _prevFrameMs = 0;
+    _frameDtMs = 0;
+    _holdStartMs = -1;
+    _lastHealthyFrameMs = -1;
+    _lastSearchVariance = 0;
+    _lastMeasuredX = 0;
+    _lastMeasuredY = 0;
+    _transitionSeq = 0;
     _clearOverlayTelemetry();
   }
 }
@@ -841,9 +1095,40 @@ class _SearchResult {
     required this.variance,
     required this.centerX,
     required this.centerY,
+    required this.peakBx,
+    required this.peakBy,
+    required this.minBx,
+    required this.maxBx,
+    required this.minBy,
+    required this.maxBy,
+    required this.blocksAboveFloor,
+    required this.weightSum,
   });
 
+  /// Peak block variance in the window (gates lock/loss).
   final double variance;
+
+  /// Variance-weighted centroid of the near-peak blocks (pixels).
   final double centerX;
   final double centerY;
+
+  /// Block index of the single highest-variance block.
+  final int peakBx;
+  final int peakBy;
+
+  /// Search-window bounds actually walked, in block indices (after
+  /// clamping to the target area).
+  final int minBx;
+  final int maxBx;
+  final int minBy;
+  final int maxBy;
+
+  /// How many blocks cleared the centroid floor (0.5 × peak). A
+  /// count of 1 means the centroid is a single block's center — no
+  /// sub-block smoothing was possible this frame.
+  final int blocksAboveFloor;
+
+  /// Sum of the variances that fed the centroid — a rough
+  /// signal-strength proxy independent of [variance].
+  final double weightSum;
 }

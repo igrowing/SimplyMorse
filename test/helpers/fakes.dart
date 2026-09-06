@@ -153,6 +153,14 @@ class FakeMorseTransmitter extends MorseTransmitter {
   int stopCount = 0;
   int disposeCount = 0;
 
+  /// Settings passed to every `transmit` call, in order — lets tests
+  /// inspect how repeat-loop passes differ from the first pass.
+  final List<EncodingSettings> allSettings = [];
+
+  /// Invoked at the start of each `transmit` call with the running
+  /// [transmitCount]. Lets a test cancel a repeat loop deterministically.
+  void Function(int count)? onTransmit;
+
   /// When true (default), `transmit` calls `onComplete` immediately.
   /// Set to false to keep the transmission in the "transmitting" state.
   bool autoComplete = true;
@@ -167,8 +175,10 @@ class FakeMorseTransmitter extends MorseTransmitter {
     transmitCount++;
     lastEvents = events;
     lastSettings = settings;
+    allSettings.add(settings);
     lastProgressCallback = onProgress;
     lastCompleteCallback = onComplete;
+    onTransmit?.call(transmitCount);
     if (autoComplete) {
       onComplete();
     }

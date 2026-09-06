@@ -381,6 +381,11 @@ void main() {
             historySize: 15,
             confirmFrames: 3,
             lostFrameLimit: 5,
+            // Short hold: the decoder now rides out brief
+            // low-variance stretches (word gaps), so a genuine
+            // disappearance is only declared lost once the hold
+            // window elapses with no recovery.
+            signalHoldMs: 200,
           );
 
           // Lock on
@@ -415,6 +420,75 @@ void main() {
           );
         },
       );
+    });
+
+    group('lock hold through low-variance gaps', () {
+      /// Locks on, then feeds [gapMs] of darkness, then resumes
+      /// blinking. Returns the decoder for state inspection and the
+      /// overlay telemetry collected across the whole run.
+      (VideoDecoder, List<TrackOverlayInfo?>) runWithGap({
+        required int gapMs,
+        int signalHoldMs = 3000,
+      }) {
+        final dec = VideoDecoder(
+          historySize: 30,
+          confirmFrames: 3,
+          signalHoldMs: signalHoldMs,
+        );
+        final infos = <TrackOverlayInfo?>[];
+        dec.onTrackOverlay = infos.add;
+
+        var t = 0;
+        // Lock on: alternating 150ms segments.
+        for (var i = 0; i < 24; i++, t += 150) {
+          dec.processFrame(
+            _makeFrame(timestampMs: t, sourceOn: i.isEven),
+          );
+        }
+        // The gap — source fully dark.
+        for (final end = t + gapMs; t < end; t += 33) {
+          dec.processFrame(_makeFrame(timestampMs: t, sourceOn: false));
+        }
+        // Resume blinking.
+        for (var i = 0; i < 24; i++, t += 150) {
+          dec.processFrame(
+            _makeFrame(timestampMs: t, sourceOn: i.isEven),
+          );
+        }
+        return (dec, infos);
+      }
+
+      test('holds a lock through an inter-word-length gap', () {
+        final (dec, infos) = runWithGap(gapMs: 1500);
+
+        expect(dec.state, VideoDecoderState.locked);
+        // The overlay is never nulled — the reticle stays put.
+        expect(infos.contains(null), isFalse);
+        // ...and at least some frames during the gap are flagged as
+        // a hold rather than a live track.
+        expect(
+          infos.whereType<TrackOverlayInfo>().any((e) => e.holding),
+          isTrue,
+        );
+      });
+
+      test('resumes live tracking after the gap ends', () {
+        final (dec, infos) = runWithGap(gapMs: 1500);
+
+        expect(dec.state, VideoDecoderState.locked);
+        // The final telemetry is a live (not held) track again.
+        final tracked = infos.whereType<TrackOverlayInfo>().toList();
+        expect(tracked.last.holding, isFalse);
+      });
+
+      test('gives up the lock once the hold window elapses', () {
+        final (_, infos) = runWithGap(gapMs: 4000, signalHoldMs: 1000);
+
+        // The gap outlasts the hold, so the lock is dropped mid-gap
+        // (overlay goes null) rather than being held on a stale
+        // position forever.
+        expect(infos.contains(null), isTrue);
+      });
     });
 
     group('reset', () {
@@ -566,10 +640,12 @@ void main() {
       );
 
       test('nulls the overlay when the signal is lost', () {
-        final dec = VideoDecoder();
+        // Short hold window so the dark stretch below actually times
+        // the lock out rather than being held through.
+        final dec = VideoDecoder(signalHoldMs: 300);
         final infos = feed(dec, [
           for (var i = 0; i < 12; i++) (300, i.isEven),
-          // Steady dark frames: no variance, lock must drop.
+          // Steady dark frames past the hold window: lock must drop.
           (1200, false),
         ]);
 

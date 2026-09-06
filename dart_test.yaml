@@ -4,3 +4,7 @@ tags:
   # unit tests.
   video-recording:
   scoreboard:
+  # Replays on-device debug CSVs dropped in the project root. Skips
+  # itself when they are absent — they are developer captures, not
+  # committed fixtures. See test/support/field_log_replay_test.dart.
+  field-logs:

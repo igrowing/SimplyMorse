@@ -14,11 +14,9 @@ import 'dart:math';
 /// means the source moved unexpectedly, so the brightness
 /// reading region should grow to avoid losing it.
 class AlphaBetaFilter {
-  AlphaBetaFilter({
-    this.alpha = 0.7,
-    this.beta = 0.1,
-  }) : assert(alpha > 0 && alpha <= 1, 'alpha must be in (0, 1]'),
-       assert(beta >= 0 && beta <= 1, 'beta must be in [0, 1]');
+  AlphaBetaFilter({this.alpha = 0.7, this.beta = 0.1})
+    : assert(alpha > 0 && alpha <= 1, 'alpha must be in (0, 1]'),
+      assert(beta >= 0 && beta <= 1, 'beta must be in [0, 1]');
 
   final double alpha;
   final double beta;
@@ -88,6 +86,20 @@ class AlphaBetaFilter {
       _vx += beta * dx / dt;
       _vy += beta * dy / dt;
     }
+  }
+
+  /// Zeros the velocity estimate while keeping the current
+  /// position.
+  ///
+  /// Called when the source signal briefly drops out (a word gap,
+  /// a moment of tracking wobble): with no fresh measurements,
+  /// [predict] would otherwise keep coasting on the last velocity
+  /// and slide the search window off the real source before it
+  /// blinks again. Freezing holds station instead.
+  void freeze() {
+    _vx = 0;
+    _vy = 0;
+    _innovation = 0;
   }
 
   /// Resets the filter to the uninitialized state.

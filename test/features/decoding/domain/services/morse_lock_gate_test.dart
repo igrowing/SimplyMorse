@@ -131,13 +131,7 @@ void main() {
       );
       // Slow enough to gate (unit candidates >= 120ms) but never
       // settles into a clean fit within the buffer.
-      final erratic = [
-        on_(200),
-        off(3000),
-        on_(9000),
-        off(150),
-        on_(4000),
-      ];
+      final erratic = [on_(200), off(3000), on_(9000), off(150), on_(4000)];
       erratic.forEach(gate.add);
       expect(out, isEmpty);
       gate.flush();
@@ -196,6 +190,143 @@ void main() {
       out.clear();
       gate.add(on_(200));
       expect(out, isEmpty);
+    });
+
+    group('releaseOnSignalLoss', () {
+      test('emits nothing when the buffer never fit Morse timing', () {
+        // Regression: a field capture with nothing transmitting at all
+        // locked three times on sensor noise. The gate correctly
+        // refused each one, but signal loss then flushed the rejected
+        // buffer downstream anyway and the app printed "UDEA " out of
+        // an empty room.
+        final out = <DecodedElement>[];
+        final gate = MorseLockGate(
+          onElement: out.add,
+          minElementsToLock: 8,
+          minMarksToLock: 4,
+        );
+        // Durations bearing no relation to any consistent unit.
+        [
+          on_(307),
+          off(86),
+          on_(60),
+          off(319),
+          on_(267),
+          off(760),
+          on_(539),
+          off(2461),
+          on_(238),
+          off(1043),
+        ].forEach(gate.add);
+
+        gate.releaseOnSignalLoss();
+
+        expect(gate.isLocked, isFalse);
+        expect(out, isEmpty);
+      });
+
+      test('still emits a buffer that does fit', () {
+        final out = <DecodedElement>[];
+        final gate = MorseLockGate(
+          onElement: out.add,
+          minElementsToLock: 8,
+          minMarksToLock: 4,
+        );
+        final clean = [
+          on_(200),
+          off(200),
+          on_(600),
+          off(200),
+          on_(200),
+          off(600),
+          on_(200),
+          off(200),
+          on_(200),
+          off(200),
+          on_(600),
+          off(200),
+        ];
+        clean.forEach(gate.add);
+        gate.releaseOnSignalLoss();
+
+        expect(out, isNotEmpty);
+      });
+    });
+
+    test('does not destroy elements it slides past', () {
+      // Regression: sliding used to drop the oldest element outright,
+      // so a stream that only became fittable late lost everything
+      // before that point. Measured on an 8 WPM field capture, 59 of
+      // 70 genuine elements were destroyed before flush ever ran.
+      final out = <DecodedElement>[];
+      final gate = MorseLockGate(
+        onElement: out.add,
+        minElementsToLock: 8,
+        minMarksToLock: 4,
+      );
+      // A prefix that cannot fit, then clean 200/600 ms sending. The
+      // prefix stays within the mark spread Morse allows, so it is
+      // not junk — just unfittable — and must not vanish silently.
+      final prefix = [
+        on_(210),
+        off(640),
+        on_(220),
+        off(210),
+        on_(650),
+        off(215),
+        on_(205),
+        off(660),
+      ];
+      final real = [
+        on_(200),
+        off(200),
+        on_(600),
+        off(200),
+        on_(200),
+        off(600),
+        on_(200),
+        off(200),
+        on_(200),
+        off(200),
+        on_(600),
+        off(200),
+      ];
+      [...prefix, ...real].forEach(gate.add);
+      gate.flush();
+
+      expect(out, containsAll(real));
+    });
+
+    test('fits a dah-heavy window, where the median mark is a dah', () {
+      // Regression: the unit used to be the median of all marks, which
+      // is only a dit when dits outnumber dahs. On an 8 WPM field
+      // capture of "HELLO, WORLD!" the decoder saw 18 dahs to 8 dits,
+      // so the unit came out 3x too large, every genuine dit scored as
+      // an outlier, and a textbook-clean transmission was rejected.
+      final out = <DecodedElement>[];
+      final gate = MorseLockGate(
+        onElement: out.add,
+        minElementsToLock: 8,
+        minMarksToLock: 4,
+      );
+      final dahHeavy = [
+        on_(600),
+        off(200),
+        on_(600),
+        off(200),
+        on_(600),
+        off(200),
+        on_(200),
+        off(200),
+        on_(600),
+        off(200),
+        on_(600),
+        off(200),
+      ];
+      dahHeavy.forEach(gate.add);
+
+      expect(gate.isLocked, isTrue);
+      expect(out, containsAll(dahHeavy));
     });
 
     test('gives up after maxPatience and passes the rest through', () {
