@@ -255,6 +255,21 @@ void main() {
       });
     });
 
+    group('maxDecodableWpm', () {
+      test('is zero for a non-positive frame rate', () {
+        expect(DecodingController.maxDecodableWpm(0), 0);
+        expect(DecodingController.maxDecodableWpm(-5), 0);
+      });
+
+      test('scales with the frame rate (4 frames per dit)', () {
+        // 1.2 * fps / 4
+        expect(DecodingController.maxDecodableWpm(30), 9);
+        expect(DecodingController.maxDecodableWpm(60), 18);
+        expect(DecodingController.maxDecodableWpm(120), 36);
+        expect(DecodingController.maxDecodableWpm(240), 72);
+      });
+    });
+
     group('audio pipeline wiring', () {
       test('audio decoder receives samples from capture', () {
         final elements = <DecodedElement>[];

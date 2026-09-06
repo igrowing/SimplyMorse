@@ -71,6 +71,11 @@ typedef DebugVideoTrackCallback =
       required double maxBrightness,
       required double onThreshold,
       required double offThreshold,
+      required double onLevel,
+      required double offLevel,
+      required int wideBx,
+      required int wideBy,
+      required double wideVariance,
       required bool isOn,
       required int regionX,
       required int regionY,
@@ -640,44 +645,61 @@ class VideoDecoder {
         : rawBrightness - annulusBrightness;
 
     final isOn = _threshold.process(brightness, timestampMs: frame.timestampMs);
-    onDebugTrack?.call(
-      timestampMs: frame.timestampMs,
-      frameIndex: _frameIndex,
-      dtMs: _frameDtMs,
-      searchVariance: search.variance,
-      minVariance: minVariance,
-      lostFrameCount: _lostFrameCount,
-      held: held,
-      isFullFrame: _isFullFrame,
-      predictedX: _filter.x,
-      predictedY: _filter.y,
-      measuredX: held ? _lastMeasuredX : search.centerX,
-      measuredY: held ? _lastMeasuredY : search.centerY,
-      velocityX: _filter.vx,
-      velocityY: _filter.vy,
-      innovation: _filter.innovation,
-      peakBx: search.peakBx,
-      peakBy: search.peakBy,
-      winMinBx: search.minBx,
-      winMaxBx: search.maxBx,
-      winMinBy: search.minBy,
-      winMaxBy: search.maxBy,
-      blocksAboveFloor: search.blocksAboveFloor,
-      weightSum: search.weightSum,
-      rawBrightness: rawBrightness,
-      annulusBrightness: annulusBrightness,
-      brightness: brightness,
-      minBrightness: _brightnessMin,
-      maxBrightness: _brightnessMax,
-      onThreshold: _threshold.onThreshold,
-      offThreshold: _threshold.offThreshold,
-      isOn: isOn,
-      regionX: cx,
-      regionY: cy,
-      regionSize: regionSize,
-      ditEstimateMs: _ditEstimateMs,
-      wpm: _wpm,
-    );
+    final onDebug = onDebugTrack;
+    if (onDebug != null) {
+      // A whole-reticle peak, computed only when a debug sink is
+      // attached: it costs the same full-area scan the scanning
+      // phase does every frame, so it is not free enough to run
+      // unconditionally. It lets an offline log tell a tracker that
+      // has drifted off a source still lit elsewhere in the reticle
+      // apart from a source that has genuinely gone dark — the two
+      // look identical in `search_var` alone (both collapse) but
+      // need opposite fixes.
+      final wide = _wideAreaPeak(frame);
+      onDebug(
+        timestampMs: frame.timestampMs,
+        frameIndex: _frameIndex,
+        dtMs: _frameDtMs,
+        searchVariance: search.variance,
+        minVariance: minVariance,
+        lostFrameCount: _lostFrameCount,
+        held: held,
+        isFullFrame: _isFullFrame,
+        predictedX: _filter.x,
+        predictedY: _filter.y,
+        measuredX: held ? _lastMeasuredX : search.centerX,
+        measuredY: held ? _lastMeasuredY : search.centerY,
+        velocityX: _filter.vx,
+        velocityY: _filter.vy,
+        innovation: _filter.innovation,
+        peakBx: search.peakBx,
+        peakBy: search.peakBy,
+        winMinBx: search.minBx,
+        winMaxBx: search.maxBx,
+        winMinBy: search.minBy,
+        winMaxBy: search.maxBy,
+        blocksAboveFloor: search.blocksAboveFloor,
+        weightSum: search.weightSum,
+        rawBrightness: rawBrightness,
+        annulusBrightness: annulusBrightness,
+        brightness: brightness,
+        minBrightness: _brightnessMin,
+        maxBrightness: _brightnessMax,
+        onThreshold: _threshold.onThreshold,
+        offThreshold: _threshold.offThreshold,
+        onLevel: _threshold.onLevel,
+        offLevel: _threshold.offLevel,
+        wideBx: wide.bx,
+        wideBy: wide.by,
+        wideVariance: wide.variance,
+        isOn: isOn,
+        regionX: cx,
+        regionY: cy,
+        regionSize: regionSize,
+        ditEstimateMs: _ditEstimateMs,
+        wpm: _wpm,
+      );
+    }
     _updateOverlayTelemetry(
       frame: frame,
       isOn: isOn,
@@ -984,6 +1006,35 @@ class VideoDecoder {
     if (_history.length > historySize) {
       _history.removeAt(0);
     }
+  }
+
+  /// Peak block variance over the *entire* target area, with the
+  /// block it sits in — independent of where the alpha-beta filter
+  /// currently believes the source is.
+  ///
+  /// Diagnostic only (see the call site in [_readAndClassify]). The
+  /// search window used for actual tracking is clamped around the
+  /// filter's prediction, so once the filter drifts its window can
+  /// stop covering a source that is still plainly lit inside the
+  /// reticle. This reports what a fresh, unbiased look at the whole
+  /// reticle would find, so an offline log can distinguish "tracker
+  /// lost a live source" from "source went dark".
+  ({int bx, int by, double variance}) _wideAreaPeak(VideoFrame frame) {
+    final range = _targetBlockRange(frame);
+    var maxV = 0.0;
+    var peakBx = range.minBx;
+    var peakBy = range.minBy;
+    for (var by = range.minBy; by <= range.maxBy; by++) {
+      for (var bx = range.minBx; bx <= range.maxBx; bx++) {
+        final v = _blockVariance(bx, by);
+        if (v > maxV) {
+          maxV = v;
+          peakBx = bx;
+          peakBy = by;
+        }
+      }
+    }
+    return (bx: peakBx, by: peakBy, variance: maxV);
   }
 
   /// Computes exponentially-weighted temporal variance of

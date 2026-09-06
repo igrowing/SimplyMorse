@@ -735,7 +735,10 @@ void main() {
 
         await pumpScreen(tester);
 
-        expect(find.text('Idle  ·  1280×720  ·  120 FPS'), findsOneWidget);
+        expect(
+          find.text('Idle  ·  1280×720  ·  120 FPS  ·  up to 36 WPM'),
+          findsOneWidget,
+        );
       },
     );
   });

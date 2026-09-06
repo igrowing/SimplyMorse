@@ -565,8 +565,10 @@ class _SeeScreenState extends State<SeeScreen> {
   static const double _statusBarIconSize = 10;
   static const double _statusBarIconGap = 8;
 
-  /// Status line: state, camera capture resolution, WPM, and the
-  /// measured capture FPS while decoding.
+  /// Status line: state, camera capture resolution, capture FPS,
+  /// the sending speed that rate can decode cleanly ("up to N WPM",
+  /// see [DecodingController.maxDecodableWpm]), and — once elements
+  /// are arriving — the WPM actually being received.
   ///
   /// Adding the resolution alongside WPM/FPS made this line long
   /// enough to risk not fitting a narrow phone width — rather than
@@ -593,11 +595,17 @@ class _SeeScreenState extends State<SeeScreen> {
     // a platform silently delivering less than it granted), so
     // switch to that instead.
     final fps = ctrl.isListening ? ctrl.captureFps : _cameraCapture.frameRate;
+    // The sending speed this frame rate can decode cleanly. Shown so
+    // the operator knows the ceiling up front — a faster transmission
+    // is still accepted, just with more errors (see
+    // DecodingController.maxDecodableWpm).
+    final maxWpm = DecodingController.maxDecodableWpm(fps);
     final details = <String>[
       if (previewSize != null)
         '${previewSize.width.round()}×${previewSize.height.round()}',
       if (previewSize != null && fps > 0) '$fps FPS',
-      if (ctrl.currentWpm > 0) '${ctrl.currentWpm} WPM',
+      if (previewSize != null && maxWpm > 0) 'up to $maxWpm WPM',
+      if (ctrl.currentWpm > 0) '${ctrl.currentWpm} WPM now',
     ];
     final style = TextStyle(color: color, fontSize: 14);
     final detailsText = details.join('  ·  ');

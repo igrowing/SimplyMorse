@@ -112,6 +112,32 @@ class DecodingController extends ChangeNotifier {
     return (1200 / ditMs).round();
   }
 
+  /// Highest sending speed this capture frame rate can decode
+  /// reliably, in WPM. Returns 0 for a non-positive [fps].
+  ///
+  /// The dit is the shortest Morse element; once it spans too few
+  /// captured frames the dah and character-gap duration clusters
+  /// overlap and no classifier can pull them apart. Measured across
+  /// the reference recordings, decoding stays clean at ~4 frames per
+  /// dit (8 WPM at 30 fps) and collapses below ~2.5 (16-20 WPM at
+  /// 30 fps). This reports the speed at which a dit spans
+  /// [_framesPerDitFloor] frames:
+  ///
+  ///     WPM = 1200 / ditMs,   ditMs = framesPerDit * 1000 / fps
+  ///  => maxWpm = 1.2 * fps / framesPerDit
+  ///
+  /// Informational only. A faster transmission still decodes, just
+  /// with more errors; the app never rejects one, and the operator
+  /// cannot judge the sender's speed by eye.
+  static int maxDecodableWpm(int fps) {
+    if (fps <= 0) return 0;
+    return (1.2 * fps / _framesPerDitFloor).floor();
+  }
+
+  /// Frames per dit below which the video decoder's duration
+  /// clusters stop separating — see [maxDecodableWpm].
+  static const double _framesPerDitFloor = 4;
+
   bool get isIdle => _status == DecodingStatus.idle;
   bool get isListening => _status == DecodingStatus.listening;
   bool get isPaused => _status == DecodingStatus.paused;

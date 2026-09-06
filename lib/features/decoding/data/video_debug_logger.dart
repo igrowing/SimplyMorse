@@ -42,13 +42,14 @@ class VideoDebugLogger {
       'timestamp_ms,frame_idx,dt_ms,phase,event,'
       'pred_x,pred_y,meas_x,meas_y,vel_x,vel_y,innovation,'
       'search_var,min_var,peak_bx,peak_by,win,blocks_above_floor,weight_sum,'
-      'raw_bright,annulus,brightness,b_min,b_max,on_thr,off_thr,'
+      'wide_bx,wide_by,wide_var,'
+      'raw_bright,annulus,brightness,b_min,b_max,on_thr,off_thr,on_lvl,off_lvl,'
       'is_on,reg_x,reg_y,reg_size,full_frame,held,lost_cnt,'
       'dit_ms,wpm,dur_ms,seq,detail';
 
   /// Number of data columns before `detail` — used to pad short
   /// rows so `detail` always lands in the same column.
-  static const _columnCount = 38;
+  static const _columnCount = 43;
 
   /// Starts a new log session.
   Future<void> start() async {
@@ -172,6 +173,11 @@ class VideoDebugLogger {
     required double maxBrightness,
     required double onThreshold,
     required double offThreshold,
+    required double onLevel,
+    required double offLevel,
+    required int wideBx,
+    required int wideBy,
+    required double wideVariance,
     required bool isOn,
     required int regionX,
     required int regionY,
@@ -199,6 +205,9 @@ class VideoDebugLogger {
       win: '$winMinBx-$winMaxBx:$winMinBy-$winMaxBy',
       blocksAboveFloor: blocksAboveFloor,
       weightSum: weightSum,
+      wideBx: wideBx,
+      wideBy: wideBy,
+      wideVar: wideVariance,
       rawBright: rawBrightness,
       annulus: annulusBrightness,
       brightness: brightness,
@@ -206,6 +215,8 @@ class VideoDebugLogger {
       bMax: maxBrightness,
       onThr: onThreshold,
       offThr: offThreshold,
+      onLvl: onLevel,
+      offLvl: offLevel,
       isOn: isOn,
       regX: regionX,
       regY: regionY,
@@ -327,6 +338,9 @@ class VideoDebugLogger {
     String? win,
     int? blocksAboveFloor,
     double? weightSum,
+    int? wideBx,
+    int? wideBy,
+    double? wideVar,
     double? rawBright,
     double? annulus,
     double? brightness,
@@ -334,6 +348,8 @@ class VideoDebugLogger {
     double? bMax,
     double? onThr,
     double? offThr,
+    double? onLvl,
+    double? offLvl,
     bool? isOn,
     int? regX,
     int? regY,
@@ -370,6 +386,9 @@ class VideoDebugLogger {
       win ?? '',
       _i(blocksAboveFloor),
       _f(weightSum ?? double.nan, 4),
+      _i(wideBx),
+      _i(wideBy),
+      _f(wideVar ?? double.nan, 6),
       _f(rawBright ?? double.nan, 4),
       _f(annulus ?? double.nan, 4),
       _f(brightness ?? double.nan, 4),
@@ -377,6 +396,8 @@ class VideoDebugLogger {
       _f(bMax ?? double.nan, 4),
       _f(onThr ?? double.nan, 4),
       _f(offThr ?? double.nan, 4),
+      _f(onLvl ?? double.nan, 4),
+      _f(offLvl ?? double.nan, 4),
       _b(isOn),
       _i(regX),
       _i(regY),
