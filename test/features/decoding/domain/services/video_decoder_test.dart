@@ -498,6 +498,8 @@ void main() {
         VideoDecoder dec,
         List<(int, bool)> segments, {
         int periodMs = 33,
+        int sourceX = 40,
+        int sourceY = 30,
       }) {
         final infos = <TrackOverlayInfo?>[];
         dec.onTrackOverlay = infos.add;
@@ -505,7 +507,12 @@ void main() {
         for (final (durationMs, on) in segments) {
           for (final end = t + durationMs; t < end; t += periodMs) {
             dec.processFrame(
-              _makeFrame(timestampMs: t, sourceOn: on),
+              _makeFrame(
+                timestampMs: t,
+                sourceOn: on,
+                sourceX: sourceX,
+                sourceY: sourceY,
+              ),
             );
           }
         }
@@ -537,10 +544,20 @@ void main() {
           expect(dec.state, VideoDecoderState.locked);
           expect(infos, isNotEmpty);
           for (final info in infos.whereType<TrackOverlayInfo>()) {
-            // Source at (40, 30) on an 80x60 frame lands in block
-            // (5, 3) of the 8x8 grid; the tracked center is
-            // block-quantized, i.e. (44, 28) -> fractions below.
-            expect(info.centerX, moreOrLessEquals(44 / 80, epsilon: 0.01));
+            // Source at (40, 30), 8px wide/tall: X (40) sits exactly
+            // on the boundary between blocks 4 and 5, splitting the
+            // source evenly between them — the variance-weighted
+            // centroid (see _searchPeakVariance) converges on the
+            // TRUE source X (40/80), not a block-quantized one (the
+            // old hard-argmax reported 44/80, one block's center).
+            // Y (30) sits 2px off the nearest boundary (32), so the
+            // source's rows split 6:2 between blocks 3 and 4 —
+            // block 4's share falls under the centroid's peak-
+            // relative floor, so only block 3 counts and Y still
+            // reports that block's center (28/60). See the
+            // 'sub-block precision on both axes' test below for a
+            // case that isn't skewed by this fixture's alignment.
+            expect(info.centerX, moreOrLessEquals(40 / 80, epsilon: 0.01));
             expect(info.centerY, moreOrLessEquals(28 / 60, epsilon: 0.01));
             expect(info.regionSizePx, greaterThanOrEqualTo(8));
             expect(info.regionSizePx, lessThanOrEqualTo(32));
@@ -613,6 +630,125 @@ void main() {
           isFalse,
         );
       });
+
+      test(
+        'reports sub-block precision on both axes when the source is '
+        'boundary-aligned',
+        () {
+          // (40, 32): both exactly on an 8px block boundary, so the
+          // 8x8 source splits evenly 4:4 across blocks (4,4)/(5,4)
+          // in X and (3,_)/(4,_) in Y — unlike the default (40, 30)
+          // fixture above, where Y is 2px off its nearest boundary
+          // and one candidate block gets floored out. Both axes
+          // should converge on the true source position here.
+          final dec = VideoDecoder();
+          final infos = feed(
+            dec,
+            [
+              for (var i = 0; i < 10; i++) (300, i.isEven),
+              for (var i = 0; i < 10; i++) (300, i.isEven),
+            ],
+            sourceX: 40,
+            sourceY: 32,
+          );
+
+          expect(dec.state, VideoDecoderState.locked);
+          final locked = infos.whereType<TrackOverlayInfo>().toList();
+          expect(locked, isNotEmpty);
+          for (final info in locked) {
+            expect(info.centerX, moreOrLessEquals(40 / 80, epsilon: 0.01));
+            expect(info.centerY, moreOrLessEquals(32 / 60, epsilon: 0.01));
+          }
+        },
+      );
+
+      /// Feeds a shaking source (mirrors the 'tracks a shaking
+      /// source' scenario above) and collects telemetry. Amplitude
+      /// 5px around x=40 keeps crossing 8px block boundaries — a
+      /// static source never reproduces the reported bug, since a
+      /// deterministic fixture makes the same block win every
+      /// frame; real per-frame contest between neighboring blocks
+      /// needs the source to actually move sub-block distances,
+      /// the way hand shake does.
+      List<TrackOverlayInfo?> feedShaking(VideoDecoder dec, int frameCount) {
+        final infos = <TrackOverlayInfo?>[];
+        dec.onTrackOverlay = infos.add;
+        for (var i = 0; i < frameCount; i++) {
+          final shakeX = 40 + (5 * sin(i * 0.5)).round();
+          dec.processFrame(
+            _makeFrame(
+              timestampMs: i * 33,
+              sourceX: shakeX,
+              sourceOn: i.isEven,
+            ),
+          );
+        }
+        return infos;
+      }
+
+      test(
+        'tracked center does not jump a full block for a shaking source',
+        () {
+          // Reproduces the reported bug: with a hard block-argmax,
+          // per-frame noise in which of two similarly-lit
+          // neighboring blocks wins can snap the reported center by
+          // a full block (8px) even though the true position moves
+          // by only a couple of px per frame. The variance-weighted
+          // centroid should track that gentler true motion instead.
+          final dec = VideoDecoder(searchRadius: 3);
+          final infos = feedShaking(dec, 40);
+          expect(dec.state, VideoDecoderState.locked);
+
+          final locked = infos.whereType<TrackOverlayInfo>().toList();
+          expect(locked.length, greaterThan(2));
+
+          const frameWidth = 80;
+          var maxJumpPx = 0.0;
+          for (var i = 1; i < locked.length; i++) {
+            final dx =
+                (locked[i].centerX - locked[i - 1].centerX).abs() *
+                frameWidth;
+            if (dx > maxJumpPx) maxJumpPx = dx;
+          }
+          // The true per-frame input motion here is at most ~3px
+          // (derivative of a 5px-amplitude sine); a full block-hop
+          // would be 8px. The threshold sits between the two.
+          expect(
+            maxJumpPx,
+            lessThan(6),
+            reason: 'largest per-frame centerX jump was $maxJumpPx px',
+          );
+        },
+      );
+
+      test(
+        'region size does not jump for a shaking source',
+        () {
+          // Companion to the position-jump test above: regionSizePx
+          // is driven by the filter's innovation, which spikes
+          // whenever the position measurement jumps — smoothing it
+          // (see VideoDecoder.regionSizeSmoothing) keeps the
+          // reported/displayed size from visibly pulsing in sync.
+          final dec = VideoDecoder(searchRadius: 3);
+          final infos = feedShaking(dec, 40);
+          expect(dec.state, VideoDecoderState.locked);
+
+          final locked = infos.whereType<TrackOverlayInfo>().toList();
+          expect(locked.length, greaterThan(2));
+
+          var maxDelta = 0;
+          for (var i = 1; i < locked.length; i++) {
+            final delta =
+                (locked[i].regionSizePx - locked[i - 1].regionSizePx).abs();
+            if (delta > maxDelta) maxDelta = delta;
+          }
+          expect(
+            maxDelta,
+            lessThanOrEqualTo(6),
+            reason: 'largest per-frame regionSizePx jump was $maxDelta',
+          );
+        },
+      );
     });
   });
 }

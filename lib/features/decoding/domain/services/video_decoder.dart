@@ -131,6 +131,7 @@ class VideoDecoder {
     this.minRegionSize = 8,
     this.maxRegionSize = 32,
     this.backgroundMarginPx = 8,
+    this.regionSizeSmoothing = 0.25,
     this.targetAreaFraction = defaultTargetAreaFraction,
     BrightnessThreshold? threshold,
     AlphaBetaFilter? filter,
@@ -163,6 +164,18 @@ class VideoDecoder {
   /// [_track].
   final int backgroundMarginPx;
 
+  /// Low-pass factor applied to the brightness-reading region's
+  /// size, in `(0, 1]` (higher = follows the raw target size more
+  /// closely, lower = smoother). The raw target size is driven by
+  /// [AlphaBetaFilter.innovation], which is itself a per-frame error
+  /// signal — reading it straight into a *displayed/used* size on
+  /// every frame lets ordinary single-frame noise (in particular,
+  /// the reticle-relative jitter in [_searchPeakVariance]'s
+  /// measurement) show up as the region visibly expanding and
+  /// contracting. Smoothing it decouples "how big should the
+  /// reading region be" from "how noisy was this one frame".
+  final double regionSizeSmoothing;
+
   /// Side of the central target area as a fraction of the smaller
   /// frame dimension.
   ///
@@ -194,6 +207,12 @@ class VideoDecoder {
   // Candidate / locked region (block coordinates)
   bool _isFullFrame = false;
   int _confirmCount = 0;
+
+  /// Low-pass-filtered brightness-reading region size — see
+  /// [regionSizeSmoothing]. `null` until the first tracked frame
+  /// after a (re)lock, so the very first reading snaps straight to
+  /// its raw value instead of smoothing from zero.
+  double? _smoothedRegionSize;
 
   // Timing
   int _lastFrameMs = 0;
@@ -394,15 +413,23 @@ class VideoDecoder {
       _filter.update(result.centerX, result.centerY, dt);
       _lostFrameCount = 0;
 
-      // Read brightness from the tracked region.
-      // Region size adapts to filter innovation — grows
-      // when the source moves unpredictably.
-      final regionSize = (_filter.innovation * 2)
-          .clamp(
-            minRegionSize.toDouble(),
-            maxRegionSize.toDouble(),
-          )
-          .round();
+      // Read brightness from the tracked region. Region size
+      // adapts to filter innovation — grows when the source moves
+      // unpredictably — but innovation is a raw per-frame error
+      // signal, noisy even when the source itself is steady (see
+      // _searchPeakVariance), so low-pass filter it: without this,
+      // the target size — and so the on-screen debug circle —
+      // visibly expands and contracts frame to frame independent of
+      // any real change in motion.
+      final targetRegionSize = (_filter.innovation * 2).clamp(
+        minRegionSize.toDouble(),
+        maxRegionSize.toDouble(),
+      );
+      _smoothedRegionSize = _smoothedRegionSize == null
+          ? targetRegionSize
+          : _smoothedRegionSize! +
+                regionSizeSmoothing * (targetRegionSize - _smoothedRegionSize!);
+      final regionSize = _smoothedRegionSize!.round();
 
       final cx = _filter.x.round();
       final cy = _filter.y.round();
@@ -550,6 +577,7 @@ class VideoDecoder {
     );
     _threshold.reset();
     _filter.reset();
+    _smoothedRegionSize = null;
     _state = VideoDecoderState.scanning;
     _confirmCount = 0;
     _lostFrameCount = 0;
@@ -591,25 +619,61 @@ class VideoDecoder {
     final minBy = max(range.minBy, predBy - searchRadius);
     final maxBy = min(range.maxBy, predBy + searchRadius);
 
+    // Two things are needed from this window: the PEAK variance
+    // (reported as `variance`, gating lock/loss — unchanged
+    // semantics) and a POSITION. The position used to be the peak
+    // block's own center, i.e. a hard argmax — but the light source
+    // is a physical position that rarely aligns to an 8px block
+    // boundary, so it typically splits its variance across two or
+    // more neighboring blocks. Argmax then picks a winner by
+    // whichever block edges out the others on pure per-frame noise,
+    // and visibly SNAPS between block centers (up to blockSize px
+    // apart) as that noise tips the balance a different way frame
+    // to frame — the reported "sudden jump" symptom.
+    //
+    // A variance-weighted centroid over the blocks near the peak
+    // gives sub-block precision instead: it moves continuously as
+    // the true split between neighboring blocks shifts, rather than
+    // snapping wholesale from one block's center to another's.
+    // Computed in the same pass as the peak so the window's
+    // variance isn't recomputed twice (each call re-walks up to
+    // `historySize` frames of history per block).
     var maxVariance = 0.0;
-    var maxBxResult = predBx;
-    var maxByResult = predBy;
-
+    final blockVariances = <double>[];
     for (var by = minBy; by <= maxBy; by++) {
       for (var bx = minBx; bx <= maxBx; bx++) {
         final v = _blockVariance(bx, by);
-        if (v > maxVariance) {
-          maxVariance = v;
-          maxBxResult = bx;
-          maxByResult = by;
-        }
+        blockVariances.add(v);
+        if (v > maxVariance) maxVariance = v;
+      }
+    }
+
+    if (maxVariance <= 0) return _emptyResult;
+
+    // Only blocks close to the peak count toward the centroid —
+    // otherwise a large search window would let distant, barely-lit
+    // background blocks pull the estimate away from the source.
+    const centroidFloorFraction = 0.5;
+    final floor = maxVariance * centroidFloorFraction;
+
+    var weightSum = 0.0;
+    var xSum = 0.0;
+    var ySum = 0.0;
+    var i = 0;
+    for (var by = minBy; by <= maxBy; by++) {
+      for (var bx = minBx; bx <= maxBx; bx++) {
+        final v = blockVariances[i++];
+        if (v < floor) continue;
+        weightSum += v;
+        xSum += v * (bx * blockSize + blockSize / 2.0);
+        ySum += v * (by * blockSize + blockSize / 2.0);
       }
     }
 
     return _SearchResult(
       variance: maxVariance,
-      centerX: maxBxResult * blockSize + blockSize / 2.0,
-      centerY: maxByResult * blockSize + blockSize / 2.0,
+      centerX: xSum / weightSum,
+      centerY: ySum / weightSum,
     );
   }
 
@@ -744,6 +808,7 @@ class VideoDecoder {
     _history.clear();
     _threshold.reset();
     _filter.reset();
+    _smoothedRegionSize = null;
     _builder.reset();
     _lockGate.reset();
     _confirmCount = 0;

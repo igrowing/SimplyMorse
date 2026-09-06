@@ -551,4 +551,63 @@ void main() {
       },
     );
   });
+
+  group('SeeScreen status bar wrapping', () {
+    late CameraPlatform originalCameraPlatform;
+
+    setUp(() {
+      originalCameraPlatform = CameraPlatform.instance;
+      CameraPlatform.instance = FakeCameraPlatform(
+        previewSize: const Size(1280, 720),
+      );
+    });
+
+    tearDown(() {
+      CameraPlatform.instance = originalCameraPlatform;
+    });
+
+    testWidgets(
+      'splits into two lines when the state + details do not fit',
+      (tester) async {
+        // Narrow enough that "Idle  ·  1280×720" cannot fit one
+        // line alongside the status icon and the pill's own
+        // padding.
+        tester
+          ..view.physicalSize = const Size(130, 600)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final camImpl = GetIt.instance<CameraCaptureImpl>();
+        await camImpl.initialize();
+
+        await pumpScreen(tester);
+
+        // Split into a state line and a details line, each its own
+        // Text widget — not silently ellipsized away as one line.
+        expect(find.text('Idle'), findsOneWidget);
+        expect(find.text('1280×720'), findsOneWidget);
+        // The combined single-line form must NOT be present.
+        expect(find.textContaining('Idle  ·'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'stays on one line on a wide enough screen',
+      (tester) async {
+        tester
+          ..view.physicalSize = const Size(800, 600)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final camImpl = GetIt.instance<CameraCaptureImpl>();
+        await camImpl.initialize();
+
+        await pumpScreen(tester);
+
+        expect(find.text('Idle  ·  1280×720'), findsOneWidget);
+      },
+    );
+  });
 }

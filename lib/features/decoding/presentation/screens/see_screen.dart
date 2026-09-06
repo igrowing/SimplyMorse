@@ -38,7 +38,8 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 ///   the brightness-reading region, with a dot/dash label above
 ///   it showing the live classification of the mark in progress
 ///   (see [TrackedSpotPainter]),
-/// - the top holds the status line (state, WPM, measured FPS)
+/// - the top holds the status line (state, capture resolution,
+///   WPM, measured FPS)
 ///   and a translucent box with the decoded text,
 /// - the bottom holds the four actions in two rows:
 ///   start/pause + clear, then copy + share.
@@ -116,6 +117,26 @@ class _SeeScreenState extends State<SeeScreen> {
     }
 
     _controller.start();
+
+    // TEMP DEBUG: surface the video debug log's file path so it
+    // can be found without adb/console access. Remove this block
+    // together with the `enabled: true` override in injection.dart
+    // once the video decoder investigation is done. The path is
+    // set asynchronously inside VideoDebugLogger.start() (it awaits
+    // getApplicationDocumentsDirectory()), so give it a moment.
+    if (_controller.isVideoDebugLoggingEnabled) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      final path = _controller.videoDebugLogPath;
+      debugPrint('Video debug log: $path');
+      if (mounted && path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Video debug log:\n$path'),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _onPausePressed() async {
@@ -356,39 +377,115 @@ class _SeeScreenState extends State<SeeScreen> {
     );
   }
 
-  /// Status line: state, WPM, and the measured capture FPS
-  /// while decoding.
+  static const double _statusBarHorizontalPadding = 14;
+  static const double _statusBarIconSize = 10;
+  static const double _statusBarIconGap = 8;
+
+  /// Status line: state, camera capture resolution, WPM, and the
+  /// measured capture FPS while decoding.
+  ///
+  /// Adding the resolution alongside WPM/FPS made this line long
+  /// enough to risk not fitting a narrow phone width — rather than
+  /// silently ellipsizing away trailing detail (e.g. the FPS),
+  /// measure it against the space actually available and fall back
+  /// to a second line (state on top, details below) when it
+  /// doesn't fit.
   Widget _buildStatusBar(BuildContext context, DecodingController ctrl) {
     final (color, label) = switch (ctrl.status) {
       DecodingStatus.idle => (Colors.white70, 'Idle'),
       DecodingStatus.listening => (Colors.greenAccent, 'Watching…'),
       DecodingStatus.paused => (Colors.amber, 'Paused'),
     };
+    // The raw capture resolution — shown so a visibly cropped/
+    // narrow field of view can be traced back to how low a
+    // resolution ResolutionPreset.low actually granted, rather
+    // than only to the cover-fit crop itself.
+    final previewSize = _cameraCapture.controller?.value.previewSize;
     final details = <String>[
+      if (previewSize != null)
+        '${previewSize.width.round()}×${previewSize.height.round()}',
       if (ctrl.currentWpm > 0) '${ctrl.currentWpm} WPM',
       if (ctrl.isListening && ctrl.captureFps > 0) '${ctrl.captureFps} FPS',
     ];
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 10, color: color),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              details.isEmpty ? label : '$label  ·  ${details.join('  ·  ')}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: color, fontSize: 14),
-            ),
+    final style = TextStyle(color: color, fontSize: 14);
+    final detailsText = details.join('  ·  ');
+    final oneLineText = details.isEmpty ? label : '$label  ·  $detailsText';
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textBudget =
+            constraints.maxWidth -
+            _statusBarHorizontalPadding * 2 -
+            _statusBarIconSize -
+            _statusBarIconGap;
+        final painter = TextPainter(
+          text: TextSpan(text: oneLineText, style: style),
+          maxLines: 1,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: max(0, textBudget));
+        final fitsOneLine = !painter.didExceedMaxLines;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: _statusBarHorizontalPadding,
+            vertical: 8,
           ),
-        ],
-      ),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: fitsOneLine || details.isEmpty
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.circle,
+                      size: _statusBarIconSize,
+                      color: color,
+                    ),
+                    const SizedBox(width: _statusBarIconGap),
+                    Flexible(
+                      child: Text(
+                        oneLineText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: style,
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.circle,
+                          size: _statusBarIconSize,
+                          color: color,
+                        ),
+                        const SizedBox(width: _statusBarIconGap),
+                        Text(label, style: style),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        left: _statusBarIconSize + _statusBarIconGap,
+                      ),
+                      child: Text(
+                        detailsText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: style,
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 
@@ -759,7 +856,7 @@ class TrackedSpotPainter extends CustomPainter {
     // markClassified rather than guessing).
     if (!info.signalOn || !info.markClassified) return;
 
-    final label = info.isDash ? 'dash' : 'dot';
+    final label = info.isDash ? '-' : '.';
     final text = TextPainter(
       text: TextSpan(
         text: label,

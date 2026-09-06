@@ -88,7 +88,11 @@ Future<void> configureDependencies() async {
       ),
     )
     ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
-    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger());
+    // TEMP DEBUG: enabled to investigate the video decoder —
+    // flip back to `enabled: false` (or remove the argument, the
+    // default) once done. Writes a timestamped CSV to the app's
+    // documents directory; see VideoDebugLogger.start().
+    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger(enabled: true));
 
   // Camera capture lifecycle events (frame-rate requests,
   // fallbacks, exposure mode) go to the video debug log when
