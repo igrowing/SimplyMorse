@@ -119,6 +119,17 @@ void main() {
     testWidgets(
       'bottom actions are split into two rows',
       (tester) async {
+        // This 2x2 grid is the portrait layout specifically (the
+        // landscape layout stacks all four vertically in a side
+        // column instead — see 'action buttons stack vertically in
+        // landscape' below) — force a portrait shape rather than
+        // relying on the default test surface.
+        tester
+          ..view.physicalSize = const Size(400, 800)
+          ..view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
         await pumpScreen(tester);
 
         // First row: Start/Pause + Clear. Second row: Copy + Share,
@@ -633,9 +644,10 @@ void main() {
     testWidgets(
       'splits into two lines when the state + details do not fit',
       (tester) async {
-        // Narrow enough that "Idle  ·  1280×720" cannot fit one
-        // line alongside the status icon and the pill's own
-        // padding.
+        // Narrow enough that "Idle  ·  1280×720  ·  120 FPS" cannot
+        // fit one line alongside the status icon and the pill's own
+        // padding. This is a portrait shape (600 > 130), so it hits
+        // the portrait layout's status bar.
         tester
           ..view.physicalSize = const Size(130, 600)
           ..view.devicePixelRatio = 1.0;
@@ -649,8 +661,13 @@ void main() {
 
         // Split into a state line and a details line, each its own
         // Text widget — not silently ellipsized away as one line.
+        // The negotiated capture rate (120, the first of
+        // CameraCaptureImpl's preferred rates FakeCameraPlatform
+        // always grants) shows alongside the resolution even while
+        // idle — see the status bar's doc comment.
         expect(find.text('Idle'), findsOneWidget);
-        expect(find.text('1280×720'), findsOneWidget);
+        expect(find.textContaining('1280×720'), findsOneWidget);
+        expect(find.textContaining('120 FPS'), findsOneWidget);
         // The combined single-line form must NOT be present.
         expect(find.textContaining('Idle  ·'), findsNothing);
       },
@@ -659,6 +676,10 @@ void main() {
     testWidgets(
       'stays on one line on a wide enough screen',
       (tester) async {
+        // Landscape shape (800 > 600) — hits the landscape layout,
+        // which still keeps the status bar at the top (see
+        // _buildLandscapeBody), and it's wide enough that the same
+        // text needn't wrap there either.
         tester
           ..view.physicalSize = const Size(800, 600)
           ..view.devicePixelRatio = 1.0;
@@ -670,8 +691,99 @@ void main() {
 
         await pumpScreen(tester);
 
-        expect(find.text('Idle  ·  1280×720'), findsOneWidget);
+        expect(find.text('Idle  ·  1280×720  ·  120 FPS'), findsOneWidget);
       },
     );
+  });
+
+  group('SeeScreen landscape layout', () {
+    // Reproduces the reported bug: with a real (initialized)
+    // camera, the portrait overlay design's decoded-text box is
+    // gated on leftover vertical space above the reticle
+    // (`reticleEdgeGap > 120`), which can shrink to nothing once
+    // the live preview is letterboxed rather than full-bleed — the
+    // box then never showed at all in landscape. The landscape
+    // layout instead gives it (and the action buttons) dedicated
+    // panels that don't depend on that heuristic.
+    late CameraPlatform originalCameraPlatform;
+
+    setUp(() {
+      originalCameraPlatform = CameraPlatform.instance;
+      CameraPlatform.instance = FakeCameraPlatform(
+        previewSize: const Size(1280, 720),
+      );
+    });
+
+    tearDown(() {
+      CameraPlatform.instance = originalCameraPlatform;
+    });
+
+    Future<void> pumpLandscape(WidgetTester tester) async {
+      tester
+        ..view.physicalSize = const Size(800, 400)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final camImpl = GetIt.instance<CameraCaptureImpl>();
+      await camImpl.initialize();
+
+      await pumpScreen(tester);
+    }
+
+    testWidgets('decoded text box is visible (not gated away)', (
+      tester,
+    ) async {
+      await pumpLandscape(tester);
+      expect(
+        find.text('Decoded text will appear here…'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('decoded text box sits on the left of the screen', (
+      tester,
+    ) async {
+      await pumpLandscape(tester);
+
+      final screenRect = tester.getRect(find.byType(MaterialApp));
+      final textFieldRect = tester.getRect(find.byType(TextField));
+
+      expect(textFieldRect.left, lessThan(screenRect.width * 0.35));
+      expect(textFieldRect.right, lessThan(screenRect.width * 0.5));
+    });
+
+    testWidgets(
+      'action buttons form a vertical stack on the right',
+      (tester) async {
+        await pumpLandscape(tester);
+
+        final screenRect = tester.getRect(find.byType(MaterialApp));
+        final startRect = tester.getRect(find.text('Start'));
+        final clearRect = tester.getRect(find.text('Clear'));
+        final copyRect = tester.getRect(find.text('Copy'));
+        final shareRect = tester.getRect(find.text('Share'));
+
+        // On the right of the screen ...
+        for (final r in [startRect, clearRect, copyRect, shareRect]) {
+          expect(r.left, greaterThan(screenRect.width * 0.6));
+        }
+        // ... stacked vertically, in order, one per row (each
+        // button's row strictly below the previous one) — not
+        // paired up two-per-row the way the portrait layout does.
+        expect(clearRect.top, greaterThan(startRect.bottom));
+        expect(copyRect.top, greaterThan(clearRect.bottom));
+        expect(shareRect.top, greaterThan(copyRect.bottom));
+      },
+    );
+
+    testWidgets('status bar stays near the top', (tester) async {
+      await pumpLandscape(tester);
+
+      final screenRect = tester.getRect(find.byType(MaterialApp));
+      final statusRect = tester.getRect(find.textContaining('Idle'));
+
+      expect(statusRect.top, lessThan(screenRect.height * 0.25));
+    });
   });
 }

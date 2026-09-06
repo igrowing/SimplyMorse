@@ -20,34 +20,36 @@ import 'package:simply_morse/features/settings/presentation/screens/settings_scr
 
 /// Screen for visual Morse decoding via camera.
 ///
-/// Full-screen camera preview with a targeting overlay:
-/// - the live preview is letterboxed (contain-fit, no crop): the
-///   full captured frame is always visible, scaled to the largest
-///   size that fits the screen, with black bars filling the rest
-///   — on the sides in landscape (the screen is proportionally
-///   wider than the frame), top/bottom in portrait (the screen is
-///   proportionally taller). Nothing outside the frame is ever
-///   hidden, so the full field of view stays available for aiming.
-///   The reticle and the tracked-spot overlay live inside the same
-///   full-frame coordinate space, so they stay mapped 1:1 to the
-///   decoder's target area regardless of letterbox size,
-/// - a centered corner-bracket reticle shows where to aim the
-///   transmitting light — scanning is confined to this area by
-///   [VideoDecoder.targetAreaFraction], the inside is clean so
-///   nothing blocks the view of the light,
-/// - a debug aid drawn while the decoder is locked on the source:
-///   a yellow circle of twice the detected spot's diameter tracks
-///   the brightness-reading region, with a dot/dash label above
-///   it showing the live classification of the mark in progress
-///   (see [TrackedSpotPainter]),
-/// - the top holds the status line (state, capture resolution,
-///   WPM, measured FPS)
-///   and a translucent box with the decoded text,
-/// - the bottom holds the four actions in two rows:
-///   start/pause + clear, then copy + share.
+/// The live preview (built by `_buildCameraArea`) is shared by both
+/// orientations: letterboxed (contain-fit, no crop) so the full
+/// captured frame is always visible, scaled to the largest size
+/// that fits whatever box it's given, with black bars filling the
+/// rest — on the sides in landscape, top/bottom in portrait.
+/// Nothing outside the frame is ever hidden, so the full field of
+/// view stays available for aiming. A centered corner-bracket
+/// reticle shows where to aim the transmitting light — scanning is
+/// confined to this area by [VideoDecoder.targetAreaFraction], the
+/// inside is clean so nothing blocks the view of the light — and a
+/// debug aid drawn while the decoder is locked on the source (a
+/// yellow circle of twice the detected spot's diameter, with a
+/// dot/dash label above it showing the live classification of the
+/// mark in progress; see [TrackedSpotPainter]) shares the same
+/// coordinate space.
 ///
-/// The top and bottom overlays are sized so they never cover
-/// the reticle.
+/// Everything else differs by orientation, since a bottom-heavy
+/// phone-in-portrait layout doesn't suit a landscape grip:
+/// - **Portrait** (`_buildPortraitBody`): the preview fills the
+///   screen behind everything else, with the status line and
+///   decoded text translucent-overlaid at the top and the four
+///   actions (two rows of two) translucent-overlaid at the bottom
+///   — sized so they never cover the reticle.
+/// - **Landscape** (`_buildLandscapeBody`): a real side-by-side
+///   split instead of overlays — status bar pinned to the top,
+///   decoded text in a dedicated left panel (always visible,
+///   unlike portrait's overlay it isn't gated on leftover space
+///   above the reticle), the preview in the middle, and the four
+///   actions stacked in a right-hand column within thumb reach of
+///   a landscape grip.
 ///
 /// On web, camera frame streaming is not supported — the
 /// screen displays an informational message instead.
@@ -198,17 +200,206 @@ class _SeeScreenState extends State<SeeScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final screenW = constraints.maxWidth;
-        final screenH = constraints.maxHeight;
+        // Device-level orientation — NOT the shape of whatever box
+        // a given piece of UI ends up with (the landscape layout's
+        // camera area, for instance, is narrower than the full
+        // screen once the side panels are subtracted, and could
+        // even end up taller than wide on a small enough device;
+        // that must not flip the sensor-rotation correction, which
+        // depends on how the *device* — not some sub-box — is held).
+        final isPortrait = constraints.maxHeight > constraints.maxWidth;
+        return isPortrait
+            ? _buildPortraitBody(
+                context,
+                ctrl,
+                constraints,
+                camController,
+                previewReady,
+              )
+            : _buildLandscapeBody(context, ctrl, camController, previewReady);
+      },
+    );
+  }
 
-        // Contain-fit (BoxFit.contain) preview geometry: the frame
-        // is scaled to the largest size that fits entirely within
-        // the screen, so it's never cropped — the AspectRatio
-        // widget below does the actual layout, but the reticle's
-        // on-screen side (and the gap that gates the decoded-text
-        // overlay) needs that same resulting size ahead of it, so
-        // it's computed here too.
-        //
+  /// Portrait layout: the live preview fills the screen behind
+  /// everything else, with the status line + decoded text
+  /// translucent-overlaid at the top and the four actions
+  /// translucent-overlaid at the bottom.
+  Widget _buildPortraitBody(
+    BuildContext context,
+    DecodingController ctrl,
+    BoxConstraints constraints,
+    CameraController? camController,
+    bool previewReady,
+  ) {
+    final screenW = constraints.maxWidth;
+    final screenH = constraints.maxHeight;
+
+    // Contain-fit preview geometry, duplicated from _buildCameraArea
+    // (which computes the same thing internally once it's given
+    // this same full-screen box) — needed here ahead of time only
+    // to size the reticle-relative gap that gates the decoded-text
+    // overlay below.
+    var scaledW = screenW;
+    var scaledH = screenH;
+    if (previewReady) {
+      final sensorAspect = camController!.value.aspectRatio;
+      final aspect = 1 / sensorAspect;
+      if (screenW / screenH > aspect) {
+        scaledH = screenH;
+        scaledW = screenH * aspect;
+      } else {
+        scaledW = screenW;
+        scaledH = screenW / aspect;
+      }
+    }
+    final reticleSide =
+        VideoDecoder.defaultTargetAreaFraction * min(scaledW, scaledH);
+    // Vertical gap between the screen's top/bottom edge and the
+    // reticle's bounding box — the overlays must stay inside it so
+    // they never cover the target.
+    final reticleEdgeGap = (screenH - reticleSide) / 2;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _buildCameraArea(
+          context,
+          ctrl,
+          camController,
+          previewReady,
+          isPortrait: true,
+        ),
+
+        // Top: status line + translucent decoded-text box. The
+        // text box only shows if there's room left over above the
+        // reticle without covering it — on a landscape screen this
+        // gap can shrink to nothing (see _buildLandscapeBody, which
+        // gives the text its own dedicated panel instead).
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildStatusBar(context, ctrl),
+                  if (reticleEdgeGap > 120) ...[
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: reticleEdgeGap - 120,
+                      ),
+                      child: _buildDecodedTextBox(context, ctrl),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // Bottom: all four actions in one row.
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: _buildBottomButtons(context, ctrl),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Width of the decoded-text panel in the landscape layout.
+  static const double _landscapeTextPanelWidth = 240;
+
+  /// Width of the action-button column in the landscape layout.
+  static const double _landscapeButtonPanelWidth = 140;
+
+  /// Landscape layout: a real side-by-side split rather than
+  /// overlays on top of the camera, since overlaying left the
+  /// decoded-text box with nowhere to go once the letterboxed
+  /// preview stopped guaranteeing a tall gap above the reticle (it
+  /// simply never showed — see the portrait branch's comment) and
+  /// put the action buttons in a bottom strip that's awkward to
+  /// reach one-handed in landscape. Status bar stays pinned to the
+  /// top; decoded text gets a dedicated left panel that's always
+  /// visible; actions become a right-hand column, within thumb
+  /// reach of a landscape grip.
+  Widget _buildLandscapeBody(
+    BuildContext context,
+    DecodingController ctrl,
+    CameraController? camController,
+    bool previewReady,
+  ) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildStatusBar(context, ctrl),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: _landscapeTextPanelWidth,
+                    child: _buildDecodedTextBox(context, ctrl, expand: true),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCameraArea(
+                      context,
+                      ctrl,
+                      camController,
+                      previewReady,
+                      isPortrait: false,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: _landscapeButtonPanelWidth,
+                    child: _buildSideButtons(context, ctrl),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The live preview with the targeting reticle and the
+  /// tracked-spot debug overlay, contain-fitted (letterboxed) to
+  /// whatever box it's given — reused by both the portrait
+  /// (full-screen) and landscape (center panel) layouts.
+  ///
+  /// [isPortrait] must reflect the DEVICE's orientation, not this
+  /// widget's own box shape — see the comment in [_buildBody].
+  Widget _buildCameraArea(
+    BuildContext context,
+    DecodingController ctrl,
+    CameraController? camController,
+    bool previewReady, {
+    required bool isPortrait,
+  }) {
+    if (!previewReady) return _buildCameraPlaceholder(context);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
         // camController.value.aspectRatio is always the camera's
         // raw SENSOR (landscape) aspect ratio, regardless of how
         // the phone is held — CameraPreview itself corrects for
@@ -216,144 +407,65 @@ class _SeeScreenState extends State<SeeScreen> {
         // that correction only kicks in when CameraPreview is
         // given a loose box to size itself; the box handed to it
         // below needs the same correction applied up front.
-        final isPortrait = screenH > screenW;
-        var scaledW = screenW;
-        var scaledH = screenH;
-        var aspect = screenW / screenH;
-        if (previewReady) {
-          final sensorAspect = camController.value.aspectRatio;
-          aspect = isPortrait ? 1 / sensorAspect : sensorAspect;
-          // Contain fit picks the axis that keeps the OTHER axis
-          // within bounds — the mirror image of cover-fit's choice,
-          // which instead picks whichever axis overflows the other.
-          if (screenW / screenH > aspect) {
-            // Screen is proportionally wider than the frame: match
-            // height, bars left/right (typically landscape).
-            scaledH = screenH;
-            scaledW = screenH * aspect;
-          } else {
-            // Screen is proportionally taller than the frame: match
-            // width, bars top/bottom (typically portrait).
-            scaledW = screenW;
-            scaledH = screenW / aspect;
-          }
-        }
-        final reticleSide =
-            VideoDecoder.defaultTargetAreaFraction * min(scaledW, scaledH);
-        // Vertical gap between the screen's top/bottom edge and
-        // the reticle's bounding box — the overlays must stay
-        // inside it so they never cover the target.
-        final reticleEdgeGap = (screenH - reticleSide) / 2;
+        final sensorAspect = camController!.value.aspectRatio;
+        final aspect = isPortrait ? 1 / sensorAspect : sensorAspect;
 
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            // Live preview with the targeting reticle: the frame
-            // is contain-fitted (AspectRatio picks the largest box
-            // of the right shape that fits the screen), so the
-            // full field of view is always visible — black bars
-            // (the Scaffold's background) fill the rest on
-            // whichever axis has room to spare. The overlays inside
-            // the child Stack stay in the full frame's 1:1
-            // coordinate space, so they line up regardless of how
-            // big the letterboxed box ends up.
-            if (previewReady)
-              Center(
-                child: AspectRatio(
-                  aspectRatio: aspect,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CameraPreview(camController),
-                      Center(
-                        child: LayoutBuilder(
-                          builder: (context, box) {
-                            final side =
-                                VideoDecoder.defaultTargetAreaFraction *
-                                min(box.maxWidth, box.maxHeight);
-                            return CustomPaint(
-                              key: const Key('targeting-reticle'),
-                              size: Size.square(side),
-                              painter: TargetReticlePainter(
-                                color: ctrl.isListening
-                                    ? Colors.greenAccent
-                                    : Colors.white,
-                              ),
-                            );
-                          },
+        return Center(
+          // Contain-fit (BoxFit.contain): AspectRatio picks the
+          // largest box of the right shape that fits within
+          // whatever space this widget was given, so the full
+          // field of view is always visible — black bars fill the
+          // rest on whichever axis has room to spare. The overlays
+          // inside the child Stack stay in the full frame's 1:1
+          // coordinate space, so they line up regardless of how big
+          // the letterboxed box ends up.
+          child: AspectRatio(
+            aspectRatio: aspect,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CameraPreview(camController),
+                Center(
+                  child: LayoutBuilder(
+                    builder: (context, box) {
+                      final side =
+                          VideoDecoder.defaultTargetAreaFraction *
+                          min(box.maxWidth, box.maxHeight);
+                      return CustomPaint(
+                        key: const Key('targeting-reticle'),
+                        size: Size.square(side),
+                        painter: TargetReticlePainter(
+                          color: ctrl.isListening
+                              ? Colors.greenAccent
+                              : Colors.white,
                         ),
-                      ),
-                      // Debug aid: while the decoder is locked on
-                      // the source, a yellow circle of twice the
-                      // detected spot's diameter marks the tracked
-                      // region and a dot/dash label shows the live
-                      // mark classification. Painted in the same
-                      // coordinate space as the full camera frame,
-                      // so the fraction-based telemetry maps 1:1.
-                      ValueListenableBuilder<TrackOverlayInfo?>(
-                        valueListenable: ctrl.trackOverlay,
-                        builder: (context, info, _) {
-                          if (info == null) {
-                            return const SizedBox.shrink();
-                          }
-                          return CustomPaint(
-                            key: const Key('tracked-spot-overlay'),
-                            painter: TrackedSpotPainter(
-                              info: info,
-                              isPortrait: isPortrait,
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
-              )
-            else
-              _buildCameraPlaceholder(context),
-
-            // Top: status line + translucent decoded-text box.
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildStatusBar(context, ctrl),
-                      if (reticleEdgeGap > 120) ...[
-                        const SizedBox(height: 8),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: reticleEdgeGap - 120,
-                          ),
-                          child: _buildDecodedTextBox(context, ctrl),
-                        ),
-                      ],
-                    ],
-                  ),
+                // Debug aid: while the decoder is locked on the
+                // source, a yellow circle of twice the detected
+                // spot's diameter marks the tracked region and a
+                // dot/dash label shows the live mark
+                // classification. Painted in the same coordinate
+                // space as the full camera frame, so the
+                // fraction-based telemetry maps 1:1.
+                ValueListenableBuilder<TrackOverlayInfo?>(
+                  valueListenable: ctrl.trackOverlay,
+                  builder: (context, info, _) {
+                    if (info == null) return const SizedBox.shrink();
+                    return CustomPaint(
+                      key: const Key('tracked-spot-overlay'),
+                      painter: TrackedSpotPainter(
+                        info: info,
+                        isPortrait: isPortrait,
+                      ),
+                    );
+                  },
                 ),
-              ),
+              ],
             ),
-
-            // Bottom: all four actions in one row.
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: _buildBottomButtons(context, ctrl),
-                ),
-              ),
-            ),
-          ],
+          ),
         );
       },
     );
@@ -398,13 +510,21 @@ class _SeeScreenState extends State<SeeScreen> {
     // The raw capture resolution — shown so a visibly cropped/
     // narrow field of view can be traced back to how low a
     // resolution ResolutionPreset.low actually granted, rather
-    // than only to the cover-fit crop itself.
+    // than only to the letterbox/crop fit itself.
     final previewSize = _cameraCapture.controller?.value.previewSize;
+    // The camera negotiates its capture rate as soon as it
+    // initializes (see CameraCaptureImpl.initialize's fallback
+    // chain) — well before Start is pressed — so that rate is
+    // known, and worth showing, from Idle onward. Once actually
+    // streaming, the MEASURED rate is more informative (it catches
+    // a platform silently delivering less than it granted), so
+    // switch to that instead.
+    final fps = ctrl.isListening ? ctrl.captureFps : _cameraCapture.frameRate;
     final details = <String>[
       if (previewSize != null)
         '${previewSize.width.round()}×${previewSize.height.round()}',
+      if (previewSize != null && fps > 0) '$fps FPS',
       if (ctrl.currentWpm > 0) '${ctrl.currentWpm} WPM',
-      if (ctrl.isListening && ctrl.captureFps > 0) '${ctrl.captureFps} FPS',
     ];
     final style = TextStyle(color: color, fontSize: 14);
     final detailsText = details.join('  ·  ');
@@ -489,10 +609,16 @@ class _SeeScreenState extends State<SeeScreen> {
   }
 
   /// Half-transparent, editable box with the decoded text.
+  ///
+  /// [expand] makes the field fill whatever height its parent
+  /// gives it instead of sizing to at most 3 lines — used for the
+  /// landscape layout's dedicated text panel, which has real
+  /// vertical room to spare (see [_buildLandscapeBody]).
   Widget _buildDecodedTextBox(
     BuildContext context,
-    DecodingController ctrl,
-  ) {
+    DecodingController ctrl, {
+    bool expand = false,
+  }) {
     if (_textController.text != ctrl.decodedText) {
       _textController.text = ctrl.decodedText;
     }
@@ -505,8 +631,10 @@ class _SeeScreenState extends State<SeeScreen> {
       child: TextField(
         controller: _textController,
         style: const TextStyle(color: Colors.white),
-        maxLines: 3,
-        minLines: 1,
+        expands: expand,
+        maxLines: expand ? null : 3,
+        minLines: expand ? null : 1,
+        textAlignVertical: expand ? TextAlignVertical.top : null,
         decoration: const InputDecoration(
           border: InputBorder.none,
           isDense: true,
@@ -518,10 +646,11 @@ class _SeeScreenState extends State<SeeScreen> {
     );
   }
 
-  /// The four actions in two rows: Start/Pause + Clear on the
-  /// first, Copy + Share on the second — each button stays wide
-  /// enough to read and tap comfortably.
-  Widget _buildBottomButtons(
+  /// Builds the four action buttons (Start/Pause/Resume, Clear,
+  /// Copy, Share) as a list — each already `Expanded`, ready to
+  /// drop into a `Row` (portrait, two per row) or a `Column`
+  /// (landscape, one per row) without repeating their config.
+  List<Widget> _buildActionButtons(
     BuildContext context,
     DecodingController ctrl,
   ) {
@@ -569,49 +698,76 @@ class _SeeScreenState extends State<SeeScreen> {
       );
     }
 
+    return [
+      action(
+        onPressed: isStart
+            ? _onStartPressed
+            : isPause
+            ? _onPausePressed
+            : _onResumePressed,
+        icon: isPause ? Icons.pause : Icons.play_arrow,
+        label: isStart
+            ? 'Start'
+            : isPause
+            ? 'Pause'
+            : 'Resume',
+        primary: true,
+      ),
+      action(
+        onPressed: hasText || !ctrl.isIdle ? _onClearPressed : null,
+        icon: Icons.clear,
+        label: 'Clear',
+      ),
+      action(
+        onPressed: hasText ? _onCopyPressed : null,
+        icon: Icons.copy,
+        label: 'Copy',
+      ),
+      action(
+        onPressed: hasText ? _onSharePressed : null,
+        icon: Icons.share,
+        label: 'Share',
+      ),
+    ];
+  }
+
+  /// The four actions in two rows: Start/Pause + Clear on the
+  /// first, Copy + Share on the second — each button stays wide
+  /// enough to read and tap comfortably. Used in the portrait
+  /// layout's bottom strip.
+  Widget _buildBottomButtons(
+    BuildContext context,
+    DecodingController ctrl,
+  ) {
+    final actions = _buildActionButtons(context, ctrl);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            action(
-              onPressed: isStart
-                  ? _onStartPressed
-                  : isPause
-                  ? _onPausePressed
-                  : _onResumePressed,
-              icon: isPause ? Icons.pause : Icons.play_arrow,
-              label: isStart
-                  ? 'Start'
-                  : isPause
-                  ? 'Pause'
-                  : 'Resume',
-              primary: true,
-            ),
-            const SizedBox(width: 8),
-            action(
-              onPressed: hasText || !ctrl.isIdle ? _onClearPressed : null,
-              icon: Icons.clear,
-              label: 'Clear',
-            ),
-          ],
-        ),
+        Row(children: [actions[0], const SizedBox(width: 8), actions[1]]),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            action(
-              onPressed: hasText ? _onCopyPressed : null,
-              icon: Icons.copy,
-              label: 'Copy',
-            ),
-            const SizedBox(width: 8),
-            action(
-              onPressed: hasText ? _onSharePressed : null,
-              icon: Icons.share,
-              label: 'Share',
-            ),
-          ],
-        ),
+        Row(children: [actions[2], const SizedBox(width: 8), actions[3]]),
+      ],
+    );
+  }
+
+  /// The four actions stacked vertically — used in the landscape
+  /// layout's right-hand column, within thumb reach of a landscape
+  /// grip rather than a bottom strip that's awkward to reach
+  /// one-handed in that orientation.
+  Widget _buildSideButtons(
+    BuildContext context,
+    DecodingController ctrl,
+  ) {
+    final actions = _buildActionButtons(context, ctrl);
+    return Column(
+      children: [
+        actions[0],
+        const SizedBox(height: 8),
+        actions[1],
+        const SizedBox(height: 8),
+        actions[2],
+        const SizedBox(height: 8),
+        actions[3],
       ],
     );
   }
