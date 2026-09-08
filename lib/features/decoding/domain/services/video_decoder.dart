@@ -768,8 +768,7 @@ class VideoDecoder {
     // the noise floor and keeps spurious blips from crossing it, so
     // freezing there manufactures false elements. `_minMarkSamples`
     // completed marks is the same bar the dit estimate uses.
-    final freezeLevels =
-        held && _markDurationsMs.length >= _minMarkSamples;
+    final freezeLevels = held && _markDurationsMs.length >= _minMarkSamples;
     final isOn = _threshold.process(
       brightness,
       timestampMs: frame.timestampMs,
@@ -843,12 +842,13 @@ class VideoDecoder {
       held: held,
     );
 
-    _builder.transition(nowOn: isOn, timeMs: _threshold.effectiveTransitionMs);
-    // Release the previous element as soon as it can no longer be
-    // merged, rather than holding it until the next mark — otherwise
-    // the last element of every character stays unseen for the whole
-    // inter-character gap (a `V` reads as `S` until the next letter).
-    _builder.tick(frame.timestampMs.toDouble());
+    _builder
+      ..transition(nowOn: isOn, timeMs: _threshold.effectiveTransitionMs)
+      // Release the previous element as soon as it can no longer be
+      // merged, rather than holding it until the next mark — otherwise
+      // the last element of every character stays unseen for the whole
+      // inter-character gap (a `V` reads as `S` until the next letter).
+      ..tick(frame.timestampMs.toDouble());
   }
 
   // -- Debug overlay telemetry ------------------------------------

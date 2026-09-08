@@ -110,6 +110,14 @@ class MorseCodeTable {
 
   // ── Space (word separator) ─────────────────────────────────
 
+  // ── Public read-only views per character set ─────────────
+  /// Used by the info screen to present the full decode table.
+  static Map<String, String> get letters => _latin;
+  static Map<String, String> get digits => _numbers;
+  static Map<String, String> get punctuation => _punctuation;
+  static Map<String, String> get prosigns => _prosigns;
+  static Map<String, String> get latinExtended => _latinExtended;
+
   // ── Full encode table (all priorities) ────────────────────
   static const Map<String, String> _table = {
     ..._latin,

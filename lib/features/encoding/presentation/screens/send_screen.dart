@@ -12,6 +12,7 @@ import 'package:simply_morse/features/encoding/domain/models/output_method.dart'
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/transmission_progress_text.dart';
+import 'package:simply_morse/features/info/presentation/screens/info_screen.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for composing and transmitting Morse code.
@@ -114,6 +115,7 @@ class _SendScreenState extends State<SendScreen> {
       child: Scaffold(
         appBar: AppTopBar(
           onSettingsTap: () => _navigateToSettings(context),
+          onInfoTap: () => _navigateToInfo(context),
         ),
         body: Stack(
           children: [
@@ -826,6 +828,14 @@ class _SendScreenState extends State<SendScreen> {
             onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
           ),
         ),
+      ),
+    );
+  }
+
+  void _navigateToInfo(BuildContext context) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
       ),
     );
   }

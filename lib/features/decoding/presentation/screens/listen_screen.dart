@@ -10,6 +10,7 @@ import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart'
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/info/presentation/screens/info_screen.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for audio-based Morse decoding via microphone.
@@ -116,6 +117,7 @@ class _ListenScreenState extends State<ListenScreen> {
       child: Scaffold(
         appBar: AppTopBar(
           onSettingsTap: () => _navigateToSettings(context),
+          onInfoTap: () => _navigateToInfo(context),
         ),
         body: SafeArea(
           child: LayoutBuilder(
@@ -416,6 +418,14 @@ class _ListenScreenState extends State<ListenScreen> {
             onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
           ),
         ),
+      ),
+    );
+  }
+
+  void _navigateToInfo(BuildContext context) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
       ),
     );
   }

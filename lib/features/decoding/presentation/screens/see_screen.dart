@@ -17,6 +17,7 @@ import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/info/presentation/screens/info_screen.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for visual Morse decoding via camera.
@@ -229,6 +230,7 @@ class _SeeScreenState extends State<SeeScreen> {
             : AppTopBar(
                 titleText: 'Watch',
                 onSettingsTap: () => _navigateToSettings(context),
+                onInfoTap: () => _navigateToInfo(context),
               ),
         backgroundColor: Colors.black,
         body: Consumer<DecodingController>(
@@ -298,8 +300,7 @@ class _SeeScreenState extends State<SeeScreen> {
         scaledH = screenW / aspect;
       }
     }
-    final reticleSide =
-        VideoDecoder.reticleFraction * min(scaledW, scaledH);
+    final reticleSide = VideoDecoder.reticleFraction * min(scaledW, scaledH);
     // Vertical gap between the screen's top/bottom edge and the
     // reticle's bounding box — the overlays must stay inside it so
     // they never cover the target.
@@ -872,6 +873,7 @@ class _SeeScreenState extends State<SeeScreen> {
     return Scaffold(
       appBar: AppTopBar(
         onSettingsTap: () => _navigateToSettings(context),
+        onInfoTap: () => _navigateToInfo(context),
       ),
       body: Center(
         child: Padding(
@@ -920,6 +922,14 @@ class _SeeScreenState extends State<SeeScreen> {
             onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
           ),
         ),
+      ),
+    );
+  }
+
+  void _navigateToInfo(BuildContext context) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:simply_morse/features/decoding/presentation/screens/listen_scree
 import 'package:simply_morse/features/decoding/presentation/screens/see_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/screens/send_screen.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/info/presentation/screens/info_screen.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Main screen with Send button and a Receive group containing
@@ -30,6 +31,7 @@ class MainScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppTopBar(
         onSettingsTap: () => _navigateToSettings(context),
+        onInfoTap: () => _navigateToInfo(context),
       ),
       body: Center(
         child: Padding(
@@ -196,6 +198,14 @@ class MainScreen extends StatelessWidget {
             onDisplayTimeoutChanged: onDisplayTimeoutChanged,
           ),
         ),
+      ),
+    );
+  }
+
+  void _navigateToInfo(BuildContext context) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
       ),
     );
   }

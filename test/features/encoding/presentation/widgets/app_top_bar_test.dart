@@ -9,6 +9,7 @@ void main() {
       WidgetTester tester, {
       bool showSettingsIcon = true,
       VoidCallback? onSettingsTap,
+      VoidCallback? onInfoTap,
     }) async {
       onSettingsTap ??= () {};
       await tester.pumpWidget(
@@ -17,6 +18,7 @@ void main() {
             body: AppTopBar(
               showSettingsIcon: showSettingsIcon,
               onSettingsTap: onSettingsTap,
+              onInfoTap: onInfoTap,
             ),
           ),
         ),
