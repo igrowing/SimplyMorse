@@ -7,6 +7,7 @@ import 'package:simply_morse/features/decoding/data/video_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
+import 'package:simply_morse/features/decoding/domain/models/track_overlay_info.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
@@ -22,20 +23,14 @@ import 'package:simply_morse/features/decoding/domain/services/video_decoder.dar
 /// - Video: CameraCapture → VideoDecoder → MorseDecoder
 class DecodingController extends ChangeNotifier {
   DecodingController({
-    required MorseDecoder morseDecoder,
-    AudioDecoder? audioDecoder,
-    AudioCapture? audioCapture,
-    VideoDecoder? videoDecoder,
-    CameraCapture? cameraCapture,
-    AudioDebugLogger? debugLogger,
-    VideoDebugLogger? videoDebugLogger,
-  }) : _morseDecoder = morseDecoder,
-       _audioDecoder = audioDecoder,
-       _audioCapture = audioCapture,
-       _videoDecoder = videoDecoder,
-       _cameraCapture = cameraCapture,
-       _debugLogger = debugLogger,
-       _videoDebugLogger = videoDebugLogger;
+    required this._morseDecoder,
+    this._audioDecoder,
+    this._audioCapture,
+    this._videoDecoder,
+    this._cameraCapture,
+    this._debugLogger,
+    this._videoDebugLogger,
+  });
 
   final MorseDecoder _morseDecoder;
   final AudioDecoder? _audioDecoder;
@@ -52,6 +47,14 @@ class DecodingController extends ChangeNotifier {
   DecodingStatus _status = DecodingStatus.idle;
   String _decodedText = '';
   double _lockedFrequency = 0;
+
+  /// Live video tracking telemetry for the See-screen debug
+  /// overlay: non-`null` only while the decoder is locked on a
+  /// blinking source. Exposed as a [ValueNotifier] so the
+  /// overlay repaints per frame (30-120 Hz) without rebuilding
+  /// the rest of the screen on every telemetry update.
+  final ValueNotifier<TrackOverlayInfo?> trackOverlay =
+      ValueNotifier<TrackOverlayInfo?>(null);
 
   /// Whether debug logging is enabled.
   bool get isDebugLoggingEnabled => _debugLogger?.enabled ?? false;
@@ -70,10 +73,10 @@ class DecodingController extends ChangeNotifier {
   String get decodedText => _decodedText;
 
   /// The frequency the audio decoder has locked onto (Hz).
-  /// Returns 0 while calibrating or in video mode.
+  /// Returns 0 while scanning or in video mode.
   double get lockedFrequency => _lockedFrequency;
 
-  /// Whether the audio decoder is in the calibration phase.
+  /// Whether the audio decoder is in the scanning phase.
   bool get isCalibrating =>
       _mode == DecodingMode.audio &&
       _status == DecodingStatus.listening &&
@@ -109,18 +112,54 @@ class DecodingController extends ChangeNotifier {
     return (1200 / ditMs).round();
   }
 
+  /// Highest sending speed this capture frame rate can decode
+  /// reliably, in WPM. Returns 0 for a non-positive [fps].
+  ///
+  /// The dit is the shortest Morse element; once it spans too few
+  /// captured frames the dah and character-gap duration clusters
+  /// overlap and no classifier can pull them apart. Measured across
+  /// the reference recordings, decoding stays clean at ~4 frames per
+  /// dit (8 WPM at 30 fps) and collapses below ~2.5 (16-20 WPM at
+  /// 30 fps). This reports the speed at which a dit spans
+  /// [_framesPerDitFloor] frames:
+  ///
+  ///     WPM = 1200 / ditMs,   ditMs = framesPerDit * 1000 / fps
+  ///  => maxWpm = 1.2 * fps / framesPerDit
+  ///
+  /// Informational only. A faster transmission still decodes, just
+  /// with more errors; the app never rejects one, and the operator
+  /// cannot judge the sender's speed by eye.
+  static int maxDecodableWpm(int fps) {
+    if (fps <= 0) return 0;
+    return (1.2 * fps / _framesPerDitFloor).floor();
+  }
+
+  /// Frames per dit below which the video decoder's duration
+  /// clusters stop separating — see [maxDecodableWpm].
+  static const double _framesPerDitFloor = 4;
+
   bool get isIdle => _status == DecodingStatus.idle;
   bool get isListening => _status == DecodingStatus.listening;
   bool get isPaused => _status == DecodingStatus.paused;
 
   /// Whether the camera supports high-frame-rate.
   /// Returns `true` for audio mode (no camera needed).
-  bool get isHighFrameRate => _mode == DecodingMode.video
-      ? _cameraCapture?.isHighFrameRate ?? false
-      : true;
+  bool get isHighFrameRate =>
+      !(_mode == DecodingMode.video) ||
+      (_cameraCapture?.isHighFrameRate ?? false);
+
+  /// Measured capture rate of the live camera stream, in FPS.
+  ///
+  /// This is the rate the device actually delivers (the requested
+  /// rate may be silently downgraded), measured over roughly the
+  /// last second of frames. Returns 0 when not streaming.
+  int get captureFps {
+    if (_mode != DecodingMode.video) return 0;
+    return _cameraCapture?.measuredFps.round() ?? 0;
+  }
 
   /// Returns a human-readable description of the camera capture
-  /// mode: 'High speed', 'High resolution', or 'Error: <reason>'.
+  /// mode: 'High speed', 'High resolution', or 'Error: `<reason>`'.
   String get cameraCaptureType {
     if (_mode != DecodingMode.video) return '';
     final cam = _cameraCapture;
@@ -160,6 +199,7 @@ class DecodingController extends ChangeNotifier {
     _status = DecodingStatus.idle;
     _decodedText = '';
     _lockedFrequency = 0;
+    trackOverlay.value = null;
     _elements.clear();
     notifyListeners();
   }
@@ -187,10 +227,16 @@ class DecodingController extends ChangeNotifier {
 
   /// Pauses the current session. Decoded text is preserved.
   void pause() {
-    _audioSub?.cancel();
+    unawaited(_audioSub?.cancel());
     _audioSub = null;
-    _audioCapture?.stop();
-    _cameraCapture?.stop();
+    unawaited(_audioCapture?.stop());
+    unawaited(_cameraCapture?.stop());
+    // Decoders hold the last element back by one transition so a
+    // glitch can be merged with its neighbours; release it, or the
+    // final character of the transmission is lost.
+    _audioDecoder?.flush();
+    _videoDecoder?.flush();
+    trackOverlay.value = null;
     _status = DecodingStatus.paused;
     notifyListeners();
   }
@@ -226,6 +272,7 @@ class DecodingController extends ChangeNotifier {
     _lockedFrequency = 0;
     _elements.clear();
     _status = DecodingStatus.idle;
+    trackOverlay.value = null;
     _audioDecoder?.reset();
     _videoDecoder?.reset();
     notifyListeners();
@@ -235,97 +282,37 @@ class DecodingController extends ChangeNotifier {
     if (_audioDecoder == null || _audioCapture == null) return;
     _audioDecoder.reset();
 
-    // Wire debug logger if enabled
+    // Wire debug logger if enabled. The debug callbacks mirror
+    // the logger's method signatures one-to-one, so they can be
+    // assigned as direct tear-offs.
     final adl = _debugLogger;
     if (adl != null && adl.enabled) {
-      adl.start();
-      _audioDecoder.onDebugCalibration =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required avgPower,
-            required noiseFloor,
-            required calibrationFrames,
-            required elapsedMs,
-          }) {
-            adl.logCalibration(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              avgPower: avgPower,
-              noiseFloor: noiseFloor,
-              binPower: const {},
-              calibrationFrames: calibrationFrames,
-              elapsedMs: elapsedMs,
-            );
-          };
-
-      _audioDecoder.onDebugLock =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required freq,
-            required bestAvgPower,
-            required noiseFloor,
-            required onThresholdFactor,
-          }) {
-            adl.logLock(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              freq: freq,
-              bestAvgPower: bestAvgPower,
-              noiseFloor: noiseFloor,
-              onThresholdFactor: onThresholdFactor,
-            );
-          };
-
-      _audioDecoder.onDebugTracking =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required freq,
-            required power,
-            required envelope,
-            required noiseFloor,
-            required onThreshold,
-            required offThreshold,
-            required isOn,
-          }) {
-            adl.logTracking(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              freq: freq,
-              power: power,
-              envelope: envelope,
-              noiseFloor: noiseFloor,
-              onThreshold: onThreshold,
-              offThreshold: offThreshold,
-              isOn: isOn,
-            );
-          };
-
-      _audioDecoder.onDebugTransition =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required isOn,
-            required durationMs,
-          }) {
-            adl.logTransition(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              isOn: isOn,
-              durationMs: durationMs,
-            );
-          };
+      unawaited(adl.start());
+      _audioDecoder
+        ..onDebugScanning = adl.logScanning
+        ..onDebugDetection = adl.logDetection
+        ..onDebugLock = adl.logLock
+        ..onDebugReplay = adl.logReplay
+        ..onDebugTracking = adl.logTracking
+        ..onDebugTransition = adl.logTransition
+        ..onDebugGlitchMerge = adl.logGlitchMerge
+        ..onDebugRetuneCheck = adl.logRetuneCheck
+        ..onDebugUnlock = adl.logUnlock;
     }
 
-    _audioDecoder.onElement = _onElement;
-    _audioDecoder.onLock = _onLock;
+    _audioDecoder
+      ..onElement = _onElement
+      ..onLock = _onLock
+      // The unlock debug row is emitted by the decoder itself
+      // (onDebugUnlock) with the real content-time timestamp and
+      // reason; this handler is UI state only.
+      ..onUnlock = () {
+        _lockedFrequency = 0;
+        notifyListeners();
+      };
     _lockedFrequency = 0;
     final stream = _audioCapture.start();
-    _audioSub = stream.listen((samples) {
-      _audioDecoder.processSamples(samples);
-    });
+    _audioSub = stream.listen(_audioDecoder.processSamples);
   }
 
   void _startVideo() {
@@ -335,110 +322,25 @@ class DecodingController extends ChangeNotifier {
     // Wire video debug logger if enabled
     final vdl = _videoDebugLogger;
     if (vdl != null && vdl.enabled) {
-      vdl.start();
+      unawaited(vdl.start());
       final vd = _videoDecoder;
-      vd.onDebugScan =
-          ({
-            required timestampMs,
-            required maxVariance,
-            required meanVariance,
-            required frameCount,
-          }) {
-            vdl.logScanning(
-              timestampMs: timestampMs,
-              maxVariance: maxVariance,
-              meanVariance: meanVariance,
-              frameCount: frameCount,
-            );
-          };
-      vd.onDebugConfirm =
-          ({
-            required timestampMs,
-            required variance,
-            required confirmCount,
-            required filterX,
-            required filterY,
-          }) {
-            vdl.logConfirming(
-              timestampMs: timestampMs,
-              variance: variance,
-              confirmCount: confirmCount,
-              filterX: filterX,
-              filterY: filterY,
-            );
-          };
-      vd.onDebugTrack =
-          ({
-            required timestampMs,
-            required variance,
-            required brightness,
-            required minBrightness,
-            required maxBrightness,
-            required range,
-            required onThreshold,
-            required offThreshold,
-            required isOn,
-            required regionX,
-            required regionY,
-            required regionSize,
-            required innovation,
-          }) {
-            vdl.logTracking(
-              timestampMs: timestampMs,
-              variance: variance,
-              brightness: brightness,
-              minBrightness: minBrightness,
-              maxBrightness: maxBrightness,
-              range: range,
-              onThreshold: onThreshold,
-              offThreshold: offThreshold,
-              isOn: isOn,
-              regionX: regionX,
-              regionY: regionY,
-              regionSize: regionSize,
-              innovation: innovation,
-            );
-          };
-      vd.onDebugTransition =
-          ({
-            required timestampMs,
-            required isOn,
-            required durationMs,
-          }) {
-            vdl.logTransition(
-              timestampMs: timestampMs,
-              isOn: isOn,
-              durationMs: durationMs,
-            );
-          };
-      vd.onDebugSignalLost =
-          ({
-            required timestampMs,
-            required lostFrameCount,
-          }) {
-            vdl.logSignalLost(
-              timestampMs: timestampMs,
-              lostFrameCount: lostFrameCount,
-            );
-          };
-      vd.onDebugStateChange =
-          ({
-            required timestampMs,
-            required newState,
-            detail,
-          }) {
-            vdl.logStateChange(
-              timestampMs: timestampMs,
-              newState: newState,
-              detail: detail,
-            );
-          };
+      // cascade_invocations: receiver used in conditional block, can't cascade.
+      // ignore: cascade_invocations
+      vd
+        ..onDebugScan = vdl.logScanning
+        ..onDebugConfirm = vdl.logConfirming
+        ..onDebugTrack = vdl.logTracking
+        ..onDebugTransition = vdl.logTransition
+        ..onDebugSignalLost = vdl.logSignalLost
+        ..onDebugStateChange = vdl.logStateChange;
     }
 
-    _videoDecoder.onElement = _onElement;
-    _cameraCapture.startImageStream((frame) {
-      _videoDecoder.processFrame(frame);
-    });
+    _videoDecoder
+      ..onElement = _onElement
+      ..onTrackOverlay = (info) {
+        trackOverlay.value = info;
+      };
+    _cameraCapture.startImageStream(_videoDecoder.processFrame);
   }
 
   void _onElement(DecodedElement element) {
@@ -454,12 +356,13 @@ class DecodingController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _audioSub?.cancel();
-    _audioCapture?.stop();
-    _cameraCapture?.stop();
-    _debugLogger?.stop();
-    _videoDebugLogger?.stop();
+    unawaited(_audioSub?.cancel());
+    unawaited(_audioCapture?.stop());
+    unawaited(_cameraCapture?.stop());
+    unawaited(_debugLogger?.stop());
+    unawaited(_videoDebugLogger?.stop());
     _status = DecodingStatus.idle;
+    trackOverlay.dispose();
     super.dispose();
   }
 }

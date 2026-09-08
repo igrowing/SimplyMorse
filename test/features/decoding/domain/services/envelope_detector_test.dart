@@ -4,10 +4,7 @@ import 'package:simply_morse/features/decoding/domain/services/envelope_detector
 void main() {
   group('EnvelopeDetector', () {
     test('rises quickly on step input (fast attack)', () {
-      final detector = EnvelopeDetector(
-        attackMs: 2,
-        releaseMs: 50,
-      );
+      final detector = EnvelopeDetector(attackMs: 2, releaseMs: 50);
 
       // Feed a constant high value for several hops
       var env = 0.0;
@@ -20,10 +17,7 @@ void main() {
     });
 
     test('falls slowly on step down (slow release)', () {
-      final detector = EnvelopeDetector(
-        attackMs: 2,
-        releaseMs: 50,
-      );
+      final detector = EnvelopeDetector(attackMs: 2, releaseMs: 50);
 
       // Rise first
       for (var i = 0; i < 10; i++) {
@@ -43,10 +37,7 @@ void main() {
     });
 
     test('tracks varying input', () {
-      final detector = EnvelopeDetector(
-        attackMs: 1,
-        releaseMs: 20,
-      );
+      final detector = EnvelopeDetector(attackMs: 1, releaseMs: 20);
 
       detector.process(50, hopMs: 5);
       final v1 = detector.value;

@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
-import 'package:simply_morse/core/services/screen_timeout_service.dart';
-import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/presentation/screens/listen_screen.dart';
 
 import '../../../../helpers/decoding_fakes.dart';
@@ -122,14 +122,14 @@ void main() {
       expect(find.text('Resume'), findsOneWidget);
     });
 
-    testWidgets('shows Calibrating status when active', (tester) async {
+    testWidgets('shows Scanning status when active', (tester) async {
       await pumpScreen(tester);
 
       await tester.ensureVisible(find.text('Start'));
       await tester.tap(find.text('Start'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Calibrating…'), findsOneWidget);
+      expect(find.text('Scanning…'), findsOneWidget);
     });
 
     testWidgets('shows Paused status when paused', (tester) async {
@@ -159,35 +159,33 @@ void main() {
       expect(find.text('Share'), findsNothing);
     });
 
-    testWidgets(
-      'shows permission snackbar when mic permission denied',
-      (tester) async {
-        await pumpScreen(tester, hasPermission: false);
+    testWidgets('shows permission snackbar when mic permission denied', (
+      tester,
+    ) async {
+      await pumpScreen(tester, hasPermission: false);
 
-        await tester.ensureVisible(find.text('Start'));
-        await tester.tap(find.text('Start'));
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Start'));
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
 
-        expect(
-          find.text('Microphone permission is required to decode Morse audio.'),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(
+        find.text('Microphone permission is required to decode Morse audio.'),
+        findsOneWidget,
+      );
+    });
 
-    testWidgets(
-      'does not start listening when permission denied',
-      (tester) async {
-        await pumpScreen(tester, hasPermission: false);
+    testWidgets('does not start listening when permission denied', (
+      tester,
+    ) async {
+      await pumpScreen(tester, hasPermission: false);
 
-        await tester.ensureVisible(find.text('Start'));
-        await tester.tap(find.text('Start'));
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Start'));
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Start'), findsOneWidget);
-        expect(find.text('Idle'), findsOneWidget);
-      },
-    );
+      expect(find.text('Start'), findsOneWidget);
+      expect(find.text('Idle'), findsOneWidget);
+    });
 
     testWidgets('Clear button resets to idle', (tester) async {
       await pumpScreen(tester);

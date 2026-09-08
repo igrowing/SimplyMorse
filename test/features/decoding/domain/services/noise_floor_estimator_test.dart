@@ -13,9 +13,10 @@ void main() {
     test('returns median of stored values', () {
       final estimator = NoiseFloorEstimator(windowSize: 10);
 
-      estimator.update(10);
-      estimator.update(20);
-      estimator.update(30);
+      estimator
+        ..update(10)
+        ..update(20)
+        ..update(30);
 
       // Median of [10, 20, 30] = 20
       expect(estimator.noiseFloor, 20);
@@ -24,10 +25,11 @@ void main() {
     test('handles even number of values', () {
       final estimator = NoiseFloorEstimator(windowSize: 10);
 
-      estimator.update(10);
-      estimator.update(20);
-      estimator.update(30);
-      estimator.update(40);
+      estimator
+        ..update(10)
+        ..update(20)
+        ..update(30)
+        ..update(40);
 
       // Median of [10, 20, 30, 40] = (20 + 30) / 2 = 25
       expect(estimator.noiseFloor, 25);
@@ -74,9 +76,10 @@ void main() {
     test('handles negative values', () {
       final estimator = NoiseFloorEstimator();
 
-      estimator.update(-10);
-      estimator.update(0);
-      estimator.update(10);
+      estimator
+        ..update(-10)
+        ..update(0)
+        ..update(10);
 
       expect(estimator.noiseFloor, 0);
     });

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Display lit timeout modes.
@@ -17,11 +18,21 @@ class ScreenTimeoutService {
   Timer? _inactivityTimer;
   static const _tripleSystemTimeoutSec = 90;
 
+  /// Live broadcast of the current mode. The settings switch
+  /// listens to this instead of a value captured when its route
+  /// was pushed — pushed routes never see constructor-param
+  /// updates, so the switch must observe the service directly.
+  final ValueNotifier<DisplayTimeout> _modeNotifier =
+      ValueNotifier<DisplayTimeout>(DisplayTimeout.system);
+
+  ValueListenable<DisplayTimeout> get modeListenable => _modeNotifier;
+
   DisplayTimeout get mode => _mode;
 
   /// Sets the display timeout mode and applies it immediately.
   Future<void> setMode(DisplayTimeout mode) async {
     _mode = mode;
+    _modeNotifier.value = mode;
     _inactivityTimer?.cancel();
     _inactivityTimer = null;
 
@@ -58,6 +69,7 @@ class ScreenTimeoutService {
   /// Disposes resources.
   void dispose() {
     _inactivityTimer?.cancel();
+    _modeNotifier.dispose();
   }
 
   /// Parses a string mode into [DisplayTimeout].

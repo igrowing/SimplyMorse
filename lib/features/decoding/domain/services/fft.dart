@@ -4,7 +4,7 @@ import 'dart:typed_data';
 /// Radix-2 Cooley-Tukey FFT implementation in pure Dart.
 ///
 /// Used for wideband scanning in the 400-1000 Hz range to
-/// find the strongest tone before locking on with Goertzel.
+/// find the strongest tone before locking on with IIR bandpass.
 class FFT {
   FFT(this.size)
     : assert(

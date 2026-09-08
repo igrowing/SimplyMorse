@@ -27,11 +27,11 @@ void main() {
       final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
       f.initialize(40, 30);
 
-      f.update(50, 40, 1.0);
+      f.update(50, 40, 1);
       expect(f.x, closeTo(47, 0.01));
       expect(f.vx, closeTo(1.0, 0.01));
 
-      f.predict(1.0);
+      f.predict(1);
       expect(f.x, closeTo(48, 0.01));
     });
 
@@ -39,32 +39,30 @@ void main() {
       final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
       f.initialize(40, 30);
 
-      f.update(45, 35, 1.0);
+      f.update(45, 35, 1);
       expect(f.x, closeTo(43.5, 0.01));
       expect(f.y, closeTo(33.5, 0.01));
     });
 
-    test(
-      'tracks steady drift (sliding motion)',
-      () {
-        final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
+    test('tracks steady drift (sliding motion)', () {
+      final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
 
-        var trueX = 40.0;
-        var trueY = 30.0;
-        f.initialize(trueX, trueY);
+      var trueX = 40.0;
+      var trueY = 30.0;
+      f.initialize(trueX, trueY);
 
-        for (var i = 0; i < 100; i++) {
-          trueX += 2;
-          trueY += 1;
-          f.predict(0.033);
-          f.update(trueX, trueY, 0.033);
-        }
+      for (var i = 0; i < 100; i++) {
+        trueX += 2;
+        trueY += 1;
+        f
+          ..predict(0.033)
+          ..update(trueX, trueY, 0.033);
+      }
 
-        expect(f.x, closeTo(trueX, 3));
-        expect(f.y, closeTo(trueY, 2));
-        expect(f.vx, closeTo(60, 15));
-      },
-    );
+      expect(f.x, closeTo(trueX, 3));
+      expect(f.y, closeTo(trueY, 2));
+      expect(f.vx, closeTo(60, 15));
+    });
 
     test('smooths oscillation (hand shaking)', () {
       // Lower alpha → more smoothing
@@ -88,12 +86,14 @@ void main() {
       final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
       f.initialize(40, 30);
 
-      f.predict(0.033);
-      f.update(41, 30, 0.033);
+      f
+        ..predict(0.033)
+        ..update(41, 30, 0.033);
       expect(f.innovation, closeTo(1, 0.5));
 
-      f.predict(0.033);
-      f.update(60, 30, 0.033);
+      f
+        ..predict(0.033)
+        ..update(60, 30, 0.033);
       expect(f.innovation, greaterThan(10));
     });
 
@@ -101,15 +101,17 @@ void main() {
       final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
       f.initialize(40, 30);
 
-      f.predict(0.033);
-      f.update(f.x, f.y, 0.033);
+      f
+        ..predict(0.033)
+        ..update(f.x, f.y, 0.033);
       expect(f.innovation, closeTo(0, 0.001));
     });
 
     test('reset clears all state', () {
       final f = AlphaBetaFilter();
-      f.initialize(40, 30);
-      f.update(50, 40, 1.0);
+      f
+        ..initialize(40, 30)
+        ..update(50, 40, 1);
 
       f.reset();
       expect(f.isInitialized, isFalse);
@@ -145,14 +147,11 @@ void main() {
       expect(f.y, 28);
     });
 
-    test(
-      'predict on uninitialized filter is a no-op',
-      () {
-        final f = AlphaBetaFilter();
-        f.predict(0.033);
-        expect(f.x, 0);
-        expect(f.y, 0);
-      },
-    );
+    test('predict on uninitialized filter is a no-op', () {
+      final f = AlphaBetaFilter();
+      f.predict(0.033);
+      expect(f.x, 0);
+      expect(f.y, 0);
+    });
   });
 }

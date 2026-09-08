@@ -1,5 +1,17 @@
 import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 
+/// Debug callback for camera capture lifecycle events.
+///
+/// Emitted for every capture-setup decision so the debug log shows
+/// which frame rate was requested, whether it was granted, and what
+/// rate actually arrives once the stream runs.
+typedef DebugCaptureEventCallback =
+    void Function({
+      required int timestampMs,
+      required String event,
+      String? detail,
+    });
+
 /// Abstract interface for camera capture.
 ///
 /// Implementations live in the data layer (using the
@@ -29,4 +41,18 @@ abstract interface class CameraCapture {
   /// Whether the camera supports high-frame-rate capture.
   /// When `false`, decoding is limited to ~7 WPM.
   bool get isHighFrameRate;
+
+  /// Measured frames per second of the live stream, over roughly
+  /// the last second of frames.
+  ///
+  /// This is what the device actually delivers — the requested
+  /// rate may be silently downgraded by the platform.
+  double get measuredFps;
+
+  /// Optional debug hook for capture lifecycle events.
+  ///
+  /// Set by the composition layer; the capture implementation
+  /// reports init attempts, fallbacks, and measured rates here.
+  DebugCaptureEventCallback? get onDebugEvent;
+  set onDebugEvent(DebugCaptureEventCallback? callback);
 }

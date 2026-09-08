@@ -9,11 +9,11 @@ import 'package:simply_morse/core/services/share_service_impl.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/data/audio_capture_service.dart';
+import 'package:simply_morse/features/decoding/data/audio_debug_logger.dart';
 import 'package:simply_morse/features/decoding/data/camera_capture_service.dart';
+import 'package:simply_morse/features/decoding/data/video_debug_logger.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
-import "package:simply_morse/features/decoding/data/audio_debug_logger.dart";
-import "package:simply_morse/features/decoding/data/video_debug_logger.dart";
 import 'package:simply_morse/features/decoding/domain/services/camera_capture.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
@@ -54,9 +54,7 @@ Future<void> configureDependencies() async {
     ..registerSingleton<ShareService>(ShareServiceImpl())
     ..registerSingleton<FeedbackService>(FeedbackServiceImpl())
     ..registerSingleton<LocalStorageDatasource>(dataSource)
-    ..registerSingleton<SettingsRepository>(
-      SettingsRepositoryImpl(dataSource),
-    )
+    ..registerSingleton<SettingsRepository>(SettingsRepositoryImpl(dataSource))
     ..registerSingleton<TextHistoryRepository>(
       TextHistoryRepositoryImpl(dataSource),
     )
@@ -68,9 +66,7 @@ Future<void> configureDependencies() async {
     ..registerSingleton<ThemeController>(ThemeController())
     ..registerSingleton<ScreenTimeoutService>(ScreenTimeoutService())
     ..registerFactory<MorseTransmitter>(
-      () => MorseTransmitter(
-        torchService: getIt<TorchService>(),
-      ),
+      () => MorseTransmitter(torchService: getIt<TorchService>()),
     )
     ..registerFactory<EncodingController>(
       () => EncodingController(
@@ -80,10 +76,45 @@ Future<void> configureDependencies() async {
         morseTransmitter: getIt<MorseTransmitter>(),
       ),
     )
-    ..registerFactory<AudioDecoder>(() => AudioDecoder())
-    ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
-    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger())
-    ..registerFactory<VideoDecoder>(() => VideoDecoder())
+    ..registerFactory<AudioDecoder>(
+      () => AudioDecoder(sampleRate: 44100, fftSize: 2048, blockSize: 220),
+    )
+    // TEMP DEBUG: both enabled for the ongoing decode
+    // investigations — flip back to `enabled: false` (or remove
+    // the argument, the default) once done. Each writes a
+    // timestamped CSV to the app's documents directory; see the
+    // respective logger's start().
+    ..registerSingleton<AudioDebugLogger>(AudioDebugLogger(enabled: true))
+    ..registerSingleton<VideoDebugLogger>(VideoDebugLogger(enabled: true));
+
+  // Camera capture lifecycle events (frame-rate requests,
+  // fallbacks, exposure mode) go to the video debug log when
+  // logging is enabled.
+  cameraCapture.onDebugEvent =
+      ({required timestampMs, required event, detail}) {
+        getIt<VideoDebugLogger>().logCapture(
+          timestampMs: timestampMs,
+          event: event,
+          detail: detail,
+        );
+      };
+
+  // Recorder lifecycle events (permission, start config, buffer
+  // arrivals with wall-clock dt, stop) go to the audio debug log
+  // when logging is enabled — the audio side's counterpart of
+  // the camera wiring above.
+  getIt<AudioCapture>().onDebugEvent =
+      ({required timestampMs, required event, dtMs, detail}) {
+        getIt<AudioDebugLogger>().logCapture(
+          timestampMs: timestampMs,
+          event: event,
+          dtMs: dtMs,
+          detail: detail,
+        );
+      };
+
+  getIt
+    ..registerFactory<VideoDecoder>(VideoDecoder.new)
     ..registerFactory<DecodingController>(
       () => DecodingController(
         morseDecoder: getIt<MorseDecoder>(),

@@ -2,11 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
 
 /// The lifecycle state of a Morse transmission.
-enum TransmissionStatus {
-  idle,
-  transmitting,
-  completed,
-}
+enum TransmissionStatus { idle, transmitting, completed }
 
 /// Immutable snapshot of the transmission state.
 @immutable

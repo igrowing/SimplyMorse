@@ -1,11 +1,14 @@
+// JSON fixtures use dynamic maps from jsonDecode; casting is inherent.
+// ignore_for_file: avoid_dynamic_calls
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
+
+import '../../../../support/cer.dart';
 
 /// Helper to load float32 binary audio samples from test assets.
 List<double> _loadFloat32Samples(String filename) {
@@ -68,14 +71,21 @@ List<RecordingFixture> _loadManifest() {
 _decodeRecording(RecordingFixture fixture) {
   final samples = _loadFloat32Samples(fixture.file);
 
+  // Scale FFT and block size for the sample rate.
+  // At 8 kHz: fftSize=256 (31 Hz/bin), blockSize=40 (5 ms).
+  // At 44.1 kHz: fftSize=2048 (22 Hz/bin), blockSize=220 (5 ms).
+  final fftSz = fixture.sampleRate >= 44100 ? 2048 : 256;
+  final blockSz = (fixture.sampleRate * 5 / 1000).round();
+
   final decoder = AudioDecoder(
     sampleRate: fixture.sampleRate,
-    releaseMs: 20,
-    minElementMs: 30,
+    fftSize: fftSz,
+    blockSize: blockSz,
+    bandwidth: 0,
   );
 
   final elements = <DecodedElement>[];
-  decoder.onElement = (el) => elements.add(el);
+  decoder.onElement = elements.add;
 
   const batchSize = 4096;
   for (var i = 0; i < samples.length; i += batchSize) {
@@ -84,8 +94,9 @@ _decodeRecording(RecordingFixture fixture) {
         : samples.length;
     decoder.processSamples(samples.sublist(i, end));
   }
+  decoder.flush();
 
-  var filtered = elements.skipWhile((e) => !e.isOn).toList();
+  final filtered = elements.skipWhile((e) => !e.isOn).toList();
   final morseDecoder = MorseDecoder();
   final text = morseDecoder.decodeElements(filtered);
 
@@ -109,98 +120,127 @@ void main() {
   final fixtures = _loadManifest();
 
   group('AudioDecoder with real recordings', () {
-    // The 700Hz recordings have the best SNR and frequency detection.
-    // These are our primary integration tests for real audio decoding.
+    // ── 700Hz 3wpm ──────────────────────────────────────────────
     test('700Hz 1time 3wpm decodes "HELLO, WORLD!"', () {
       final fixture = fixtures.firstWhere((f) => f.file.contains('1time_3wpm'));
       final result = _decodeRecording(fixture);
 
-      expect(result.lockedFreq, closeTo(700, 50));
-      expect(result.elements.length, greaterThan(30));
-      expect(result.text, isNotEmpty);
-      expect(result.ditMs, closeTo(400, 100));
-
-      // The decoder should get most of the message right.
-      // First element may be lost due to Goertzel ramp-up.
-      expect(result.text, contains('LLO'));
-      expect(result.text, contains('WORLD'));
-
-      // ignore: avoid_print
-      print(
-        '  Decoded: "${result.text}" (dit=${result.ditMs}ms, '
-        '${result.elements.length} elements)',
+      // Frequency lock within ±20 Hz
+      expect(result.lockedFreq, closeTo(700, 20));
+      // At 3 WPM, dit=400ms, HELLO WORLD = ~45 elements
+      expect(result.elements.length, greaterThan(70));
+      // Dit estimate should be close to 400ms
+      expect(result.ditMs, closeTo(400, 80));
+      // Accuracy budget rather than a `contains` check, so that a
+      // change of a few percent either way is visible.
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.05),
       );
+
+      // Ignored: avoid_print is intentional for this test case.
+      // ignore: avoid_print
+      print(cerReport('3wpm', result.text, fixture.expectedText));
     });
 
+    // ── 700Hz 8wpm ──────────────────────────────────────────────
     test('700Hz 2times 8wpm decodes "HELLO, WORLD!"', () {
       final fixture = fixtures.firstWhere(
         (f) => f.file.contains('700Hz_2times_8wpm'),
       );
       final result = _decodeRecording(fixture);
 
-      expect(result.lockedFreq, greaterThan(600));
-      expect(result.elements.length, greaterThan(15));
-      expect(result.text, isNotEmpty);
-
+      // Frequency lock within ±20 Hz
+      expect(result.lockedFreq, closeTo(700, 20));
+      // 2 repetitions of HELLO WORLD ≈ 90 elements minimum
+      expect(result.elements.length, greaterThan(120));
+      // WPM should be close to 8
       final wpm = result.ditMs > 0 ? 1200 / result.ditMs : 0;
-      expect(wpm, inExclusiveRange(3, 20));
-
-      // ignore: avoid_print
-      print(
-        '  Decoded: "${result.text}" (dit=${result.ditMs}ms, '
-        '${result.elements.length} elements, ${wpm.toStringAsFixed(1)} WPM)',
+      expect(wpm, inExclusiveRange(5, 12));
+      // At least one repetition should decode correctly
+      expect(result.text, contains('HELLO, WORLD!'));
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.15),
       );
+
+      // Ignored: avoid_print is intentional for this test case.
+      // ignore: avoid_print
+      print(cerReport('8wpm/700Hz', result.text, fixture.expectedText));
     });
 
+    // ── 700Hz 20wpm ─────────────────────────────────────────────
     test('700Hz 3times 20wpm decodes "HELLO, WORLD!"', () {
       final fixture = fixtures.firstWhere(
         (f) => f.file.contains('700Hz_3times_20wpm'),
       );
       final result = _decodeRecording(fixture);
 
-      expect(result.lockedFreq, closeTo(700, 50));
-      expect(result.elements.length, greaterThan(20));
-      expect(result.text, isNotEmpty);
-
+      // Frequency lock within ±25 Hz (20wpm has shorter tone bursts)
+      expect(result.lockedFreq, closeTo(700, 25));
+      // 3 repetitions should produce many elements
+      expect(result.elements.length, greaterThan(100));
+      // WPM should be close to 20
       final wpm = result.ditMs > 0 ? 1200 / result.ditMs : 0;
-      // At 20 WPM the elements are very short (60ms dits), making
-      // WPM estimation less reliable. Use a wide range.
-      expect(wpm, inExclusiveRange(5, 50));
-
-      // ignore: avoid_print
-      print(
-        '  Decoded: "${result.text}" (dit=${result.ditMs}ms, '
-        '${result.elements.length} elements, ${wpm.toStringAsFixed(1)} WPM)',
+      expect(wpm, inExclusiveRange(15, 25));
+      // 20 WPM is the hardest case: at a 5 ms decision grid a dit is
+      // only 12 samples, so the budget is looser than the slower
+      // speeds — even with the speed-gated level tracker (see
+      // AudioDecoder.fastDitThresholdMs) engaging its fast profile
+      // for this recording's ~60 ms dit.
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.25),
       );
+
+      // Ignored: avoid_print is intentional for this test case.
+      // ignore: avoid_print
+      print(cerReport('20wpm', result.text, fixture.expectedText));
     });
 
+    // ── 1000Hz 8wpm ─────────────────────────────────────────────
     test('1000Hz 2times 8wpm locks on 1000Hz', () {
       final fixture = fixtures.firstWhere((f) => f.file.contains('1000Hz'));
       final result = _decodeRecording(fixture);
 
-      expect(result.lockedFreq, closeTo(1000, 50));
-      expect(result.text, isNotEmpty);
+      // Frequency lock within ±20 Hz
+      expect(result.lockedFreq, closeTo(1000, 20));
+      // Should detect a significant number of elements
+      expect(result.elements.length, greaterThan(50));
+      // The tone loses 11 dB while the background gains 14 dB, taking
+      // SNR from 26 dB to 8 dB — used to be the hardest recording
+      // before the envelope lowpass cutoff was tightened (see
+      // kDefaultEnvelopeCutoffHz).
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.20),
+      );
 
+      // Ignored: avoid_print is intentional for this test case.
       // ignore: avoid_print
-      print('  Decoded: "${result.text}" (${result.elements.length} elements)');
+      print(cerReport('8wpm/1000Hz', result.text, fixture.expectedText));
     });
 
-    test('400Hz 2times 8wpm locks on a valid tone frequency', () {
+    // ── 400Hz 8wpm ──────────────────────────────────────────────
+    test('400Hz 2times 8wpm decodes "HELLO, WORLD!"', () {
       final fixture = fixtures.firstWhere((f) => f.file.contains('400Hz'));
       final result = _decodeRecording(fixture);
 
-      // The FFT may lock on the 2nd harmonic (~843 Hz) instead of
-      // the fundamental (400 Hz) due to bin resolution limitations.
-      // Both are valid for decoding since the harmonic carries the
-      // same on/off modulation.
-      expect(result.lockedFreq, greaterThan(300));
-      expect(result.text, isNotEmpty);
-
-      // ignore: avoid_print
-      print(
-        '  Locked: ${result.lockedFreq.toStringAsFixed(1)}Hz, '
-        'Decoded: "${result.text}" (${result.elements.length} elements)',
+      // Should lock near 400Hz (or a harmonic, but the IIR
+      // bandpass should handle either)
+      expect(result.lockedFreq, closeTo(400, 30));
+      // 2 repetitions should produce many elements
+      expect(result.elements.length, greaterThan(100));
+      // Should decode recognizable text
+      expect(result.text, contains('WORLD'));
+      expect(
+        characterErrorRate(result.text, fixture.expectedText),
+        lessThanOrEqualTo(0.06),
       );
+
+      // Ignored: avoid_print is intentional for this test case.
+      // ignore: avoid_print
+      print(cerReport('8wpm/400Hz', result.text, fixture.expectedText));
     });
   });
 
@@ -209,13 +249,16 @@ void main() {
       test('${fixture.file} locks within valid range', () {
         final samples = _loadFloat32Samples(fixture.file);
 
+        final fftSz = fixture.sampleRate >= 44100 ? 2048 : 256;
+        final blockSz = (fixture.sampleRate * 5 / 1000).round();
         final decoder = AudioDecoder(
           sampleRate: fixture.sampleRate,
-          releaseMs: 20,
-          minElementMs: 30,
+          fftSize: fftSz,
+          blockSize: blockSz,
+          bandwidth: 0,
         );
 
-        final batchSize = 4096;
+        const batchSize = 4096;
         for (var i = 0; i < samples.length; i += batchSize) {
           final end = (i + batchSize < samples.length)
               ? i + batchSize
@@ -224,7 +267,6 @@ void main() {
         }
 
         // Should lock on a frequency in the 400-1000 Hz band.
-        // May be the fundamental or a harmonic.
         expect(decoder.lockedFrequency, greaterThan(300));
         expect(decoder.lockedFrequency, lessThan(1100));
       });

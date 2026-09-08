@@ -1,13 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-
+import 'package:get_it/get_it.dart';
 import 'package:simply_morse/core/constants/app_constants.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/theme/theme_controller.dart';
+import 'package:simply_morse/features/encoding/domain/repositories/settings_repository.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-/// Dedicated settings screen with theme control, display
-/// timeout, and app info.
+/// Dedicated settings screen with theme control, Farnsworth
+/// timing, display timeout, and app info.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     required this.themeController,
@@ -29,6 +31,29 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  bool _farnsworthEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadFarnsworthEnabled());
+  }
+
+  Future<void> _loadFarnsworthEnabled() async {
+    final enabled = await GetIt.instance<SettingsRepository>()
+        .getFarnsworthEnabled();
+    if (mounted) {
+      setState(() => _farnsworthEnabled = enabled);
+    }
+  }
+
+  Future<void> _onFarnsworthChanged(bool enabled) async {
+    setState(() => _farnsworthEnabled = enabled);
+    await GetIt.instance<SettingsRepository>().saveFarnsworthEnabled(
+      enabled: enabled,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -42,6 +67,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSectionTitle(context, 'Appearance'),
               const SizedBox(height: 12),
               _buildThemeSelector(context),
+              const SizedBox(height: 32),
+              _buildSectionTitle(context, 'Transmission'),
+              const SizedBox(height: 12),
+              _buildFarnsworthTiming(context),
               const SizedBox(height: 32),
               _buildSectionTitle(context, 'Display'),
               const SizedBox(height: 12),
@@ -103,6 +132,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Farnsworth timing switch with an info icon that opens
+  /// a dialog explaining what Farnsworth timing is.
+  Widget _buildFarnsworthTiming(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: SwitchListTile(
+            title: Text('Farnsworth timing', style: theme.textTheme.bodyLarge),
+            subtitle: Text(
+              'Characters at full speed, extended gaps between characters',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            value: _farnsworthEnabled,
+            onChanged: _onFarnsworthChanged,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.info_outline, size: 22),
+          tooltip: 'What is Farnsworth timing?',
+          onPressed: () => _showFarnsworthInfoDialog(context),
+        ),
+      ],
+    );
+  }
+
+  void _showFarnsworthInfoDialog(BuildContext context) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Farnsworth Timing'),
+            content: const SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Farnsworth timing is a method used in Morse code '
+                    'training and transmission where the individual dits '
+                    'and dahs (the "characters") are sent at a higher speed, '
+                    'but the gaps between characters and words are extended '
+                    'to a slower effective speed.',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'For example, at 20/10 Farnsworth, the dits and dahs '
+                    'are sent at 20 WPM (60 ms per dit), but the '
+                    'inter-character and inter-word gaps are stretched to '
+                    'match 10 WPM (360 ms between characters, 840 ms '
+                    'between words).',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'This allows a learner to hear characters at full '
+                    'speed — developing instant character recognition — '
+                    'while having extra time to think between characters.',
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'When enabled, SimplyMorse will extend inter-character '
+                    'and inter-word gaps according to the Farnsworth method.',
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildDisplayTimeoutSelector(BuildContext context) {
     final theme = Theme.of(context);
     return Column(
@@ -117,24 +228,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        SegmentedButton<DisplayTimeout>(
-          segments: const [
-            ButtonSegment(
-              value: DisplayTimeout.system,
-              label: Text('System'),
-            ),
-            ButtonSegment(
-              value: DisplayTimeout.tripleSystem,
-              label: Text('3× System'),
-            ),
-            ButtonSegment(
-              value: DisplayTimeout.alwaysOn,
-              label: Text('Always on'),
-            ),
-          ],
-          selected: {widget.displayTimeout},
-          onSelectionChanged: (selection) {
-            widget.onDisplayTimeoutChanged(selection.first);
+        // The selection is observed from the service, not from
+        // the constructor parameter: pushed routes keep the
+        // constructor values captured at push time, so a
+        // parameter-driven selection would not refresh when the
+        // mode changes while this screen is open.
+        ValueListenableBuilder<DisplayTimeout>(
+          valueListenable: widget.screenTimeoutService.modeListenable,
+          builder: (context, mode, _) {
+            return SegmentedButton<DisplayTimeout>(
+              segments: const [
+                ButtonSegment(
+                  value: DisplayTimeout.system,
+                  label: Text('System'),
+                ),
+                ButtonSegment(
+                  value: DisplayTimeout.tripleSystem,
+                  label: Text('3× System'),
+                ),
+                ButtonSegment(
+                  value: DisplayTimeout.alwaysOn,
+                  label: Text('Always on'),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: (selection) {
+                widget.onDisplayTimeoutChanged(selection.first);
+              },
+            );
           },
         ),
       ],
@@ -171,11 +292,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.coffee,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
+                Icon(Icons.coffee, size: 20, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
                 Text(
                   'Buy me a coffee',
@@ -205,7 +322,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _checkForUpdates(BuildContext context) {
-    // Navigate to the GitHub releases page or app store
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Checking for updates…'),

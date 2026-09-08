@@ -5,11 +5,7 @@ import 'package:simply_morse/features/decoding/domain/services/goertzel.dart';
 
 void main() {
   group('Goertzel', () {
-    List<double> generateSineWave(
-      double freq,
-      int sampleRate,
-      int n,
-    ) {
+    List<double> generateSineWave(double freq, int sampleRate, int n) {
       return List.generate(n, (i) {
         return sin(2 * pi * freq * i / sampleRate);
       });
@@ -26,11 +22,7 @@ void main() {
         blockSize: blockSize,
       );
 
-      final samples = generateSineWave(
-        targetFreq,
-        sampleRate,
-        blockSize,
-      );
+      final samples = generateSineWave(targetFreq, sampleRate, blockSize);
       final power = goertzel.process(samples);
 
       expect(power, greaterThan(0));
@@ -50,19 +42,11 @@ void main() {
       );
 
       // Generate tone at 500 Hz, not 700 Hz
-      final samples = generateSineWave(
-        500,
-        sampleRate,
-        blockSize,
-      );
+      final samples = generateSineWave(500, sampleRate, blockSize);
       final power = goertzel.process(samples);
 
       // Should be much lower than at the target frequency
-      final targetSamples = generateSineWave(
-        targetFreq,
-        sampleRate,
-        blockSize,
-      );
+      final targetSamples = generateSineWave(targetFreq, sampleRate, blockSize);
       final targetPower = goertzel.process(targetSamples);
 
       expect(power, lessThan(targetPower * 0.1));
@@ -80,15 +64,8 @@ void main() {
         blockSize: blockSize,
       );
 
-      final samples = generateSineWave(
-        targetFreq,
-        sampleRate,
-        400,
-      );
-      final results = goertzel.processStream(
-        samples,
-        hopSize: hopSize,
-      );
+      final samples = generateSineWave(targetFreq, sampleRate, 400);
+      final results = goertzel.processStream(samples, hopSize: hopSize);
 
       // (400 - 80) / 40 + 1 = 9 windows
       expect(results, hasLength(9));
@@ -108,7 +85,7 @@ void main() {
         blockSize: blockSize,
       );
 
-      final samples = List<double>.filled(blockSize, 0.0);
+      final samples = List<double>.filled(blockSize, 0);
       final power = goertzel.process(samples);
 
       expect(power.abs(), lessThan(1e-6));
@@ -125,11 +102,7 @@ void main() {
         blockSize: blockSize,
       );
 
-      final samples1 = generateSineWave(
-        targetFreq,
-        sampleRate,
-        blockSize,
-      );
+      final samples1 = generateSineWave(targetFreq, sampleRate, blockSize);
       final samples2 = samples1.map((s) => s * 2).toList();
 
       final power1 = goertzel.process(samples1);

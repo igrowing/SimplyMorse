@@ -2,9 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
+import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/audio_decoder.dart';
 import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
-import 'package:simply_morse/features/decoding/domain/models/video_frame.dart';
 import 'package:simply_morse/features/decoding/domain/services/video_decoder.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
 
@@ -25,9 +25,7 @@ void main() {
     cameraCapture = FakeCameraCapture();
   });
 
-  DecodingController makeController({
-    DecodingMode mode = DecodingMode.audio,
-  }) {
+  DecodingController makeController({DecodingMode mode = DecodingMode.audio}) {
     final controller = DecodingController(
       morseDecoder: morseDecoder,
       audioDecoder: audioDecoder,
@@ -82,8 +80,9 @@ void main() {
 
       test('resume sets status back to listening', () {
         final controller = makeController();
-        controller.start();
-        controller.pause();
+        controller
+          ..start()
+          ..pause();
 
         controller.resume();
 
@@ -127,8 +126,9 @@ void main() {
 
       test('resume restarts audio capture', () {
         final controller = makeController(mode: DecodingMode.audio);
-        controller.start();
-        controller.pause();
+        controller
+          ..start()
+          ..pause();
 
         controller.resume();
 
@@ -154,7 +154,7 @@ void main() {
 
         controller.clear();
 
-        expect(audioDecoder.state, DecoderState.calibrating);
+        expect(audioDecoder.state, DecoderState.scanning);
       });
     });
 
@@ -253,6 +253,21 @@ void main() {
       });
     });
 
+    group('maxDecodableWpm', () {
+      test('is zero for a non-positive frame rate', () {
+        expect(DecodingController.maxDecodableWpm(0), 0);
+        expect(DecodingController.maxDecodableWpm(-5), 0);
+      });
+
+      test('scales with the frame rate (4 frames per dit)', () {
+        // 1.2 * fps / 4
+        expect(DecodingController.maxDecodableWpm(30), 9);
+        expect(DecodingController.maxDecodableWpm(60), 18);
+        expect(DecodingController.maxDecodableWpm(120), 36);
+        expect(DecodingController.maxDecodableWpm(240), 72);
+      });
+    });
+
     group('audio pipeline wiring', () {
       test('audio decoder receives samples from capture', () {
         final elements = <DecodedElement>[];
@@ -262,10 +277,10 @@ void main() {
         controller.start();
 
         // Emit enough noise to fill the noise floor
-        final noise = List<double>.filled(256 * 6, 0.0);
+        final noise = List<double>.filled(256 * 6, 0);
         audioCapture.emit(noise);
 
-        expect(audioDecoder.state, DecoderState.calibrating);
+        expect(audioDecoder.state, DecoderState.scanning);
 
         controller.pause();
       });
@@ -292,6 +307,64 @@ void main() {
         expect(videoDecoder.state, VideoDecoderState.scanning);
 
         controller.pause();
+      });
+
+      test('track overlay telemetry flows to the notifier', () {
+        final controller = makeController(mode: DecodingMode.video);
+        controller.start();
+
+        // Blinking source at the frame center — enough frames to
+        // lock and emit overlay telemetry.
+        for (var i = 0; i < 40; i++) {
+          final on = i.isEven;
+          cameraCapture.emit(
+            VideoFrame(
+              luminance: List<double>.generate(80 * 60, (j) {
+                final x = j % 80;
+                final y = j ~/ 80;
+                final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
+                return on && inSpot ? 0.9 : 0.1;
+              }),
+              width: 80,
+              height: 60,
+              timestampMs: i * 33,
+            ),
+          );
+        }
+
+        expect(controller.trackOverlay.value, isNotNull);
+        expect(
+          controller.trackOverlay.value!.regionSizePx,
+          greaterThanOrEqualTo(8),
+        );
+
+        // Pause clears the overlay — a stale circle must not
+        // linger over a frozen preview.
+        controller.pause();
+        expect(controller.trackOverlay.value, isNull);
+
+        // Clear also resets it.
+        controller.resume();
+        for (var i = 0; i < 40; i++) {
+          final on = i.isEven;
+          cameraCapture.emit(
+            VideoFrame(
+              luminance: List<double>.generate(80 * 60, (j) {
+                final x = j % 80;
+                final y = j ~/ 80;
+                final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
+                return on && inSpot ? 0.9 : 0.1;
+              }),
+              width: 80,
+              height: 60,
+              timestampMs: 2000 + i * 33,
+            ),
+          );
+        }
+        expect(controller.trackOverlay.value, isNotNull);
+
+        controller.clear();
+        expect(controller.trackOverlay.value, isNull);
       });
     });
 

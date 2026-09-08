@@ -5,41 +5,67 @@ import 'package:simply_morse/core/constants/app_constants.dart';
 /// A reusable top app bar showing the app icon and name.
 ///
 /// Optionally shows a settings (gear) icon that navigates to
-/// the Settings screen. When [showSettingsIcon] is false,
+/// the Settings screen, and an info icon that navigates to
+/// the Morse Code Guide. When [showSettingsIcon] is false,
 /// no action button is shown (used on the Settings screen
-/// itself).
+/// itself); pass [onInfoTap] to still show the info button.
+///
+/// When the current route can pop (i.e. this is not the root
+/// route), a back button is shown instead of the app icon.
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   const AppTopBar({
     this.showSettingsIcon = true,
     this.onSettingsTap,
+    this.onInfoTap,
+    this.titleText,
     super.key,
   });
 
   final bool showSettingsIcon;
   final VoidCallback? onSettingsTap;
 
+  /// Opens the Morse Code Guide (info screen). When null,
+  /// no info button is shown.
+  final VoidCallback? onInfoTap;
+
+  /// Optional title overriding the app name — used by mode
+  /// screens (e.g. the camera decoder) to label what the user
+  /// is looking at.
+  final String? titleText;
+
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.of(context).canPop();
+
     return AppBar(
-      leading: const Padding(
-        padding: EdgeInsets.all(10),
-        child: Image(
-          image: AssetImage('assets/SimplyMorse_icon1024.png'),
-          width: 28,
-          height: 28,
-        ),
-      ),
-      title: const Text(
-        AppConstants.appName,
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
+      leading: canPop
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).maybePop(),
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+            )
+          : const Padding(
+              padding: EdgeInsets.all(10),
+              child: Image(
+                image: AssetImage('assets/SimplyMorse_icon1024.png'),
+                width: 28,
+                height: 28,
+              ),
+            ),
+      title: Text(
+        titleText ?? AppConstants.appName,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),
       actions: [
+        if (onInfoTap != null)
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: onInfoTap,
+            tooltip: 'Morse Code Guide',
+          ),
         if (showSettingsIcon)
           IconButton(
             icon: const Icon(Icons.settings),

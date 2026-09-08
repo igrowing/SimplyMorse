@@ -55,7 +55,7 @@ class LocalStorageDatasource {
         AppConstants.defaultRepeatLoop;
   }
 
-  Future<void> saveRepeatLoop(bool enabled) async {
+  Future<void> saveRepeatLoop({required bool enabled}) async {
     await _instance.setBool(AppConstants.repeatLoopKey, enabled);
   }
 
@@ -66,6 +66,15 @@ class LocalStorageDatasource {
 
   Future<void> saveRepeatDelay(double seconds) async {
     await _instance.setDouble(AppConstants.repeatDelayKey, seconds);
+  }
+
+  Future<bool> getFarnsworthEnabled() async {
+    return _instance.getBool(AppConstants.farnsworthKey) ??
+        AppConstants.defaultFarnsworthEnabled;
+  }
+
+  Future<void> saveFarnsworthEnabled({required bool enabled}) async {
+    await _instance.setBool(AppConstants.farnsworthKey, enabled);
   }
 
   Future<String> getDisplayTimeout() async {
@@ -85,10 +94,7 @@ class LocalStorageDatasource {
   }
 
   Future<void> saveTextHistory(List<String> history) async {
-    await _instance.setString(
-      AppConstants.textHistoryKey,
-      jsonEncode(history),
-    );
+    await _instance.setString(AppConstants.textHistoryKey, jsonEncode(history));
   }
 
   Future<void> clearTextHistory() async {

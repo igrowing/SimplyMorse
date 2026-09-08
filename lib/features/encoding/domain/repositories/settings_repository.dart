@@ -22,13 +22,19 @@ abstract interface class SettingsRepository {
   Future<bool> getRepeatLoop();
 
   /// Saves the repeat-in-loop setting.
-  Future<void> saveRepeatLoop(bool enabled);
+  Future<void> saveRepeatLoop({required bool enabled});
 
   /// Gets the delay between repeats in seconds.
   Future<double> getRepeatDelay();
 
   /// Saves the delay between repeats in seconds.
   Future<void> saveRepeatDelay(double seconds);
+
+  /// Gets whether Farnsworth timing is enabled.
+  Future<bool> getFarnsworthEnabled();
+
+  /// Saves the Farnsworth timing setting.
+  Future<void> saveFarnsworthEnabled({required bool enabled});
 
   /// Gets the display lit timeout mode
   /// ('system', '3x', or 'always').

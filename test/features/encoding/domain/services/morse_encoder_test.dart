@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:simply_morse/features/decoding/domain/models/decoded_element.dart';
+import 'package:simply_morse/features/decoding/domain/services/morse_decoder.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
@@ -32,9 +34,7 @@ void main() {
     test('encodes word gap as empty morseCode', () {
       final symbols = encoder.encode('HI THERE', settings);
 
-      final spaceSymbol = symbols.firstWhere(
-        (s) => s.character == ' ',
-      );
+      final spaceSymbol = symbols.firstWhere((s) => s.character == ' ');
       expect(spaceSymbol.morseCode, isEmpty);
       expect(spaceSymbol.isWordGap, isTrue);
     });
@@ -96,23 +96,15 @@ void main() {
       final symbols = encoder.encode('ABC', settings);
 
       for (var i = 1; i < symbols.length; i++) {
-        expect(
-          symbols[i].startMs,
-          greaterThan(symbols[i - 1].startMs),
-        );
+        expect(symbols[i].startMs, greaterThan(symbols[i - 1].startMs));
       }
     });
 
     test('word gap duration equals 7 dits', () {
       final symbols = encoder.encode('A B', settings);
 
-      final space = symbols.firstWhere(
-        (s) => s.isWordGap,
-      );
-      expect(
-        space.durationMs,
-        closeTo(settings.wordGapMs, 0.01),
-      );
+      final space = symbols.firstWhere((s) => s.isWordGap);
+      expect(space.durationMs, closeTo(settings.wordGapMs, 0.01));
     });
   });
 
@@ -150,9 +142,7 @@ void main() {
 
       // Find the inter-character gap (off event with charIndex 0
       // after the last on event of A)
-      final gapEvents = events.where(
-        (e) => !e.isOn && e.charIndex == 0,
-      );
+      final gapEvents = events.where((e) => !e.isOn && e.charIndex == 0);
       // A has no internal gaps after its last element, so the
       // inter-char gap should be the last off event for A
       final lastGap = gapEvents.last;
@@ -165,17 +155,12 @@ void main() {
 
       // Find the word gap event (off event with charIndex of
       // the space symbol)
-      final spaceIndex = symbols.indexWhere(
-        (s) => s.isWordGap,
-      );
+      final spaceIndex = symbols.indexWhere((s) => s.isWordGap);
       final wordGapEvents = events.where(
         (e) => e.charIndex == spaceIndex && !e.isOn,
       );
       expect(wordGapEvents, hasLength(1));
-      expect(
-        wordGapEvents.first.durationMs,
-        settings.wordGapMs.round(),
-      );
+      expect(wordGapEvents.first.durationMs, settings.wordGapMs.round());
     });
 
     test('all on events have positive duration', () {
@@ -203,6 +188,62 @@ void main() {
       final symbols = encoder.encode('', settings);
       final events = encoder.buildTimeline(symbols, settings);
       expect(events, isEmpty);
+    });
+  });
+
+  /// Encodes [text], builds the tone timeline, and feeds it
+  /// through [MorseDecoder] — the full encode/decode roundtrip.
+  String roundtrip(
+    MorseEncoder encoder,
+    EncodingSettings settings,
+    String text,
+  ) {
+    final symbols = encoder.encode(text, settings);
+    final events = encoder.buildTimeline(symbols, settings);
+    final elements = events
+        .map((e) => DecodedElement(isOn: e.isOn, durationMs: e.durationMs))
+        .toList();
+    return MorseDecoder().decodeElements(elements);
+  }
+
+  group('Farnsworth roundtrip', () {
+    test('Farnsworth-timed transmission decodes correctly', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+        farnsworthEnabled: true,
+        farnsworthEffectiveWpm: 10,
+      );
+      expect(roundtrip(encoder, settings, 'PARIS'), 'PARIS');
+      expect(roundtrip(encoder, settings, 'SOS SOS'), 'SOS SOS');
+    });
+
+    test('standard timing still decodes (regression guard)', () {
+      const settings = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+      );
+      expect(roundtrip(encoder, settings, 'PARIS'), 'PARIS');
+      expect(roundtrip(encoder, settings, 'SOS SOS'), 'SOS SOS');
+    });
+
+    test('Farnsworth gaps are longer than standard gaps', () {
+      const standard = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+      );
+      const farnsworth = EncodingSettings(
+        mode: EncodingMode.sound,
+        speedWpm: 20,
+        toneHz: 700,
+        farnsworthEnabled: true,
+        farnsworthEffectiveWpm: 10,
+      );
+      expect(farnsworth.charGapMs, greaterThan(standard.charGapMs));
+      expect(farnsworth.wordGapMs, greaterThan(standard.wordGapMs));
     });
   });
 }

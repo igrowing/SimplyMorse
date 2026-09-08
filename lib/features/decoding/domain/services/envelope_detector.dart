@@ -6,11 +6,9 @@ import 'dart:math';
 /// envelope, which is then thresholded to produce the on/off
 /// (dit/dah) stream.
 class EnvelopeDetector {
-  EnvelopeDetector({
-    this.attackMs = 2,
-    this.releaseMs = 50,
-  }) : assert(attackMs > 0, 'attackMs must be positive'),
-       assert(releaseMs > 0, 'releaseMs must be positive');
+  EnvelopeDetector({this.attackMs = 2, this.releaseMs = 50})
+    : assert(attackMs > 0, 'attackMs must be positive'),
+      assert(releaseMs > 0, 'releaseMs must be positive');
 
   /// Attack time constant in ms. Smaller = faster rise.
   final double attackMs;

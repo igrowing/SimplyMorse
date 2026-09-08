@@ -10,6 +10,6 @@ class ShareServiceImpl implements ShareService {
 
   @override
   Future<void> share(String text) async {
-    await Share.share(text);
+    await SharePlus.instance.share(ShareParams(text: text));
   }
 }

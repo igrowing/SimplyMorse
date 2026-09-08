@@ -3,14 +3,14 @@ description: "SimplyMorse - Audio-visual Morse code encoder-decoder."
 publish_to: 'none'
 homepage: "https://github.com/igrowing/SimplyMorse"
 
-version: 0.3.0+1
+version: 0.5.0+1
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.12.2
 
 dependencies:
   audioplayers: ^6.1.0
-  camera: ^0.12.0+2
+  camera: ^0.12.1
   cupertino_icons: ^1.0.8
   equatable: ^2.0.5
   flutter:
@@ -24,16 +24,26 @@ dependencies:
   shared_preferences: ^2.3.2
   torch_light: ^2.0.0
   url_launcher: ^6.3.1
-  wakelock_plus: ^1.2.10
+  wakelock_plus: ^1.8.0
 
 dev_dependencies:
+  # Lets tests fake CameraPlatform.instance so CameraController can
+  # initialize without a real camera — see FakeCameraPlatform.
+  camera_platform_interface: ^2.13.1
+  flutter_launcher_icons: ^0.14.4
   flutter_test:
     sdk: flutter
-  very_good_analysis: ^10.3.0
-  flutter_launcher_icons: ^0.14.4
+  # Direct declaration for tests: the FakeRecordPlatform helper
+  # subclasses it (record re-exports its types, but the analyzer
+  # requires a direct dependency for an explicit import).
+  record_platform_interface: ^2.1.0
+  very_good_analysis: ">=10.3.0 <12.0.0"
+  # Pigeon channel definitions used by the test wakelock mock.
+  wakelock_plus_platform_interface: ^1.7.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/SimplyMorse_icon1024.png
-    - test/assets/recordings/
+    # Note: test/assets/recordings/ is NOT bundled — tests read those fixtures
+    # directly from disk via File(...), and bundling them added ~49 MB per APK.

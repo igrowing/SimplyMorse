@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/light_method.dart';
+import 'package:simply_morse/features/encoding/domain/models/output_method.dart';
 import 'package:simply_morse/features/encoding/domain/models/transmission_state.dart';
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 import 'package:simply_morse/features/encoding/presentation/controllers/encoding_controller.dart';
@@ -33,15 +36,41 @@ void main() {
     controller.dispose();
   });
 
+  group('Farnsworth setting', () {
+    test('transmission settings carry the persisted Farnsworth flag', () async {
+      settingsRepo.farnsworthEnabled = true;
+      await controller.init();
+      controller.updateText('SOS');
+      await controller.send();
+
+      expect(transmitter.lastSettings, isNotNull);
+      expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
+    });
+
+    test('changing the flag affects the next transmission', () async {
+      await controller.init();
+
+      settingsRepo.farnsworthEnabled = false;
+      controller.updateText('SOS');
+      await controller.send();
+      expect(transmitter.lastSettings!.farnsworthEnabled, isFalse);
+
+      settingsRepo.farnsworthEnabled = true;
+      await controller.send();
+      expect(transmitter.lastSettings!.farnsworthEnabled, isTrue);
+    });
+  });
+
   group('EncodingController', () {
     group('init', () {
       test('loads settings and history', () async {
-        settingsRepo.speed = 15.0;
-        settingsRepo.tone = 800.0;
-        settingsRepo.initialDelay = 5.0;
+        settingsRepo
+          ..speed = 15.0
+          ..tone = 800.0
+          ..initialDelay = 5.0;
         historyRepo.seed(['hello', 'sos']);
 
-        await controller.init(EncodingMode.sound);
+        await controller.init();
 
         expect(controller.mode, EncodingMode.sound);
         expect(controller.speedWpm, 15.0);
@@ -53,8 +82,8 @@ void main() {
       });
 
       test('only initializes once', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.init(EncodingMode.flash);
+        await controller.init();
+        await controller.init();
 
         // Mode should stay as first init
         expect(controller.mode, EncodingMode.sound);
@@ -64,7 +93,7 @@ void main() {
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.init(EncodingMode.sound);
+        await controller.init();
 
         expect(notifyCount, greaterThan(0));
       });
@@ -72,14 +101,14 @@ void main() {
 
     group('updateText', () {
       test('updates text value', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('hello');
 
         expect(controller.text, 'hello');
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
@@ -91,14 +120,14 @@ void main() {
 
     group('selectFromHistory', () {
       test('sets text from history entry', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.selectFromHistory('SOS');
 
         expect(controller.text, 'SOS');
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
@@ -110,25 +139,25 @@ void main() {
 
     group('updateSpeed', () {
       test('updates speed value', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateSpeed(20.0);
+        await controller.init();
+        await controller.updateSpeed(20);
 
         expect(controller.speedWpm, 20.0);
       });
 
       test('persists to settings repository', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateSpeed(25.0);
+        await controller.init();
+        await controller.updateSpeed(25);
 
         expect(settingsRepo.saveSpeedCount, 1);
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.updateSpeed(15.0);
+        await controller.updateSpeed(15);
 
         expect(notifyCount, 1);
       });
@@ -136,25 +165,25 @@ void main() {
 
     group('updateTone', () {
       test('updates tone value', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateTone(850.0);
+        await controller.init();
+        await controller.updateTone(850);
 
         expect(controller.toneHz, 850.0);
       });
 
       test('persists to settings repository', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateTone(600.0);
+        await controller.init();
+        await controller.updateTone(600);
 
         expect(settingsRepo.saveToneCount, 1);
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.updateTone(500.0);
+        await controller.updateTone(500);
 
         expect(notifyCount, 1);
       });
@@ -162,25 +191,25 @@ void main() {
 
     group('updateInitialDelay', () {
       test('updates initial delay value', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateInitialDelay(10.0);
+        await controller.init();
+        await controller.updateInitialDelay(10);
 
         expect(controller.initialDelaySec, 10.0);
       });
 
       test('persists to settings repository', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateInitialDelay(5.0);
+        await controller.init();
+        await controller.updateInitialDelay(5);
 
         expect(settingsRepo.saveInitialDelayCount, 1);
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
-        await controller.updateInitialDelay(3.0);
+        await controller.updateInitialDelay(3);
 
         expect(notifyCount, 1);
       });
@@ -188,21 +217,21 @@ void main() {
 
     group('updateLightMethod', () {
       test('updates light method value', () async {
-        await controller.init(EncodingMode.flash);
+        await controller.init();
         controller.updateLightMethod(LightMethod.display);
 
         expect(controller.lightMethod, LightMethod.display);
       });
 
       test('updates to both', () async {
-        await controller.init(EncodingMode.both);
+        await controller.init();
         controller.updateLightMethod(LightMethod.both);
 
         expect(controller.lightMethod, LightMethod.both);
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.flash);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
@@ -214,72 +243,87 @@ void main() {
 
     group('send', () {
       test('does nothing when text is empty', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         await controller.send();
 
         expect(transmitter.transmitCount, 0);
       });
 
       test('does nothing when already transmitting', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('SOS');
         await controller.send();
         expect(transmitter.transmitCount, 1);
       });
 
       test('encodes and transmits the text', () async {
-        await controller.init(EncodingMode.flash);
+        await controller.init();
         controller.updateText('SOS');
         await controller.send();
 
         expect(transmitter.transmitCount, 1);
         expect(transmitter.lastEvents, isNotNull);
-        expect(transmitter.lastEvents!, isNotEmpty);
-        expect(transmitter.lastSettings!.mode, EncodingMode.flash);
+        expect(transmitter.lastEvents, isNotEmpty);
+        expect(transmitter.lastSettings!.mode, EncodingMode.sound);
       });
 
       test('passes light method to settings', () async {
-        await controller.init(EncodingMode.flash);
-        controller.updateLightMethod(LightMethod.display);
-        controller.updateText('SOS');
+        await controller.init();
+        controller
+          ..updateLightMethod(LightMethod.display)
+          ..updateText('SOS');
         await controller.send();
 
+        expect(transmitter.lastSettings!.lightMethod, LightMethod.display);
+      });
+
+      test('passes initial delay to the transmitter', () async {
+        await controller.init();
+        await controller.updateInitialDelay(1);
+        controller.updateText('SOS');
+
+        await controller.send();
+
+        // The transmitter owns the countdown now: the controller
+        // hands the real delay over, so every output method —
+        // sound included — starts only after it elapses.
+        expect(transmitter.lastSettings!.initialDelaySec, 1);
+        // The countdown notifier is the transmitter's.
         expect(
-          transmitter.lastSettings!.lightMethod,
-          LightMethod.display,
+          controller.countdownRemaining,
+          same(transmitter.countdownRemaining),
         );
       });
 
-      test('runs countdown before transmit when delay > 0', () async {
-        await controller.init(EncodingMode.sound);
-        await controller.updateInitialDelay(1.0);
+      test('transmits immediately when delay is 0', () async {
+        await controller.init();
+        await controller.updateInitialDelay(0);
         controller.updateText('SOS');
-
-        // The countdown should fire during send()
-        final countdownValues = <int?>[];
-        controller.countdownRemaining.addListener(() {
-          countdownValues.add(controller.countdownRemaining.value);
-        });
-
         await controller.send();
 
-        // Transmitter receives delay = 0 (countdown consumed it)
         expect(transmitter.lastSettings!.initialDelaySec, 0);
-        // Countdown went through 1 -> null
-        expect(countdownValues, contains(1));
-        expect(controller.countdownRemaining.value, isNull);
       });
 
-      test('transmits immediately when delay is 0', () async {
-        await controller.init(EncodingMode.sound);
+      test('applies the initial delay only on the first loop pass', () async {
+        await controller.init();
+        await controller.updateInitialDelay(3);
+        await controller.updateRepeatLoop(value: true);
+        await controller.updateRepeatDelay(0);
         controller.updateText('SOS');
+        // Stop the loop once the first repeat has been dispatched.
+        transmitter.onTransmit = (count) {
+          if (count >= 2) unawaited(controller.pause());
+        };
+
         await controller.send();
 
-        expect(transmitter.lastSettings!.initialDelaySec, 0);
+        expect(transmitter.allSettings.length, 2);
+        expect(transmitter.allSettings[0].initialDelaySec, 3);
+        expect(transmitter.allSettings[1].initialDelaySec, 0);
       });
 
       test('saves text to history', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('HELLO');
         await controller.send();
 
@@ -287,36 +331,27 @@ void main() {
         expect(controller.history, contains('HELLO'));
       });
 
-      test(
-        'updates transmission status to completed',
-        () async {
-          await controller.init(EncodingMode.sound);
-          controller.updateText('E');
-          await controller.send();
+      test('updates transmission status to completed', () async {
+        await controller.init();
+        controller.updateText('E');
+        await controller.send();
 
-          expect(
-            controller.transmission.status,
-            TransmissionStatus.completed,
-          );
-        },
-      );
+        expect(controller.transmission.status, TransmissionStatus.completed);
+      });
     });
 
     group('clear', () {
       test('clears text and resets transmission state', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('hello');
         await controller.clear();
 
         expect(controller.text, isEmpty);
-        expect(
-          controller.transmission.status,
-          TransmissionStatus.idle,
-        );
+        expect(controller.transmission.status, TransmissionStatus.idle);
       });
 
       test('stops the transmitter', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('hello');
         await controller.send();
         await controller.clear();
@@ -325,7 +360,7 @@ void main() {
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('hello');
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
@@ -338,7 +373,7 @@ void main() {
 
     group('pause', () {
       test('stops the transmitter', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('hello');
         await controller.pause();
 
@@ -346,18 +381,15 @@ void main() {
       });
 
       test('resets transmission state to idle', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         controller.updateText('hello');
         await controller.pause();
 
-        expect(
-          controller.transmission.status,
-          TransmissionStatus.idle,
-        );
+        expect(controller.transmission.status, TransmissionStatus.idle);
       });
 
       test('notifies listeners', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
         var notifyCount = 0;
         controller.addListener(() => notifyCount++);
 
@@ -375,27 +407,109 @@ void main() {
       });
 
       test('has default light method before init', () {
-        expect(controller.lightMethod, LightMethod.flashLed);
+        expect(controller.lightMethod, LightMethod.display);
       });
 
-      test(
-        'transmission state starts idle',
-        () {
-          expect(
-            controller.transmission.status,
-            TransmissionStatus.idle,
-          );
-          expect(controller.isTransmitting, isFalse);
-        },
-      );
+      test('transmission state starts idle', () {
+        expect(controller.transmission.status, TransmissionStatus.idle);
+        expect(controller.isTransmitting, isFalse);
+      });
     });
 
     group('displayBlink', () {
       test('exposes a ValueNotifier from transmitter', () async {
-        await controller.init(EncodingMode.sound);
+        await controller.init();
 
         expect(controller.displayBlink, isA<ValueNotifier<bool>>());
         expect(controller.displayBlink.value, isFalse);
+      });
+    });
+
+    group('output methods', () {
+      test('defaults to sound only', () async {
+        await controller.init();
+
+        expect(controller.outputs, {OutputMethod.sound});
+        expect(controller.hasSound, isTrue);
+        expect(controller.hasLed, isFalse);
+        expect(controller.hasDisplay, isFalse);
+      });
+
+      test('updateOutputs changes the selection', () async {
+        await controller.init();
+        controller.updateOutputs({OutputMethod.led, OutputMethod.display});
+
+        expect(controller.hasSound, isFalse);
+        expect(controller.hasLed, isTrue);
+        expect(controller.hasDisplay, isTrue);
+        expect(controller.mode, EncodingMode.flash);
+        expect(controller.lightMethod, LightMethod.both);
+      });
+
+      test('updateOutputs rejects empty selection', () async {
+        await controller.init();
+        controller.updateOutputs({});
+
+        // Stays as sound
+        expect(controller.hasSound, isTrue);
+      });
+
+      test('toggleOutput adds a method', () async {
+        await controller.init();
+        controller.toggleOutput(OutputMethod.led);
+
+        expect(controller.hasSound, isTrue);
+        expect(controller.hasLed, isTrue);
+        expect(controller.mode, EncodingMode.both);
+      });
+
+      test('toggleOutput removes a method (if not the last)', () async {
+        await controller.init();
+        controller
+          ..toggleOutput(OutputMethod.led)
+          ..toggleOutput(OutputMethod.sound);
+
+        expect(controller.hasSound, isFalse);
+        expect(controller.hasLed, isTrue);
+      });
+
+      test('toggleOutput cannot remove the last method', () async {
+        await controller.init();
+        controller.toggleOutput(OutputMethod.sound);
+
+        expect(controller.hasSound, isTrue);
+      });
+
+      test('sound+led maps to both mode with flashLed method', () async {
+        await controller.init();
+        controller.toggleOutput(OutputMethod.led);
+
+        expect(controller.mode, EncodingMode.both);
+        expect(controller.lightMethod, LightMethod.flashLed);
+      });
+
+      test('sound+display maps to both mode with display method', () async {
+        await controller.init();
+        controller.toggleOutput(OutputMethod.display);
+
+        expect(controller.mode, EncodingMode.both);
+        expect(controller.lightMethod, LightMethod.display);
+      });
+
+      test('led only maps to flash mode with flashLed method', () async {
+        await controller.init();
+        controller.updateOutputs({OutputMethod.led});
+
+        expect(controller.mode, EncodingMode.flash);
+        expect(controller.lightMethod, LightMethod.flashLed);
+      });
+
+      test('display only maps to flash mode with display method', () async {
+        await controller.init();
+        controller.updateOutputs({OutputMethod.display});
+
+        expect(controller.mode, EncodingMode.flash);
+        expect(controller.lightMethod, LightMethod.display);
       });
     });
   });

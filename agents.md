@@ -36,11 +36,72 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 * **Code Generation:** Code-generated companion files (`*.g.dart`, `*.freezed.dart`) must never be manually modified. If modifications require schema updates, run the build runner shell command.
 * **Versions**: automatically increase minor version of the app on every commit. The minor version identifies is a number between last does and a plus sign in pubspec.yml under `version` entry. Change major or middle version number only when explicitly requested by the developer. Do not change the number after sign plus (+) in the version.
 
+### Lint Hygiene Rules (zero-warning policy)
+
+`flutter analyze` must return **zero issues** before any commit. The rules below address the most common lint violations. When in doubt, run `dart fix --apply` first, then resolve remaining issues manually.
+
+**Import ordering (directives_ordering)**
+* Sort imports: `dart:` first, then `package:`, then relative paths. Within each group, sort alphabetically.
+* Run `dart format .` after adding or reordering imports — it auto-sorts directives.
+
+**Async and futures (discarded_futures)**
+* Any call returning a `Future` in a non-`async` function must be wrapped with `unawaited(...)` (requires `import 'dart:async';`) or the enclosing function must be made `async` with `await`.
+* Never call a Future-returning function and discard the result silently.
+
+**Boolean parameters (avoid_positional_boolean_parameters)**
+* Never use positional `bool` parameters. Always use named parameters: `void save({required bool enabled})` not `void save(bool enabled)`.
+* Update all call sites to use the named parameter: `save(enabled: true)`.
+
+**Cascades (cascade_invocations)**
+* When calling multiple methods on the same receiver consecutively, use the cascade operator (`..`): `buffer..write(a)..write(b);`
+* In test files, cascading `expect()` chains is not idiomatic — add `// ignore: cascade_invocations` with a comment above it if needed.
+
+**Functional patterns (prefer_foreach, use_is_even_rather_than_modulo)**
+* A `for` loop that only calls a single function on each element should use `.forEach(tearOff)`: `list.forEach(print);`
+* Use `.isEven` / `.isOdd` instead of `% 2 == 0` / `% 2 == 1`.
+
+**Asserts (prefer_asserts_with_message)**
+* Every `assert()` must include a message: `assert(x > 0, 'x must be positive')`.
+
+**Ignore directives (document_ignores)**
+* Every `// ignore:` or `// ignore_for_file:` directive must have a `//` comment on the line immediately above it explaining why the suppression is intentional.
+* Example:
+  ```dart
+  // JSON fixtures use dynamic maps from jsonDecode; casting is inherent.
+  // ignore_for_file: avoid_dynamic_calls
+  ```
+
+**Doc comments (unintended_html_in_doc_comment, comment_references)**
+* Angle brackets in doc comments are interpreted as HTML — wrap type-like terms in backticks: `` `List<int>` `` not `List<int>`.
+* Use backticks for symbol references in doc comments: `` `transmit` `` not `[transmit]` (the bracket syntax triggers comment_references when the symbol isn't in scope).
+
+**Library annotations (library_annotations)**
+* File-level annotations like `@Tags([...])` must precede a `library;` directive at the top of the file:
+  ```dart
+  @Tags(['video-recording'])
+  library;
+  ```
+
+**Adjacent strings (missing_whitespace_between_adjacent_strings)**
+* When splitting a string across adjacent literals, ensure the concatenation point has whitespace. End the first fragment with a space or start the next one with a space.
+* Do not split at a hyphen — restructure the break so a space falls at the boundary.
+
+**Deprecated APIs (deprecated_member_use)**
+* Before using any package API, check `flutter analyze` for deprecation warnings. Use the current replacement API immediately — do not leave `// ignore: deprecated_member_use` in production code.
+
+**Unused code (unused_field, unused_local_variable)**
+* Remove any field, variable, or import that is not used. Do not prefix local variables with `_` to suppress unused warnings — that triggers `no_leading_underscores_for_local_identifiers`.
+
+**Pubspec (sort_pub_dependencies)**
+* Keep `dependencies:` and `dev_dependencies:` in `pubspec.yaml` sorted alphabetically. Run `dart format pubspec.yaml` or sort manually after adding a dependency.
+
+
 ---
 
 ## 3. Strict Error Handling & Failure Protocols
 * **No Silent Swallowing:** Never wrap blocks in blank `catch (e) {}` statements. Errors must be captured, transformed into typed domain `Failure` objects, and explicitly pushed to the presentation layer or logged.
 * **Explicit Failure Over Default Data:** When parsing JSON data, configuration files, or network responses, **never fall back to implicit placeholder or default values** (e.g., an empty string `""` or a current timestamp `DateTime.now()`) if validation fails. Return an explicit `null` or throw a parsing exception. It is always better for the application to fail loudly and traceably than to operate silently with corrupted or hallucinated baseline data.
+* **Unit test per bug:** On every reported bug, create at least one (or more, as needed) unit test first to confirm the bug (expect the unit test to fail). On the bug fix finish, verify and confirm with the newly written unit test that the bug is fixed.
 
 ---
 
@@ -49,10 +110,12 @@ Agents must use modern Flutter API patterns. Do not copy legacy (2022 or older) 
 When assigned a development ticket or bug fix, you must execute the task according to this chronological checklist. Do not skip steps. Apply `kotlin.incremental=false` in `android\gradle.properties` if not applied yet.
 
 ### Step 1: Establish Environment Baseline
-Before changing a single line of production code, verify the codebase is in a functional state to isolate future errors:
-1. Run `flutter pub get` to resolve any local dependencies.
-2. Run `flutter analyze` to guarantee the starting code is clear of syntax or static compilation errors.
-3. Run `flutter test` to ensure existing unit and widget test files currently pass.
+Before changing a single line of production code:
+A. pull the changes from current remote repo in work. In team coding, we should take into account peer code changes.
+B. verify the codebase is in a functional state to isolate future errors:
+  1. Run `flutter pub get` to resolve any local dependencies.
+  2. Run `flutter analyze` to guarantee the starting code is clear of syntax or static compilation errors.
+  3. Run `flutter test` to ensure existing unit and widget test files currently pass.
 
 ### Step 2: Implement Changes and Handle Code-Gen
 1. Execute your structural modifications localized to the corresponding clean architecture feature layer.
@@ -61,11 +124,11 @@ Before changing a single line of production code, verify the codebase is in a fu
 `dart run build_runner build --delete-conflicting-outputs`
 
 3. On changes in production code follow the rules:
-  * Add unit test on added functins and classes.
+  * Add unit test on added functions and classes.
   * On removal of obsolete, non-used, merged functions remove according unit tests.
   * On changes in functions adapt related unit tests accordingly. 
-
 4. **Don't repeat yourself** restriction - when any functionality is needed to implement, review existing classes and function for similar functionality. Often you will find that what's needed is already implemented. Then just call and reuse it. If slight modification to the existing functionality is needed and that function has only 1-2 invocations, enhance that function and adapt the existing invokations. If signigicant modification needed or too many calls exist to the implemented function then add a function which has larger functional span and then the older, narrower span function, can use the new one to avoid code duplication. Add new functions only if there is no similar fucntionality is already implemented.
+
 
 ### Step 3: Self-Correction & Automated Cleaning
 Before presenting your changes for human review, clean your workspace of transient tracking code:

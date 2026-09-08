@@ -50,3 +50,16 @@ android/key.properties
 
 # Video recording fixtures (large, kept locally only)
 test/assets/recordings/video/*.mp4
+
+# Local-only decoder debug harness: replays on-device video-decode
+# CSV captures through the real pipeline to track accuracy across
+# code changes. Not committed — the captures are large and the
+# harness is throwaway once the decoder is stable. To use it, drop
+# the CSVs in the project root and run
+#   flutter test --tags field-logs test/support/field_log_replay_test.dart
+# Delete both when done; the `field-logs` tag in dart_test.yaml can
+# stay (it is inert without the file).
+/test/support/field_log_replay_test.dart
+# On-device debug captures live in the project root (any name).
+# Nested *.csv fixtures under test/ are unaffected.
+/*.csv

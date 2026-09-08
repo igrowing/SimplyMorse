@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:simply_morse/core/services/torch_service.dart';
 import 'package:simply_morse/core/utils/wav_generator.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
+import 'package:simply_morse/features/encoding/domain/models/light_method.dart'
+    show LightMethod;
 import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dart';
 
 /// Callback for transmission progress updates.
@@ -21,8 +22,7 @@ typedef CompleteCallback = void Function();
 /// can blink the screen in sync with the Morse signal when the
 /// selected [LightMethod] includes display output.
 class MorseTransmitter {
-  MorseTransmitter({required TorchService torchService})
-    : _torchService = torchService;
+  MorseTransmitter({required this._torchService});
 
   final TorchService _torchService;
 
@@ -42,6 +42,15 @@ class MorseTransmitter {
   /// The UI watches this to blink the screen/panel.
   final ValueNotifier<bool> displayBlink = ValueNotifier<bool>(false);
 
+  /// Countdown through the initial delay, shared by every
+  /// output method. Non-null (seconds remaining) while the
+  /// delay is running, null otherwise. The UI shows a
+  /// countdown overlay from this. Living on the transmitter
+  /// — the domain layer that actually applies the delay —
+  /// guarantees audio, torch, and display all start only
+  /// after the countdown, on one code path.
+  final ValueNotifier<int?> countdownRemaining = ValueNotifier<int?>(null);
+
   Timer? _progressTimer;
   bool _isRunning = false;
 
@@ -56,13 +65,25 @@ class MorseTransmitter {
 
     _isRunning = true;
 
-    // Apply initial delay before starting anything.
+    // Initial delay: applied here, on the single path every
+    // output method (audio, torch, display) goes through, so
+    // none of them can start before the countdown finishes.
     if (settings.initialDelaySec > 0) {
-      await Future<void>.delayed(
-        Duration(
-          milliseconds: (settings.initialDelaySec * 1000).round(),
-        ),
-      );
+      final totalMs = (settings.initialDelaySec * 1000).round();
+      final wholeSeconds = totalMs ~/ 1000;
+      for (var i = wholeSeconds; i >= 1; i--) {
+        if (!_isRunning) {
+          countdownRemaining.value = null;
+          return;
+        }
+        countdownRemaining.value = i;
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+      final remainderMs = totalMs % 1000;
+      if (remainderMs > 0) {
+        await Future<void>.delayed(Duration(milliseconds: remainderMs));
+      }
+      countdownRemaining.value = null;
       if (!_isRunning) return;
     }
 
@@ -79,24 +100,21 @@ class MorseTransmitter {
 
     // Start progress timer
     final startTime = DateTime.now();
-    _progressTimer = Timer.periodic(
-      const Duration(milliseconds: 50),
-      (timer) {
-        final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-        if (elapsedMs >= totalDuration) {
-          timer.cancel();
-          onComplete();
-          return;
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
+      if (elapsedMs >= totalDuration) {
+        timer.cancel();
+        onComplete();
+        return;
+      }
+      var currentChar = -1;
+      for (final entry in charStartTimes.entries) {
+        if (entry.value <= elapsedMs) {
+          currentChar = entry.key;
         }
-        var currentChar = -1;
-        for (final entry in charStartTimes.entries) {
-          if (entry.value <= elapsedMs) {
-            currentChar = entry.key;
-          }
-        }
-        onProgress(currentChar);
-      },
-    );
+      }
+      onProgress(currentChar);
+    });
 
     // Audio transmission
     if (settings.needsAudio) {
@@ -118,6 +136,7 @@ class MorseTransmitter {
     _isRunning = false;
     _progressTimer?.cancel();
     _progressTimer = null;
+    countdownRemaining.value = null;
     await _player?.stop();
     await _torchService.disable();
     displayBlink.value = false;
@@ -126,22 +145,15 @@ class MorseTransmitter {
   /// Disposes all resources.
   void dispose() {
     _progressTimer?.cancel();
-    _player?.dispose();
+    unawaited(_player?.dispose());
     displayBlink.dispose();
+    countdownRemaining.dispose();
   }
 
-  Uint8List _generateWav(
-    List<ToneEvent> events,
-    double toneHz,
-  ) {
+  Uint8List _generateWav(List<ToneEvent> events, double toneHz) {
     final generator = WavGenerator();
     final segments = events
-        .map(
-          (e) => ToneSegment(
-            isOn: e.isOn,
-            durationMs: e.durationMs,
-          ),
-        )
+        .map((e) => ToneSegment(isOn: e.isOn, durationMs: e.durationMs))
         .toList();
     return generator.generate(segments, toneHz);
   }
@@ -171,9 +183,7 @@ class MorseTransmitter {
           displayBlink.value = false;
         }
       }
-      await Future<void>.delayed(
-        Duration(milliseconds: event.durationMs),
-      );
+      await Future<void>.delayed(Duration(milliseconds: event.durationMs));
     }
     if (settings.needsTorch) {
       await _torchService.disable();

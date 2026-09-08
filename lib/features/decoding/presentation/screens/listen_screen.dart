@@ -1,21 +1,23 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
-
+import 'package:share_plus/share_plus.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
+import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
+import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_mode.dart';
 import 'package:simply_morse/features/decoding/domain/models/decoding_status.dart';
 import 'package:simply_morse/features/decoding/presentation/controllers/decoding_controller.dart';
-import 'package:simply_morse/core/services/screen_timeout_service.dart';
-import 'package:simply_morse/core/theme/theme_controller.dart';
 import 'package:simply_morse/features/encoding/presentation/widgets/app_top_bar.dart';
+import 'package:simply_morse/features/info/presentation/screens/info_screen.dart';
 import 'package:simply_morse/features/settings/presentation/screens/settings_screen.dart';
 
 /// Screen for audio-based Morse decoding via microphone.
 ///
 /// Implements the audio decoding pipeline:
-/// AudioCapture → AudioDecoder (calibration → Goertzel lock →
+/// AudioCapture → AudioDecoder (scanning → IIR lock →
 /// envelope → timing) → MorseDecoder → text output.
 ///
 /// When listening starts, the decoder calibrates for ~2 s to
@@ -77,11 +79,57 @@ class _ListenScreenState extends State<ListenScreen> {
       return;
     }
     _controller.start();
+
+    // TEMP DEBUG: see _showAudioDebugLogSnackBar's doc comment.
+    // The path is set asynchronously inside AudioDebugLogger.start()
+    // (it awaits the documents directory), so give it a moment
+    // before reading it.
+    if (_controller.isDebugLoggingEnabled) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      _showAudioDebugLogSnackBar();
+    }
   }
 
   Future<void> _onPausePressed() async {
     await _feedbackService.lightImpact();
     _controller.pause();
+
+    // TEMP DEBUG: re-offer the share action once there's
+    // actually decoder data in the log — see
+    // _showAudioDebugLogSnackBar.
+    if (_controller.isDebugLoggingEnabled) {
+      _showAudioDebugLogSnackBar();
+    }
+  }
+
+  /// TEMP DEBUG: offers to share the audio debug log's CSV file.
+  /// Remove this together with the `enabled: true` override for
+  /// AudioDebugLogger in injection.dart once the audio decoder
+  /// investigation is done.
+  ///
+  /// The file lives in getApplicationDocumentsDirectory(), which
+  /// on Android is app-private internal storage — unreachable
+  /// from any file browser. Sharing the file directly via the
+  /// system share sheet sidesteps filesystem access entirely
+  /// (same rationale as the video debug log on the See screen).
+  void _showAudioDebugLogSnackBar() {
+    final path = _controller.debugLogPath;
+    debugPrint('Audio debug log: $path');
+    if (!mounted || path == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Audio debug log ready'),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () {
+            unawaited(
+              SharePlus.instance.share(ShareParams(files: [XFile(path)])),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _onResumePressed() async {
@@ -99,9 +147,9 @@ class _ListenScreenState extends State<ListenScreen> {
     await _feedbackService.lightImpact();
     await _shareService.copyToClipboard(_controller.decodedText);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
   Future<void> _onSharePressed() async {
@@ -116,6 +164,7 @@ class _ListenScreenState extends State<ListenScreen> {
       child: Scaffold(
         appBar: AppTopBar(
           onSettingsTap: () => _navigateToSettings(context),
+          onInfoTap: () => _navigateToInfo(context),
         ),
         body: SafeArea(
           child: LayoutBuilder(
@@ -129,9 +178,7 @@ class _ListenScreenState extends State<ListenScreen> {
                   ),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 700,
-                      ),
+                      constraints: const BoxConstraints(maxWidth: 700),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -142,9 +189,7 @@ class _ListenScreenState extends State<ListenScreen> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: _buildDecodedTextInput(context),
-                              ),
+                              Expanded(child: _buildDecodedTextInput(context)),
                               const SizedBox(width: 16),
                               Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -169,9 +214,7 @@ class _ListenScreenState extends State<ListenScreen> {
                 ),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 500,
-                    ),
+                    constraints: const BoxConstraints(maxWidth: 500),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -200,7 +243,7 @@ class _ListenScreenState extends State<ListenScreen> {
     final theme = Theme.of(context);
     return Row(
       children: [
-        Icon(Icons.mic, size: 28),
+        const Icon(Icons.mic, size: 28),
         const SizedBox(width: 12),
         Text('Hear', style: theme.textTheme.headlineSmall),
       ],
@@ -214,20 +257,14 @@ class _ListenScreenState extends State<ListenScreen> {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
         final (color, label) = switch (ctrl.status) {
-          DecodingStatus.idle => (
-            theme.colorScheme.outline,
-            'Idle',
-          ),
+          DecodingStatus.idle => (theme.colorScheme.outline, 'Idle'),
           DecodingStatus.listening => (
             ctrl.isCalibrating
                 ? theme.colorScheme.tertiary
                 : theme.colorScheme.primary,
-            ctrl.isCalibrating ? 'Calibrating…' : 'Listening…',
+            ctrl.isCalibrating ? 'Scanning…' : 'Listening…',
           ),
-          DecodingStatus.paused => (
-            theme.colorScheme.tertiary,
-            'Paused',
-          ),
+          DecodingStatus.paused => (theme.colorScheme.tertiary, 'Paused'),
         };
 
         return Wrap(
@@ -242,9 +279,7 @@ class _ListenScreenState extends State<ListenScreen> {
                 const SizedBox(width: 8),
                 Text(
                   label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: color,
-                  ),
+                  style: theme.textTheme.bodyMedium?.copyWith(color: color),
                 ),
               ],
             ),
@@ -252,11 +287,7 @@ class _ListenScreenState extends State<ListenScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.lock,
-                    size: 14,
-                    color: theme.colorScheme.primary,
-                  ),
+                  Icon(Icons.lock, size: 14, color: theme.colorScheme.primary),
                   const SizedBox(width: 4),
                   Text(
                     'Locked at ${ctrl.lockedFrequency.round()} Hz',
@@ -270,11 +301,7 @@ class _ListenScreenState extends State<ListenScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.speed,
-                    size: 14,
-                    color: theme.colorScheme.outline,
-                  ),
+                  Icon(Icons.speed, size: 14, color: theme.colorScheme.outline),
                   const SizedBox(width: 4),
                   Text(
                     '${ctrl.currentWpm} WPM',
@@ -405,16 +432,26 @@ class _ListenScreenState extends State<ListenScreen> {
   }
 
   void _navigateToSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsScreen(
-          themeController: widget.themeController,
-          screenTimeoutService: widget.screenTimeoutService,
-          themeMode: widget.themeController.mode,
-          displayTimeout: widget.displayTimeout,
-          onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(
+            themeController: widget.themeController,
+            screenTimeoutService: widget.screenTimeoutService,
+            themeMode: widget.themeController.mode,
+            displayTimeout: widget.displayTimeout,
+            onDisplayTimeoutChanged: widget.onDisplayTimeoutChanged,
+          ),
         ),
       ),
+    );
+  }
+
+  void _navigateToInfo(BuildContext context) {
+    unawaited(
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const InfoScreen())),
     );
   }
 }

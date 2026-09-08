@@ -9,6 +9,7 @@ void main() {
       WidgetTester tester, {
       bool showSettingsIcon = true,
       VoidCallback? onSettingsTap,
+      VoidCallback? onInfoTap,
     }) async {
       onSettingsTap ??= () {};
       await tester.pumpWidget(
@@ -17,6 +18,7 @@ void main() {
             body: AppTopBar(
               showSettingsIcon: showSettingsIcon,
               onSettingsTap: onSettingsTap,
+              onInfoTap: onInfoTap,
             ),
           ),
         ),
@@ -30,10 +32,7 @@ void main() {
 
     testWidgets('does not display version in app bar', (tester) async {
       await pumpBar(tester);
-      expect(
-        find.text('v${AppConstants.appVersion}'),
-        findsNothing,
-      );
+      expect(find.text('v${AppConstants.appVersion}'), findsNothing);
     });
 
     testWidgets('shows settings gear icon by default', (tester) async {
@@ -50,10 +49,7 @@ void main() {
 
     testWidgets('calls onSettingsTap when gear pressed', (tester) async {
       var tapped = false;
-      await pumpBar(
-        tester,
-        onSettingsTap: () => tapped = true,
-      );
+      await pumpBar(tester, onSettingsTap: () => tapped = true);
 
       await tester.tap(find.byIcon(Icons.settings));
       await tester.pump();
@@ -63,10 +59,7 @@ void main() {
 
     test('has correct preferred size', () {
       final bar = AppTopBar(onSettingsTap: () {});
-      expect(
-        bar.preferredSize,
-        const Size.fromHeight(kToolbarHeight),
-      );
+      expect(bar.preferredSize, const Size.fromHeight(kToolbarHeight));
     });
   });
 }
