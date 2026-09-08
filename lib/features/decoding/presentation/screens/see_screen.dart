@@ -676,11 +676,23 @@ class _SeeScreenState extends State<SeeScreen> {
                       padding: const EdgeInsets.only(
                         left: _statusBarIconSize + _statusBarIconGap,
                       ),
-                      child: Text(
-                        detailsText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: style,
+                      // Each detail is its own chip in a Wrap so the
+                      // line breaks at the ` · ` separators and every
+                      // field stays readable on a narrow phone —
+                      // rather than one Text that ellipsizes the
+                      // trailing fields (FPS, WPM) away entirely.
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 2,
+                        children: [
+                          for (var i = 0; i < details.length; i++)
+                            Text(
+                              i == details.length - 1
+                                  ? details[i]
+                                  : '${details[i]} ·',
+                              style: style,
+                            ),
+                        ],
                       ),
                     ),
                   ],

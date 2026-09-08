@@ -28,8 +28,11 @@ class TrackOverlayInfo extends Equatable {
   /// Tracked region center as a fraction of the frame height.
   final double centerY;
 
-  /// Side of the brightness-reading region, in processing-frame
-  /// pixels (see `VideoDecoder.minRegionSize`).
+  /// Estimated on-screen size of the transmitting light itself, in
+  /// processing-frame pixels — the extent of the frame blocks
+  /// actually carrying the blink, not the Kalman search/reading
+  /// region. The See-screen debug circle is drawn at twice this
+  /// diameter, centred on the light.
   final int regionSizePx;
 
   /// Whether the tracked source is currently ON — a mark is in

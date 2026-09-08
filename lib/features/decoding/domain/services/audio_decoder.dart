@@ -826,6 +826,11 @@ class AudioDecoder {
 
     // Process all samples through the IIR bandpass + envelope.
     _trackEnvelope(_detector!.processBlock(samples));
+
+    // Release the previous element once it can no longer be merged,
+    // so the decoded text completes each character as its final
+    // element ends instead of one character late.
+    _elements.tick(_totalSamples * 1000 / sampleRate);
   }
 
   /// Runs a quick FFT scan on the recent audio to check whether the

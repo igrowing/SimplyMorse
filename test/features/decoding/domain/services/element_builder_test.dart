@@ -107,6 +107,53 @@ void main() {
       expect(out.map((e) => e.durationMs), [100, 100]);
     });
 
+    test('tick releases the pending element once it cannot be merged', () {
+      final b = make(minElementMs: 5, glitchRatio: 0.25);
+      // Establish a ~100 ms unit so the glitch threshold is trusted
+      // (tick is inert until currentUnitMs is known).
+      var t = 0.0;
+      b.transition(nowOn: false, timeMs: t);
+      for (var i = 0; i < 8; i++) {
+        b
+          ..transition(nowOn: true, timeMs: t += 100)
+          ..transition(nowOn: false, timeMs: t += 100);
+      }
+      expect(b.currentUnitMs, 100);
+
+      // One more mark, then an OFF segment. After these two
+      // transitions the ON mark is the pending element.
+      b
+        ..transition(nowOn: true, timeMs: t += 100)
+        ..transition(nowOn: false, timeMs: t += 100);
+      final n = out.length;
+      expect(b.isOn, isFalse);
+
+      // Still within the glitch window (100 * 0.25 = 25 ms) — nothing.
+      b.tick(t + 20);
+      expect(out, hasLength(n));
+
+      // OFF has outlasted the glitch threshold — release the mark.
+      b.tick(t + 40);
+      expect(out, hasLength(n + 1));
+      expect(out.last.isOn, isTrue);
+      expect(out.last.durationMs, 100);
+
+      // Idempotent until the next transition.
+      b.tick(t + 500);
+      expect(out, hasLength(n + 1));
+    });
+
+    test('tick is inert before the element rate is known', () {
+      final b = make()
+        ..transition(nowOn: false, timeMs: 0)
+        ..transition(nowOn: true, timeMs: 100)
+        ..transition(nowOn: false, timeMs: 200);
+      expect(b.currentUnitMs, isNull);
+      final n = out.length;
+      b.tick(100000);
+      expect(out, hasLength(n));
+    });
+
     test('reset clears history and pending state', () {
       final b = make()
         ..transition(nowOn: false, timeMs: 0)

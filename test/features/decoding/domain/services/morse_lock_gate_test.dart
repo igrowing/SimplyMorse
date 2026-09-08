@@ -88,6 +88,58 @@ void main() {
       },
     );
 
+    test(
+      'trims a leading run of sub-5-unit wobble that fits no Morse unit',
+      () {
+        final out = <DecodedElement>[];
+        final gate = MorseLockGate(
+          onElement: out.add,
+          minElementsToLock: 8,
+          minMarksToLock: 4,
+        );
+
+        // Auto-exposure / hand-settling wobble: marks squarely between
+        // 1 and 3 units of the eventual 300 ms unit — under the >5-unit
+        // "impossible mark" bar the old trim used, but a poor fit to
+        // both a dit (300) and a dah (900). Real 300/900 ms sending
+        // follows and streams past the window, so the wobble is a
+        // trimmable prefix, not the whole message.
+        final wobble = [
+          on_(500),
+          off(470),
+          on_(520),
+          off(480),
+          on_(510),
+          off(460),
+        ];
+        final real = [
+          on_(300),
+          off(300),
+          on_(900),
+          off(300),
+          on_(300),
+          off(900),
+          on_(300),
+          off(300),
+          on_(300),
+          off(300),
+          on_(900),
+          off(300),
+        ];
+
+        [...wobble, ...real].forEach(gate.add);
+        gate.flush();
+
+        expect(gate.isLocked, isTrue);
+        expect(out, containsAll(real));
+        // The wobble marks (~500-520 ms) must not have survived.
+        expect(
+          out.where((e) => e.isOn && e.durationMs > 380 && e.durationMs < 680),
+          isEmpty,
+        );
+      },
+    );
+
     test('bypasses fast sending immediately instead of gating it', () {
       final out = <DecodedElement>[];
       final gate = MorseLockGate(onElement: out.add);

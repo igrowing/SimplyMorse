@@ -177,7 +177,7 @@ class VideoDecoder {
     this.minVariance = 0.001,
     this.searchRadius = 2,
     this.lostFrameLimit = 10,
-    this.signalHoldMs = 3000,
+    this.signalHoldMs = 30000,
     this.holdContrastFactor = 4,
     this.minRegionSize = 8,
     this.maxRegionSize = 32,
@@ -230,9 +230,16 @@ class VideoDecoder {
   /// between letters/repetitions produces neither block variance nor
   /// a threshold edge for seconds at a time, yet the reading region
   /// is still resolving a confident level — [holdContrastFactor]
-  /// keeps the lock alive through those. Measured on slow (~7 WPM)
-  /// hand-held and tripod field captures, *every* lock loss was this
-  /// fixed 3 s window expiring during a legitimate 3-4 s gap.
+  /// keeps the lock alive through those.
+  ///
+  /// Was 3 s — a blind timer that expired during legitimate 3-4 s
+  /// gaps and dropped the lock outright on the `a1`/`vvv_handheld`
+  /// slow captures with deliberate 8-12 s group gaps. The primary
+  /// release is now evidence-based: [_track] abandons a held lock the
+  /// moment a strong blink shows up elsewhere in the reticle (see
+  /// `_rescanVarianceFactor`), or its contrast collapses. This is
+  /// just the long backstop for the remaining case — the source
+  /// faded slowly and nothing else tripped — so it is generous.
   final int signalHoldMs;
 
   /// Keeps a lock alive, past [signalHoldMs], for as long as the
@@ -329,6 +336,15 @@ class VideoDecoder {
   /// after a (re)lock, so the very first reading snaps straight to
   /// its raw value instead of smoothing from zero.
   double? _smoothedRegionSize;
+
+  /// Low-pass-filtered estimate of the transmitting light's actual
+  /// on-screen size, in processing-frame pixels — the extent of the
+  /// blocks that carry the blink (`_SearchResult.blocksAboveFloor`),
+  /// not the Kalman search/reading region. Drives the See-screen
+  /// debug circle, which the spec wants at twice *this* diameter and
+  /// centred on the light. `null` until the first measured tracking
+  /// frame after a (re)lock.
+  double? _smoothedSpotSize;
 
   // Timing
   int _lastFrameMs = 0;
@@ -554,6 +570,7 @@ class VideoDecoder {
         _builder.reset();
         _lockGate.reset();
         _smoothedRegionSize = null;
+        _smoothedSpotSize = null;
         _lostFrameCount = 0;
         _holdStartMs = -1;
         _lastHealthyFrameMs = frame.timestampMs;
@@ -618,6 +635,15 @@ class VideoDecoder {
         _threshold.range >= _threshold.minRange * holdContrastFactor;
     final canHold = recentEvidence || contrastAlive;
 
+    // Positive evidence the lock is *wrong*, not merely paused: a
+    // strong blink well outside the search window while the tracked
+    // spot is dark means the real source has moved out from under the
+    // tracker (or the lock was never on it). Hold decisions above are
+    // about "is this a legitimate gap"; this is "has the signal gone
+    // somewhere else", and it overrides them — a blind hold on a dead
+    // position only delays reacquiring the source that is right there.
+    final elsewhere = !_isFullFrame && _blinkElsewhere(frame);
+
     if (_holdStartMs < 0) {
       _holdStartMs = frame.timestampMs;
       // Freeze the filter where it last had a confident fix so its
@@ -630,9 +656,30 @@ class VideoDecoder {
     _readAndClassify(frame: frame, search: result, held: true);
     _lastFrameMs = frame.timestampMs;
 
-    if (!canHold && _lostFrameCount >= lostFrameLimit) {
+    if (elsewhere || (!canHold && _lostFrameCount >= lostFrameLimit)) {
       _signalLost();
     }
+  }
+
+  /// Multiple of [minVariance] a blink *outside* the tracker's window
+  /// must clear before a held lock is abandoned as being on the wrong
+  /// spot. Well above the lock threshold so ordinary background
+  /// shimmer never triggers a rescan.
+  static const double _rescanVarianceFactor = 3;
+
+  /// Whether a strong blink is happening well away from where the
+  /// tracker is looking — the signature of the real source having
+  /// moved out from under a held lock (or the lock never having been
+  /// on it). An unbiased scan of the whole reticle ([_wideAreaPeak])
+  /// finds the strongest blink; it counts only if it clears
+  /// [_rescanVarianceFactor]× the lock floor and sits more than a
+  /// search window away from the filter's frozen position.
+  bool _blinkElsewhere(VideoFrame frame) {
+    final wide = _wideAreaPeak(frame);
+    if (wide.variance <= minVariance * _rescanVarianceFactor) return false;
+    final dx = (wide.bx * blockSize + blockSize / 2 - _filter.x).abs();
+    final dy = (wide.by * blockSize + blockSize / 2 - _filter.y).abs();
+    return dx + dy > (searchRadius + 1) * blockSize;
   }
 
   /// Reads the brightness-reading region at the filter's current
@@ -666,6 +713,22 @@ class VideoDecoder {
     _smoothedRegionSize ??= minRegionSize.toDouble();
     final regionSize = _smoothedRegionSize!.round();
 
+    // Estimate the light's real on-screen size from the spread of
+    // blocks actually carrying the blink this frame — treating them
+    // as a filled square, side ≈ √count · blockSize. Held frames
+    // carry no measurement, so the last smoothed value rides through.
+    if (!held && search.blocksAboveFloor > 0) {
+      final rawSpot = (sqrt(search.blocksAboveFloor) * blockSize).clamp(
+        blockSize.toDouble(),
+        maxRegionSize.toDouble(),
+      );
+      _smoothedSpotSize = _smoothedSpotSize == null
+          ? rawSpot
+          : _smoothedSpotSize! +
+                regionSizeSmoothing * (rawSpot - _smoothedSpotSize!);
+    }
+    final spotSize = (_smoothedSpotSize ?? regionSize.toDouble()).round();
+
     final cx = _filter.x.round();
     final cy = _filter.y.round();
     final half = regionSize ~/ 2;
@@ -694,7 +757,24 @@ class VideoDecoder {
         : rawBrightness - annulusBrightness;
 
     final wasOn = _threshold.isOn;
-    final isOn = _threshold.process(brightness, timestampMs: frame.timestampMs);
+    // While only holding the lock through a gap (no live signal), keep
+    // classifying and timing edges but freeze the ON/OFF level
+    // estimates — a multi-second gap would otherwise creep them
+    // together and corrupt the first mark of the next character.
+    //
+    // Only once real marks have been seen, though: on a lock that
+    // never carried genuine Morse (sensor noise, auto-exposure
+    // settling) the per-sample creep is what narrows the band onto
+    // the noise floor and keeps spurious blips from crossing it, so
+    // freezing there manufactures false elements. `_minMarkSamples`
+    // completed marks is the same bar the dit estimate uses.
+    final freezeLevels =
+        held && _markDurationsMs.length >= _minMarkSamples;
+    final isOn = _threshold.process(
+      brightness,
+      timestampMs: frame.timestampMs,
+      adapt: !freezeLevels,
+    );
     // A threshold edge is fresh evidence the source is alive — anchor
     // the hold window to it so a slow sender that keeps producing
     // edges is never dropped between them.
@@ -759,11 +839,16 @@ class VideoDecoder {
       isOn: isOn,
       cx: cx,
       cy: cy,
-      regionSize: regionSize,
+      spotSize: spotSize,
       held: held,
     );
 
     _builder.transition(nowOn: isOn, timeMs: _threshold.effectiveTransitionMs);
+    // Release the previous element as soon as it can no longer be
+    // merged, rather than holding it until the next mark — otherwise
+    // the last element of every character stays unseen for the whole
+    // inter-character gap (a `V` reads as `S` until the next letter).
+    _builder.tick(frame.timestampMs.toDouble());
   }
 
   // -- Debug overlay telemetry ------------------------------------
@@ -775,7 +860,7 @@ class VideoDecoder {
     required bool isOn,
     required int cx,
     required int cy,
-    required int regionSize,
+    required int spotSize,
     required bool held,
   }) {
     // Track mark boundaries directly from the threshold state.
@@ -802,7 +887,7 @@ class VideoDecoder {
       TrackOverlayInfo(
         centerX: cx / frame.width,
         centerY: cy / frame.height,
-        regionSizePx: regionSize,
+        regionSizePx: spotSize,
         signalOn: isOn,
         markClassified: markClassified,
         isDash: isDash,
@@ -850,6 +935,7 @@ class VideoDecoder {
     _threshold.reset();
     _filter.reset();
     _smoothedRegionSize = null;
+    _smoothedSpotSize = null;
     _state = VideoDecoderState.scanning;
     _confirmCount = 0;
     _lostFrameCount = 0;
@@ -1160,6 +1246,7 @@ class VideoDecoder {
     _threshold.reset();
     _filter.reset();
     _smoothedRegionSize = null;
+    _smoothedSpotSize = null;
     _builder.reset();
     _lockGate.reset();
     _confirmCount = 0;

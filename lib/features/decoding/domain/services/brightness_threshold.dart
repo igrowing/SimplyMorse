@@ -203,7 +203,19 @@ class BrightnessThreshold {
 
   /// Processes a brightness sample and returns the on/off
   /// state.
-  bool process(double brightness, {int? timestampMs}) {
+  ///
+  /// [adapt] should be `false` while the caller is only *holding* a
+  /// lock through a stretch with no live signal — a word gap, the
+  /// pause between message repetitions, a brief tracking wobble. In
+  /// that mode the sample is still classified and edges are still
+  /// detected, but the ON/OFF *level* estimates are frozen: the
+  /// per-sample creep (see [_onLevel]) would otherwise pull the two
+  /// plateaus together across a multi-second gap, collapsing the
+  /// hysteresis band so the first mark of the next character latches
+  /// early and its opening dit-gap is missed. The rolling min/max
+  /// still track, so a lock that is genuinely dead still loses its
+  /// contrast and is released.
+  bool process(double brightness, {int? timestampMs, bool adapt = true}) {
     final t = timestampMs ?? _prevTimestampMs;
 
     if (!_initialized) {
@@ -276,10 +288,11 @@ class BrightnessThreshold {
 
     // Refresh the level this sample unambiguously belongs to. Samples
     // inside the hysteresis band are on a ramp between the plateaus
-    // and belong to neither, so they update nothing.
-    if (brightness >= onThreshold) {
+    // and belong to neither, so they update nothing. Frozen while the
+    // caller is only holding a lock through a gap — see [adapt].
+    if (adapt && brightness >= onThreshold) {
       _onLevel += (brightness - _onLevel) * levelRate;
-    } else if (brightness <= offThreshold) {
+    } else if (adapt && brightness <= offThreshold) {
       _offLevel += (brightness - _offLevel) * levelRate;
     }
 
@@ -289,9 +302,11 @@ class BrightnessThreshold {
     // is never revisited: the band it defines sits beyond anything
     // the real signal reaches, no sample ever qualifies to correct
     // it, and the classifier latches for the rest of the session.
-    final creep = 1 - decayFactor;
-    _onLevel += (brightness - _onLevel) * creep;
-    _offLevel += (brightness - _offLevel) * creep;
+    if (adapt) {
+      final creep = 1 - decayFactor;
+      _onLevel += (brightness - _onLevel) * creep;
+      _offLevel += (brightness - _offLevel) * creep;
+    }
 
     if (crossed &&
         (timestampMs == null || t - _lastTransitionMs >= minTransitionMs)) {

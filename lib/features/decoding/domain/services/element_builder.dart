@@ -120,6 +120,32 @@ class ElementBuilder {
   /// Emits the element still held back, if any.
   void flush() => _emitPending();
 
+  /// Releases the held-back element early once it can no longer be
+  /// merged, given the current time [nowMs].
+  ///
+  /// [transition] deliberately emits one segment late so a following
+  /// glitch can be folded back into the element before it (see the
+  /// class docs). The cost is that the final mark of every character
+  /// stays invisible until the *next* character starts — a `V`
+  /// (`...-`) reads as `S` (`...`) for the whole inter-character gap
+  /// and only completes when the next mark arrives.
+  ///
+  /// A decoder that calls this every frame with the current timestamp
+  /// closes that gap: once [nowMs] is more than [glitchThresholdMs]
+  /// past the pending element's end, the in-progress segment is
+  /// already too long to be a glitch, so nothing that arrives later
+  /// can merge the pending element away — it is safe to emit now.
+  void tick(double nowMs) {
+    if (_pendingIsOn == null) return;
+    // Only once the element rate is known: before that the glitch
+    // threshold is just [minElementMs], so an early flush here would
+    // pre-empt merges that a matured threshold would still make —
+    // which is exactly the noisy, no-real-signal startup window where
+    // holding elements back matters most.
+    if (currentUnitMs == null) return;
+    if (nowMs - _pendingEndMs > glitchThresholdMs) _emitPending();
+  }
+
   void _emitPending() {
     final isOn = _pendingIsOn;
     if (isOn == null) return;

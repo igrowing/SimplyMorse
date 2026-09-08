@@ -428,11 +428,40 @@ class MorseLockGate {
     final searchEnd = moreToCome
         ? window.length
         : (window.length * _junkSearchFraction).floor();
+
+    // Impossibly long marks (>5 units) are junk at any speed, even
+    // interleaved with plausible elements — restart after the last one.
     var lastJunk = -1;
     for (var i = 0; i < searchEnd; i++) {
       final e = window[i];
       if (e.isOn && e.durationMs > limit) lastJunk = i;
     }
+
+    // Additionally, while a whole transmission is still streaming in
+    // behind this window (so over-trimming costs a character, not the
+    // message), drop a *contiguous* leading run of marks that fit
+    // neither 1 nor 3 units — the auto-exposure and hand-settling
+    // wobble that opens a handheld capture, whose marks are only a few
+    // units long and so clear the >5 bar but are not Morse-timed.
+    // Stops at the first mark that fits, so a real element is never
+    // trimmed from between two junk ones.
+    if (moreToCome) {
+      for (var i = 0; i < searchEnd; i++) {
+        final e = window[i];
+        if (!e.isOn) continue;
+        final fits = [1, 3].any((c) {
+          final target = c * unit;
+          final allowed = (target * tolerance).clamp(
+            minAbsoluteSlackMs,
+            double.infinity,
+          );
+          return (e.durationMs - target).abs() <= allowed;
+        });
+        if (fits) break;
+        lastJunk = lastJunk < i ? i : lastJunk;
+      }
+    }
+
     if (lastJunk >= 0) _windowStart += lastJunk + 1;
   }
 
