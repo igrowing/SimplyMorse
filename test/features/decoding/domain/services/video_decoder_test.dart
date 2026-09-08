@@ -19,10 +19,7 @@ VideoFrame _makeFrame({
   int width = 80,
   int height = 60,
 }) {
-  final luminance = List<double>.filled(
-    width * height,
-    bgBrightness,
-  );
+  final luminance = List<double>.filled(width * height, bgBrightness);
 
   if (sourceOn) {
     final half = sourceSize ~/ 2;
@@ -51,64 +48,45 @@ void main() {
       test('stays in scanning with insufficient frames', () {
         final dec = VideoDecoder(historySize: 30);
         for (var i = 0; i < 5; i++) {
-          dec.processFrame(
-            _makeFrame(
-              timestampMs: i * 33,
-              sourceOn: i.isEven,
-            ),
-          );
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
         }
         expect(dec.state, VideoDecoderState.scanning);
       });
 
-      test(
-        'transitions to confirming when a blinking '
-        'source is detected',
-        () {
-          final dec = VideoDecoder(historySize: 30);
+      test('transitions to confirming when a blinking '
+          'source is detected', () {
+        final dec = VideoDecoder(historySize: 30);
 
-          for (var i = 0; i < 15; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
+        for (var i = 0; i < 15; i++) {
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
+        }
 
-          expect(
-            dec.state,
-            anyOf(
-              VideoDecoderState.confirming,
-              VideoDecoderState.locked,
+        expect(
+          dec.state,
+          anyOf(VideoDecoderState.confirming, VideoDecoderState.locked),
+        );
+      });
+
+      test('ignores a blinking source outside the target area', () {
+        final dec = VideoDecoder(historySize: 30);
+
+        // A bright blinking dot in the top-left corner —
+        // outside the central target area (x 28..52, y 18..42).
+        // Nothing else blinks, but the decoder must stay in
+        // scanning because the user has not aimed at it.
+        for (var i = 0; i < 20; i++) {
+          dec.processFrame(
+            _makeFrame(
+              timestampMs: i * 33,
+              sourceX: 12,
+              sourceY: 12,
+              sourceOn: i.isEven,
             ),
           );
-        },
-      );
+        }
 
-      test(
-        'ignores a blinking source outside the target area',
-        () {
-          final dec = VideoDecoder(historySize: 30);
-
-          // A bright blinking dot in the top-left corner —
-          // outside the central target area (x 28..52, y 18..42).
-          // Nothing else blinks, but the decoder must stay in
-          // scanning because the user has not aimed at it.
-          for (var i = 0; i < 20; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceX: 12,
-                sourceY: 12,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-
-          expect(dec.state, VideoDecoderState.scanning);
-        },
-      );
+        expect(dec.state, VideoDecoderState.scanning);
+      });
 
       test('detects full-frame blink', () {
         final dec = VideoDecoder(historySize: 30);
@@ -116,10 +94,7 @@ void main() {
         for (var i = 0; i < 15; i++) {
           dec.processFrame(
             VideoFrame(
-              luminance: List<double>.filled(
-                80 * 60,
-                i.isEven ? 0.9 : 0.1,
-              ),
+              luminance: List<double>.filled(80 * 60, i.isEven ? 0.9 : 0.1),
               width: 80,
               height: 60,
               timestampMs: i * 33,
@@ -127,27 +102,16 @@ void main() {
           );
         }
 
-        expect(
-          dec.state,
-          isNot(VideoDecoderState.scanning),
-        );
+        expect(dec.state, isNot(VideoDecoderState.scanning));
       });
     });
 
     group('confirming → locked', () {
       test('locks after enough confirm frames', () {
-        final dec = VideoDecoder(
-          historySize: 30,
-          confirmFrames: 3,
-        );
+        final dec = VideoDecoder(historySize: 30, confirmFrames: 3);
 
         for (var i = 0; i < 20; i++) {
-          dec.processFrame(
-            _makeFrame(
-              timestampMs: i * 33,
-              sourceOn: i.isEven,
-            ),
-          );
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
         }
 
         expect(dec.state, VideoDecoderState.locked);
@@ -155,168 +119,140 @@ void main() {
     });
 
     group('tracking with motion compensation', () {
-      test(
-        'tracks a static source and emits elements',
-        () {
-          final dec = VideoDecoder(
-            historySize: 30,
-            confirmFrames: 3,
-            rescanIntervalMs: 10000,
-            threshold: BrightnessThreshold(
-              onFactor: 0.6,
-              offFactor: 0.4,
-              decayFactor: 1,
-              minRange: 0.01,
+      test('tracks a static source and emits elements', () {
+        final dec = VideoDecoder(
+          historySize: 30,
+          confirmFrames: 3,
+          rescanIntervalMs: 10000,
+          threshold: BrightnessThreshold(
+            onFactor: 0.6,
+            offFactor: 0.4,
+            decayFactor: 1,
+            minRange: 0.01,
+          ),
+        );
+
+        final elements = <DecodedElement>[];
+        dec.onElement = elements.add;
+
+        // Lock on
+        for (var i = 0; i < 20; i++) {
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
+        }
+        expect(dec.state, VideoDecoderState.locked);
+
+        // Continue with clear on/off pattern
+        for (var i = 20; i < 40; i++) {
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
+        }
+
+        // Should have emitted elements
+        dec
+          ..flush()
+          ..flush();
+        expect(elements, isNotEmpty);
+      });
+
+      test('tracks a shaking source (oscillating position)', () {
+        final dec = VideoDecoder(
+          historySize: 30,
+          confirmFrames: 3,
+          rescanIntervalMs: 10000,
+          searchRadius: 3,
+          threshold: BrightnessThreshold(
+            onFactor: 0.6,
+            offFactor: 0.4,
+            decayFactor: 1,
+            minRange: 0.01,
+          ),
+        );
+
+        final elements = <DecodedElement>[];
+        dec.onElement = elements.add;
+
+        // Phase 1: lock on with shaking
+        for (var i = 0; i < 25; i++) {
+          final shakeX = 40 + (5 * sin(i * 0.5)).round();
+          dec.processFrame(
+            _makeFrame(
+              timestampMs: i * 33,
+              sourceX: shakeX,
+              sourceOn: i.isEven,
             ),
           );
+        }
 
-          final elements = <DecodedElement>[];
-          dec.onElement = elements.add;
+        expect(dec.state, VideoDecoderState.locked);
 
-          // Lock on
-          for (var i = 0; i < 20; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-          expect(dec.state, VideoDecoderState.locked);
-
-          // Continue with clear on/off pattern
-          for (var i = 20; i < 40; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-
-          // Should have emitted elements
-          dec
-            ..flush()
-            ..flush();
-          expect(elements, isNotEmpty);
-        },
-      );
-
-      test(
-        'tracks a shaking source (oscillating position)',
-        () {
-          final dec = VideoDecoder(
-            historySize: 30,
-            confirmFrames: 3,
-            rescanIntervalMs: 10000,
-            searchRadius: 3,
-            threshold: BrightnessThreshold(
-              onFactor: 0.6,
-              offFactor: 0.4,
-              decayFactor: 1,
-              minRange: 0.01,
+        // Phase 2: continue shaking
+        for (var i = 25; i < 50; i++) {
+          final shakeX = 40 + (5 * sin(i * 0.5)).round();
+          dec.processFrame(
+            _makeFrame(
+              timestampMs: i * 33,
+              sourceX: shakeX,
+              sourceOn: i.isEven,
             ),
           );
+        }
 
-          final elements = <DecodedElement>[];
-          dec.onElement = elements.add;
+        expect(dec.state, VideoDecoderState.locked);
+        dec
+          ..flush()
+          ..flush();
+        expect(elements, isNotEmpty);
+      });
 
-          // Phase 1: lock on with shaking
-          for (var i = 0; i < 25; i++) {
-            final shakeX = 40 + (5 * sin(i * 0.5)).round();
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceX: shakeX,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
+      test('tracks a sliding source (steady drift)', () {
+        final dec = VideoDecoder(
+          historySize: 30,
+          confirmFrames: 3,
+          rescanIntervalMs: 10000,
+          searchRadius: 3,
+          threshold: BrightnessThreshold(
+            onFactor: 0.6,
+            offFactor: 0.4,
+            decayFactor: 1,
+            minRange: 0.01,
+          ),
+        );
 
-          expect(dec.state, VideoDecoderState.locked);
+        final elements = <DecodedElement>[];
+        dec.onElement = elements.add;
 
-          // Phase 2: continue shaking
-          for (var i = 25; i < 50; i++) {
-            final shakeX = 40 + (5 * sin(i * 0.5)).round();
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceX: shakeX,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-
-          expect(
-            dec.state,
-            VideoDecoderState.locked,
-          );
-          dec
-            ..flush()
-            ..flush();
-          expect(elements, isNotEmpty);
-        },
-      );
-
-      test(
-        'tracks a sliding source (steady drift)',
-        () {
-          final dec = VideoDecoder(
-            historySize: 30,
-            confirmFrames: 3,
-            rescanIntervalMs: 10000,
-            searchRadius: 3,
-            threshold: BrightnessThreshold(
-              onFactor: 0.6,
-              offFactor: 0.4,
-              decayFactor: 1,
-              minRange: 0.01,
+        // Lock on at position (32, 30) — inside the
+        // target area (x 28..52, y 18..42).
+        for (var i = 0; i < 20; i++) {
+          dec.processFrame(
+            _makeFrame(
+              timestampMs: i * 33,
+              sourceX: 32,
+              sourceY: 30,
+              sourceOn: i.isEven,
             ),
           );
+        }
+        expect(dec.state, VideoDecoderState.locked);
 
-          final elements = <DecodedElement>[];
-          dec.onElement = elements.add;
-
-          // Lock on at position (32, 30) — inside the
-          // target area (x 28..52, y 18..42).
-          for (var i = 0; i < 20; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceX: 32,
-                sourceY: 30,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-          expect(
-            dec.state,
-            VideoDecoderState.locked,
+        // Slide right ~0.5px per frame — stays inside the
+        // target area the whole way (32 -> 51).
+        for (var i = 20; i < 60; i++) {
+          dec.processFrame(
+            _makeFrame(
+              timestampMs: i * 33,
+              sourceX: 32 + (i - 20) ~/ 2,
+              sourceY: 30,
+              sourceOn: i.isEven,
+            ),
           );
+        }
 
-          // Slide right ~0.5px per frame — stays inside the
-          // target area the whole way (32 -> 51).
-          for (var i = 20; i < 60; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceX: 32 + (i - 20) ~/ 2,
-                sourceY: 30,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-
-          expect(
-            dec.state,
-            VideoDecoderState.locked,
-          );
-          dec
-            ..flush()
-            ..flush();
-          expect(elements, isNotEmpty);
-        },
-      );
+        expect(dec.state, VideoDecoderState.locked);
+        dec
+          ..flush()
+          ..flush();
+        expect(elements, isNotEmpty);
+      });
 
       test('tracks combined shake + slide', () {
         final dec = VideoDecoder(
@@ -346,10 +282,7 @@ void main() {
             ),
           );
         }
-        expect(
-          dec.state,
-          VideoDecoderState.locked,
-        );
+        expect(dec.state, VideoDecoderState.locked);
 
         // Slide right slowly + oscillate — stays inside the
         // target area (x 30..51).
@@ -366,63 +299,41 @@ void main() {
           );
         }
 
-        expect(
-          dec.state,
-          VideoDecoderState.locked,
-        );
+        expect(dec.state, VideoDecoderState.locked);
         dec.flush();
         expect(elements, isNotEmpty);
       });
 
-      test(
-        'loses signal when source disappears',
-        () {
-          final dec = VideoDecoder(
-            historySize: 15,
-            confirmFrames: 3,
-            lostFrameLimit: 5,
-            // Short hold, and a fast-forgetting threshold: the
-            // decoder rides out brief low-variance stretches (word
-            // gaps, long marks) for as long as the region still
-            // resolves contrast, so a genuine disappearance is only
-            // declared lost once BOTH the hold window has elapsed and
-            // that contrast has decayed away.
-            signalHoldMs: 200,
-            threshold: BrightnessThreshold(decayFactor: 0.85),
-          );
+      test('loses signal when source disappears', () {
+        final dec = VideoDecoder(
+          historySize: 15,
+          confirmFrames: 3,
+          lostFrameLimit: 5,
+          // Short hold, and a fast-forgetting threshold: the
+          // decoder rides out brief low-variance stretches (word
+          // gaps, long marks) for as long as the region still
+          // resolves contrast, so a genuine disappearance is only
+          // declared lost once BOTH the hold window has elapsed and
+          // that contrast has decayed away.
+          signalHoldMs: 200,
+          threshold: BrightnessThreshold(decayFactor: 0.85),
+        );
 
-          // Lock on
-          for (var i = 0; i < 20; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceOn: i.isEven,
-              ),
-            );
-          }
-          expect(
-            dec.state,
-            VideoDecoderState.locked,
-          );
+        // Lock on
+        for (var i = 0; i < 20; i++) {
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
+        }
+        expect(dec.state, VideoDecoderState.locked);
 
-          // Source disappears — feed enough dark
-          // frames to flush history (15) + trigger
-          // signal loss (5 more)
-          for (var i = 20; i < 50; i++) {
-            dec.processFrame(
-              _makeFrame(
-                timestampMs: i * 33,
-                sourceOn: false,
-              ),
-            );
-          }
+        // Source disappears — feed enough dark
+        // frames to flush history (15) + trigger
+        // signal loss (5 more)
+        for (var i = 20; i < 50; i++) {
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: false));
+        }
 
-          expect(
-            dec.state,
-            VideoDecoderState.scanning,
-          );
-        },
-      );
+        expect(dec.state, VideoDecoderState.scanning);
+      });
     });
 
     group('lock hold through low-variance gaps', () {
@@ -446,9 +357,7 @@ void main() {
         var t = 0;
         // Lock on: alternating 150ms segments.
         for (var i = 0; i < 24; i++, t += 150) {
-          dec.processFrame(
-            _makeFrame(timestampMs: t, sourceOn: i.isEven),
-          );
+          dec.processFrame(_makeFrame(timestampMs: t, sourceOn: i.isEven));
         }
         // The gap — source fully dark.
         for (final end = t + gapMs; t < end; t += 33) {
@@ -456,9 +365,7 @@ void main() {
         }
         // Resume blinking.
         for (var i = 0; i < 24; i++, t += 150) {
-          dec.processFrame(
-            _makeFrame(timestampMs: t, sourceOn: i.isEven),
-          );
+          dec.processFrame(_makeFrame(timestampMs: t, sourceOn: i.isEven));
         }
         return (dec, infos);
       }
@@ -539,19 +446,11 @@ void main() {
         final dec = VideoDecoder();
 
         for (var i = 0; i < 15; i++) {
-          dec.processFrame(
-            _makeFrame(
-              timestampMs: i * 33,
-              sourceOn: i.isEven,
-            ),
-          );
+          dec.processFrame(_makeFrame(timestampMs: i * 33, sourceOn: i.isEven));
         }
 
         dec.reset();
-        expect(
-          dec.state,
-          VideoDecoderState.scanning,
-        );
+        expect(dec.state, VideoDecoderState.scanning);
       });
     });
 
@@ -563,49 +462,37 @@ void main() {
           height: 2,
           timestampMs: 0,
         );
-        expect(
-          frame.meanLuminance(),
-          closeTo(0.5, 0.001),
-        );
+        expect(frame.meanLuminance(), closeTo(0.5, 0.001));
       });
 
-      test(
-        'regionMeanLuminance computes sub-region average',
-        () {
-          const frame = VideoFrame(
-            luminance: [
-              0.0,
-              0.0,
-              1.0,
-              1.0,
-              0.0,
-              0.0,
-              1.0,
-              1.0,
-              0.0,
-              0.0,
-              1.0,
-              1.0,
-              0.0,
-              0.0,
-              1.0,
-              1.0,
-            ],
-            width: 4,
-            height: 4,
-            timestampMs: 0,
-          );
+      test('regionMeanLuminance computes sub-region average', () {
+        const frame = VideoFrame(
+          luminance: [
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+          ],
+          width: 4,
+          height: 4,
+          timestampMs: 0,
+        );
 
-          expect(
-            frame.regionMeanLuminance(0, 0, 2, 2),
-            closeTo(0.0, 0.001),
-          );
-          expect(
-            frame.regionMeanLuminance(2, 2, 2, 2),
-            closeTo(1.0, 0.001),
-          );
-        },
-      );
+        expect(frame.regionMeanLuminance(0, 0, 2, 2), closeTo(0.0, 0.001));
+        expect(frame.regionMeanLuminance(2, 2, 2, 2), closeTo(1.0, 0.001));
+      });
     });
 
     group('track overlay telemetry', () {
@@ -641,46 +528,40 @@ void main() {
         // 10 frames: enough to enter confirming, not enough to
         // lock (10 frames of history + 3 confirm frames needed,
         // and only tracking emits overlay telemetry).
-        final infos = feed(dec, [
-          (150, true),
-          (150, false),
-        ]);
+        final infos = feed(dec, [(150, true), (150, false)]);
 
         expect(infos, isEmpty);
       });
 
-      test(
-        'emits normalized region center and size while locked',
-        () {
-          final dec = VideoDecoder();
-          final infos = feed(dec, [
-            for (var i = 0; i < 10; i++) (300, i.isEven),
-            for (var i = 0; i < 10; i++) (300, i.isEven),
-          ]);
+      test('emits normalized region center and size while locked', () {
+        final dec = VideoDecoder();
+        final infos = feed(dec, [
+          for (var i = 0; i < 10; i++) (300, i.isEven),
+          for (var i = 0; i < 10; i++) (300, i.isEven),
+        ]);
 
-          expect(dec.state, VideoDecoderState.locked);
-          expect(infos, isNotEmpty);
-          for (final info in infos.whereType<TrackOverlayInfo>()) {
-            // Source at (40, 30), 8px wide/tall: X (40) sits exactly
-            // on the boundary between blocks 4 and 5, splitting the
-            // source evenly between them — the variance-weighted
-            // centroid (see _searchPeakVariance) converges on the
-            // TRUE source X (40/80), not a block-quantized one (the
-            // old hard-argmax reported 44/80, one block's center).
-            // Y (30) sits 2px off the nearest boundary (32), so the
-            // source's rows split 6:2 between blocks 3 and 4 —
-            // block 4's share falls under the centroid's peak-
-            // relative floor, so only block 3 counts and Y still
-            // reports that block's center (28/60). See the
-            // 'sub-block precision on both axes' test below for a
-            // case that isn't skewed by this fixture's alignment.
-            expect(info.centerX, moreOrLessEquals(40 / 80, epsilon: 0.01));
-            expect(info.centerY, moreOrLessEquals(28 / 60, epsilon: 0.01));
-            expect(info.regionSizePx, greaterThanOrEqualTo(8));
-            expect(info.regionSizePx, lessThanOrEqualTo(32));
-          }
-        },
-      );
+        expect(dec.state, VideoDecoderState.locked);
+        expect(infos, isNotEmpty);
+        for (final info in infos.whereType<TrackOverlayInfo>()) {
+          // Source at (40, 30), 8px wide/tall: X (40) sits exactly
+          // on the boundary between blocks 4 and 5, splitting the
+          // source evenly between them — the variance-weighted
+          // centroid (see _searchPeakVariance) converges on the
+          // TRUE source X (40/80), not a block-quantized one (the
+          // old hard-argmax reported 44/80, one block's center).
+          // Y (30) sits 2px off the nearest boundary (32), so the
+          // source's rows split 6:2 between blocks 3 and 4 —
+          // block 4's share falls under the centroid's peak-
+          // relative floor, so only block 3 counts and Y still
+          // reports that block's center (28/60). See the
+          // 'sub-block precision on both axes' test below for a
+          // case that isn't skewed by this fixture's alignment.
+          expect(info.centerX, moreOrLessEquals(40 / 80, epsilon: 0.01));
+          expect(info.centerY, moreOrLessEquals(28 / 60, epsilon: 0.01));
+          expect(info.regionSizePx, greaterThanOrEqualTo(8));
+          expect(info.regionSizePx, lessThanOrEqualTo(32));
+        }
+      });
 
       test('nulls the overlay when the signal is lost', () {
         // Short hold window, and a fast-forgetting threshold so the
@@ -737,9 +618,7 @@ void main() {
 
       test('hides the label before a dit estimate exists', () {
         final dec = VideoDecoder();
-        final infos = feed(dec, [
-          for (var i = 0; i < 12; i++) (300, i.isEven),
-        ]);
+        final infos = feed(dec, [for (var i = 0; i < 12; i++) (300, i.isEven)]);
 
         // Before a mark completes, markClassified is false on
         // every ON frame.
@@ -748,42 +627,36 @@ void main() {
             .where((e) => e.signalOn)
             .toList();
         expect(onInfos, isNotEmpty);
-        expect(
-          onInfos.every((e) => e.markClassified),
-          isFalse,
-        );
+        expect(onInfos.every((e) => e.markClassified), isFalse);
       });
 
-      test(
-        'reports sub-block precision on both axes when the source is '
-        'boundary-aligned',
-        () {
-          // (40, 32): both exactly on an 8px block boundary, so the
-          // 8x8 source splits evenly 4:4 across blocks (4,4)/(5,4)
-          // in X and (3,_)/(4,_) in Y — unlike the default (40, 30)
-          // fixture above, where Y is 2px off its nearest boundary
-          // and one candidate block gets floored out. Both axes
-          // should converge on the true source position here.
-          final dec = VideoDecoder();
-          final infos = feed(
-            dec,
-            [
-              for (var i = 0; i < 10; i++) (300, i.isEven),
-              for (var i = 0; i < 10; i++) (300, i.isEven),
-            ],
-            sourceX: 40,
-            sourceY: 32,
-          );
+      test('reports sub-block precision on both axes when the source is '
+          'boundary-aligned', () {
+        // (40, 32): both exactly on an 8px block boundary, so the
+        // 8x8 source splits evenly 4:4 across blocks (4,4)/(5,4)
+        // in X and (3,_)/(4,_) in Y — unlike the default (40, 30)
+        // fixture above, where Y is 2px off its nearest boundary
+        // and one candidate block gets floored out. Both axes
+        // should converge on the true source position here.
+        final dec = VideoDecoder();
+        final infos = feed(
+          dec,
+          [
+            for (var i = 0; i < 10; i++) (300, i.isEven),
+            for (var i = 0; i < 10; i++) (300, i.isEven),
+          ],
+          sourceX: 40,
+          sourceY: 32,
+        );
 
-          expect(dec.state, VideoDecoderState.locked);
-          final locked = infos.whereType<TrackOverlayInfo>().toList();
-          expect(locked, isNotEmpty);
-          for (final info in locked) {
-            expect(info.centerX, moreOrLessEquals(40 / 80, epsilon: 0.01));
-            expect(info.centerY, moreOrLessEquals(32 / 60, epsilon: 0.01));
-          }
-        },
-      );
+        expect(dec.state, VideoDecoderState.locked);
+        final locked = infos.whereType<TrackOverlayInfo>().toList();
+        expect(locked, isNotEmpty);
+        for (final info in locked) {
+          expect(info.centerX, moreOrLessEquals(40 / 80, epsilon: 0.01));
+          expect(info.centerY, moreOrLessEquals(32 / 60, epsilon: 0.01));
+        }
+      });
 
       /// Feeds a shaking source (mirrors the 'tracks a shaking
       /// source' scenario above) and collects telemetry. Amplitude
@@ -829,8 +702,7 @@ void main() {
           var maxJumpPx = 0.0;
           for (var i = 1; i < locked.length; i++) {
             final dx =
-                (locked[i].centerX - locked[i - 1].centerX).abs() *
-                frameWidth;
+                (locked[i].centerX - locked[i - 1].centerX).abs() * frameWidth;
             if (dx > maxJumpPx) maxJumpPx = dx;
           }
           // The true per-frame input motion here is at most ~3px
@@ -844,34 +716,31 @@ void main() {
         },
       );
 
-      test(
-        'region size does not jump for a shaking source',
-        () {
-          // Companion to the position-jump test above: regionSizePx
-          // is driven by the filter's innovation, which spikes
-          // whenever the position measurement jumps — smoothing it
-          // (see VideoDecoder.regionSizeSmoothing) keeps the
-          // reported/displayed size from visibly pulsing in sync.
-          final dec = VideoDecoder(searchRadius: 3);
-          final infos = feedShaking(dec, 40);
-          expect(dec.state, VideoDecoderState.locked);
+      test('region size does not jump for a shaking source', () {
+        // Companion to the position-jump test above: regionSizePx
+        // is driven by the filter's innovation, which spikes
+        // whenever the position measurement jumps — smoothing it
+        // (see VideoDecoder.regionSizeSmoothing) keeps the
+        // reported/displayed size from visibly pulsing in sync.
+        final dec = VideoDecoder(searchRadius: 3);
+        final infos = feedShaking(dec, 40);
+        expect(dec.state, VideoDecoderState.locked);
 
-          final locked = infos.whereType<TrackOverlayInfo>().toList();
-          expect(locked.length, greaterThan(2));
+        final locked = infos.whereType<TrackOverlayInfo>().toList();
+        expect(locked.length, greaterThan(2));
 
-          var maxDelta = 0;
-          for (var i = 1; i < locked.length; i++) {
-            final delta =
-                (locked[i].regionSizePx - locked[i - 1].regionSizePx).abs();
-            if (delta > maxDelta) maxDelta = delta;
-          }
-          expect(
-            maxDelta,
-            lessThanOrEqualTo(6),
-            reason: 'largest per-frame regionSizePx jump was $maxDelta',
-          );
-        },
-      );
+        var maxDelta = 0;
+        for (var i = 1; i < locked.length; i++) {
+          final delta = (locked[i].regionSizePx - locked[i - 1].regionSizePx)
+              .abs();
+          if (delta > maxDelta) maxDelta = delta;
+        }
+        expect(
+          maxDelta,
+          lessThanOrEqualTo(6),
+          reason: 'largest per-frame regionSizePx jump was $maxDelta',
+        );
+      });
     });
   });
 }

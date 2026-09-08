@@ -3,17 +3,12 @@ import 'package:simply_morse/features/decoding/domain/services/brightness_thresh
 
 void main() {
   group('BrightnessThreshold', () {
-    test(
-      'stays off when range is below minRange',
-      () {
-        final bt = BrightnessThreshold(
-          minRange: 0.1,
-        );
-        expect(bt.process(0.5), isFalse);
-        expect(bt.process(0.51), isFalse);
-        expect(bt.process(0.49), isFalse);
-      },
-    );
+    test('stays off when range is below minRange', () {
+      final bt = BrightnessThreshold(minRange: 0.1);
+      expect(bt.process(0.5), isFalse);
+      expect(bt.process(0.51), isFalse);
+      expect(bt.process(0.49), isFalse);
+    });
 
     test('turns on when brightness exceeds on threshold', () {
       final bt = BrightnessThreshold(
@@ -79,9 +74,7 @@ void main() {
     });
 
     test('reset clears all state', () {
-      final bt = BrightnessThreshold(
-        decayFactor: 1,
-      );
+      final bt = BrightnessThreshold(decayFactor: 1);
 
       bt
         ..process(0)
@@ -96,30 +89,27 @@ void main() {
       expect(bt.process(0.5), isFalse);
     });
 
-    test(
-      'processes alternating high/low signal correctly',
-      () {
-        final bt = BrightnessThreshold(
-          onFactor: 0.7,
-          offFactor: 0.3,
-          decayFactor: 1,
-          minRange: 0.01,
-        );
+    test('processes alternating high/low signal correctly', () {
+      final bt = BrightnessThreshold(
+        onFactor: 0.7,
+        offFactor: 0.3,
+        decayFactor: 1,
+        minRange: 0.01,
+      );
 
-        // Prime with full range
-        bt.process(0);
-        // process(1.0) turns on
-        bt.process(1);
+      // Prime with full range
+      bt.process(0);
+      // process(1.0) turns on
+      bt.process(1);
 
-        // Now test alternating pattern
-        final results = <bool>[];
-        for (final v in [0.1, 0.9, 0.1, 0.9]) {
-          results.add(bt.process(v));
-        }
+      // Now test alternating pattern
+      final results = <bool>[];
+      for (final v in [0.1, 0.9, 0.1, 0.9]) {
+        results.add(bt.process(v));
+      }
 
-        expect(results, [false, true, false, true]);
-      },
-    );
+      expect(results, [false, true, false, true]);
+    });
 
     test('first sample initializes min and max', () {
       final bt = BrightnessThreshold();

@@ -159,35 +159,33 @@ void main() {
       expect(find.text('Share'), findsNothing);
     });
 
-    testWidgets(
-      'shows permission snackbar when mic permission denied',
-      (tester) async {
-        await pumpScreen(tester, hasPermission: false);
+    testWidgets('shows permission snackbar when mic permission denied', (
+      tester,
+    ) async {
+      await pumpScreen(tester, hasPermission: false);
 
-        await tester.ensureVisible(find.text('Start'));
-        await tester.tap(find.text('Start'));
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Start'));
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
 
-        expect(
-          find.text('Microphone permission is required to decode Morse audio.'),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(
+        find.text('Microphone permission is required to decode Morse audio.'),
+        findsOneWidget,
+      );
+    });
 
-    testWidgets(
-      'does not start listening when permission denied',
-      (tester) async {
-        await pumpScreen(tester, hasPermission: false);
+    testWidgets('does not start listening when permission denied', (
+      tester,
+    ) async {
+      await pumpScreen(tester, hasPermission: false);
 
-        await tester.ensureVisible(find.text('Start'));
-        await tester.tap(find.text('Start'));
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Start'));
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('Start'), findsOneWidget);
-        expect(find.text('Idle'), findsOneWidget);
-      },
-    );
+      expect(find.text('Start'), findsOneWidget);
+      expect(find.text('Idle'), findsOneWidget);
+    });
 
     testWidgets('Clear button resets to idle', (tester) async {
       await pumpScreen(tester);

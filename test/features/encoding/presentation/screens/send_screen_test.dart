@@ -150,10 +150,7 @@ void main() {
         await pumpScreen(tester);
 
         final soundChip = find.widgetWithText(FilterChip, 'Sound');
-        expect(
-          tester.widget<FilterChip>(soundChip).selected,
-          isTrue,
-        );
+        expect(tester.widget<FilterChip>(soundChip).selected, isTrue);
       });
 
       testWidgets('LED and Display are not selected by default', (
@@ -179,18 +176,17 @@ void main() {
         expect(tester.widget<FilterChip>(soundChip).selected, isTrue);
       });
 
-      testWidgets(
-        'tapping Sound when only Sound is selected does nothing',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('tapping Sound when only Sound is selected does nothing', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          await tester.tap(find.text('Sound'));
-          await tester.pumpAndSettle();
+        await tester.tap(find.text('Sound'));
+        await tester.pumpAndSettle();
 
-          final soundChip = find.widgetWithText(FilterChip, 'Sound');
-          expect(tester.widget<FilterChip>(soundChip).selected, isTrue);
-        },
-      );
+        final soundChip = find.widgetWithText(FilterChip, 'Sound');
+        expect(tester.widget<FilterChip>(soundChip).selected, isTrue);
+      });
 
       testWidgets('selecting LED shows tone slider (sound still on)', (
         tester,
@@ -203,216 +199,162 @@ void main() {
     });
 
     group('interactions', () {
-      testWidgets(
-        'Send button is disabled when text is empty',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('Send button is disabled when text is empty', (tester) async {
+        await pumpScreen(tester);
 
-          final sendButton = find.widgetWithText(
-            FilledButton,
-            'Send',
-          );
-          expect(
-            tester.widget<FilledButton>(sendButton).onPressed,
-            isNull,
-          );
-        },
-      );
+        final sendButton = find.widgetWithText(FilledButton, 'Send');
+        expect(tester.widget<FilledButton>(sendButton).onPressed, isNull);
+      });
 
-      testWidgets(
-        'Send button is enabled when text is entered',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('Send button is enabled when text is entered', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          await tester.enterText(
-            find.byType(TextField),
-            'SOS',
-          );
-          await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'SOS');
+        await tester.pumpAndSettle();
 
-          final sendButton = find.widgetWithText(
-            FilledButton,
-            'Send',
-          );
-          expect(
-            tester.widget<FilledButton>(sendButton).onPressed,
-            isNotNull,
-          );
-        },
-      );
+        final sendButton = find.widgetWithText(FilledButton, 'Send');
+        expect(tester.widget<FilledButton>(sendButton).onPressed, isNotNull);
+      });
 
-      testWidgets(
-        'Clear button clears text input',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('Clear button clears text input', (tester) async {
+        await pumpScreen(tester);
 
-          await tester.enterText(
-            find.byType(TextField),
-            'hello',
-          );
-          await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'hello');
+        await tester.pumpAndSettle();
 
-          await tester.ensureVisible(find.text('Clear'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Clear'));
-          await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Clear'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Clear'));
+        await tester.pumpAndSettle();
 
-          final sendButton = find.widgetWithText(
-            FilledButton,
-            'Send',
-          );
-          expect(
-            tester.widget<FilledButton>(sendButton).onPressed,
-            isNull,
-          );
-        },
-      );
+        final sendButton = find.widgetWithText(FilledButton, 'Send');
+        expect(tester.widget<FilledButton>(sendButton).onPressed, isNull);
+      });
 
-      testWidgets(
-        'updates WPM label when speed slider changes',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('updates WPM label when speed slider changes', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          final slider = find.byType(Slider).first;
-          await tester.drag(slider, const Offset(100, 0));
-          await tester.pumpAndSettle();
+        final slider = find.byType(Slider).first;
+        await tester.drag(slider, const Offset(100, 0));
+        await tester.pumpAndSettle();
 
-          expect(find.textContaining('WPM'), findsOneWidget);
-        },
-      );
+        expect(find.textContaining('WPM'), findsOneWidget);
+      });
 
-      testWidgets(
-        'updates initial delay label when slider changes',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('updates initial delay label when slider changes', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          // Find the initial delay slider (second slider)
-          final sliders = find.byType(Slider);
-          // First slider is Speed, second is Initial delay
-          await tester.drag(sliders.at(1), const Offset(100, 0));
-          await tester.pumpAndSettle();
+        // Find the initial delay slider (second slider)
+        final sliders = find.byType(Slider);
+        // First slider is Speed, second is Initial delay
+        await tester.drag(sliders.at(1), const Offset(100, 0));
+        await tester.pumpAndSettle();
 
-          expect(find.textContaining('s'), findsWidgets);
-        },
-      );
+        expect(find.textContaining('s'), findsWidgets);
+      });
 
-      testWidgets(
-        'shows history dropdown when history exists',
-        (tester) async {
-          historyRepo.seed(['previous message']);
-          await pumpScreen(tester);
+      testWidgets('shows history dropdown when history exists', (tester) async {
+        historyRepo.seed(['previous message']);
+        await pumpScreen(tester);
 
-          expect(find.text('History'), findsOneWidget);
-        },
-      );
+        expect(find.text('History'), findsOneWidget);
+      });
 
-      testWidgets(
-        'hides history dropdown when history is empty',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('hides history dropdown when history is empty', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          expect(find.text('History'), findsNothing);
-        },
-      );
+        expect(find.text('History'), findsNothing);
+      });
 
-      testWidgets(
-        'shows no separate transmission label after text entry',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('shows no separate transmission label after text entry', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          await tester.enterText(
-            find.byType(TextField),
-            'SOS',
-          );
-          await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'SOS');
+        await tester.pumpAndSettle();
 
-          // The input box is the only transmission display: while
-          // idle there is no progress view, only the TextField.
-          expect(find.byType(TransmissionProgressText), findsNothing);
-          expect(find.byType(TextField), findsOneWidget);
-        },
-      );
+        // The input box is the only transmission display: while
+        // idle there is no progress view, only the TextField.
+        expect(find.byType(TransmissionProgressText), findsNothing);
+        expect(find.byType(TextField), findsOneWidget);
+      });
 
-      testWidgets(
-        'shows transmission progress inside the input box',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('shows transmission progress inside the input box', (
+        tester,
+      ) async {
+        await pumpScreen(tester);
 
-          await tester.enterText(
-            find.byType(TextField),
-            'SOS',
-          );
-          await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'SOS');
+        await tester.pumpAndSettle();
 
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          // Keep the transmission running: the initial delay is
-          // owned by the (real) transmitter now, so the fake
-          // must not auto-complete it before the frame is shown.
-          transmitter.autoComplete = false;
-          await tester.tap(find.text('Send'));
-          // One frame into the transmission: the input box is
-          // replaced in place by the progress view, not by a
-          // separate follow-up box.
-          await tester.pump();
+        await tester.ensureVisible(find.text('Send'));
+        await tester.pumpAndSettle();
+        // Keep the transmission running: the initial delay is
+        // owned by the (real) transmitter now, so the fake
+        // must not auto-complete it before the frame is shown.
+        transmitter.autoComplete = false;
+        await tester.tap(find.text('Send'));
+        // One frame into the transmission: the input box is
+        // replaced in place by the progress view, not by a
+        // separate follow-up box.
+        await tester.pump();
 
-          expect(find.byType(TextField), findsNothing);
-          final progress = find.byType(TransmissionProgressText);
-          expect(progress, findsOneWidget);
-          // The full message is rendered inside the input box,
-          // one span per character (per-character highlighting is
-          // covered by the TransmissionProgressText widget tests).
-          final richText = tester.widget<RichText>(
-            find.descendant(
-              of: find.byType(TransmissionProgressText),
-              matching: find.byType(RichText),
-            ),
-          );
-          final spans = (richText.text as TextSpan).children!;
-          expect(spans.length, 3);
-          expect(spans.map((s) => (s as TextSpan).text).join(), 'SOS');
+        expect(find.byType(TextField), findsNothing);
+        final progress = find.byType(TransmissionProgressText);
+        expect(progress, findsOneWidget);
+        // The full message is rendered inside the input box,
+        // one span per character (per-character highlighting is
+        // covered by the TransmissionProgressText widget tests).
+        final richText = tester.widget<RichText>(
+          find.descendant(
+            of: find.byType(TransmissionProgressText),
+            matching: find.byType(RichText),
+          ),
+        );
+        final spans = (richText.text as TextSpan).children!;
+        expect(spans.length, 3);
+        expect(spans.map((s) => (s as TextSpan).text).join(), 'SOS');
 
-          // After completion the editable input returns, with
-          // the text intact. Let the fake complete the
-          // transmission now.
-          transmitter.autoComplete = true;
-          transmitter.lastCompleteCallback!();
-          await tester.pumpAndSettle();
-          expect(find.byType(TransmissionProgressText), findsNothing);
-          expect(find.byType(TextField), findsOneWidget);
-          expect(find.text('SOS'), findsOneWidget);
-        },
-      );
+        // After completion the editable input returns, with
+        // the text intact. Let the fake complete the
+        // transmission now.
+        transmitter.autoComplete = true;
+        transmitter.lastCompleteCallback!();
+        await tester.pumpAndSettle();
+        expect(find.byType(TransmissionProgressText), findsNothing);
+        expect(find.byType(TextField), findsOneWidget);
+        expect(find.text('SOS'), findsOneWidget);
+      });
 
-      testWidgets(
-        'Send triggers transmission',
-        (tester) async {
-          await pumpScreen(tester);
+      testWidgets('Send triggers transmission', (tester) async {
+        await pumpScreen(tester);
 
-          await tester.enterText(
-            find.byType(TextField),
-            'E',
-          );
-          await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'E');
+        await tester.pumpAndSettle();
 
-          await tester.ensureVisible(find.text('Send'));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Send'));
-          await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Send'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Send'));
+        await tester.pumpAndSettle();
 
-          expect(find.text('E'), findsOneWidget);
-        },
-      );
+        expect(find.text('E'), findsOneWidget);
+      });
     });
 
     group('haptic feedback', () {
       testWidgets('triggers heavy impact on Send', (tester) async {
         await pumpScreen(tester);
 
-        await tester.enterText(
-          find.byType(TextField),
-          'E',
-        );
+        await tester.enterText(find.byType(TextField), 'E');
         await tester.pumpAndSettle();
 
         await tester.tap(find.text('Send'));
@@ -425,10 +367,7 @@ void main() {
       testWidgets('triggers light impact on Clear', (tester) async {
         await pumpScreen(tester);
 
-        await tester.enterText(
-          find.byType(TextField),
-          'E',
-        );
+        await tester.enterText(find.byType(TextField), 'E');
         await tester.pumpAndSettle();
 
         await tester.ensureVisible(find.text('Clear'));

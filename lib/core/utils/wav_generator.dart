@@ -3,10 +3,7 @@ import 'dart:typed_data';
 
 /// A single tone segment — either a beep (on) or silence (off).
 class ToneSegment {
-  const ToneSegment({
-    required this.isOn,
-    required this.durationMs,
-  });
+  const ToneSegment({required this.isOn, required this.durationMs});
 
   /// Whether this segment is a tone (true) or silence (false).
   final bool isOn;
@@ -42,12 +39,7 @@ class WavGenerator {
     return _buildWavFile(samples);
   }
 
-  void _fillTone(
-    Int16List samples,
-    int offset,
-    int count,
-    double frequency,
-  ) {
+  void _fillTone(Int16List samples, int offset, int count, double frequency) {
     final fadeSamples = _msToSamples(2);
     for (var i = 0; i < count; i++) {
       final envelope = _envelope(i, count, fadeSamples);

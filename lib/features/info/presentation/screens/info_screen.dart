@@ -50,9 +50,7 @@ class InfoScreen extends StatelessWidget {
     final theme = Theme.of(context);
     return Text(
       title,
-      style: theme.textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.w600,
-      ),
+      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
     );
   }
 
@@ -132,10 +130,7 @@ class InfoScreen extends StatelessWidget {
     final rows = [
       ('Dit (dot)', '1 unit of tone'),
       ('Dah (dash)', '3 units of tone'),
-      (
-        'Pause between tones in a symbol',
-        '1 unit of silence',
-      ),
+      ('Pause between tones in a symbol', '1 unit of silence'),
       ('Pause between symbols (letters)', '3 units of silence'),
       ('Pause between words', '7 units of silence'),
     ];
@@ -285,10 +280,7 @@ class InfoScreen extends StatelessWidget {
   }) {
     final theme = Theme.of(context);
     return Table(
-      columnWidths: const {
-        0: FixedColumnWidth(96),
-        1: FlexColumnWidth(),
-      },
+      columnWidths: const {0: FixedColumnWidth(96), 1: FlexColumnWidth()},
       defaultVerticalAlignment: TableCellVerticalAlignment.top,
       border: TableBorder(
         horizontalInside: BorderSide(color: theme.dividerColor),
@@ -304,11 +296,7 @@ class InfoScreen extends StatelessWidget {
         for (final row in rows)
           TableRow(
             children: [
-              _tableCell(
-                context,
-                row.$1,
-                fontWeight: FontWeight.w600,
-              ),
+              _tableCell(context, row.$1, fontWeight: FontWeight.w600),
               _tableCell(context, row.$2),
             ],
           ),
@@ -340,9 +328,7 @@ class InfoScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Text(
         text,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: fontWeight,
-        ),
+        style: theme.textTheme.bodyMedium?.copyWith(fontWeight: fontWeight),
       ),
     );
   }

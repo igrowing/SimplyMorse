@@ -120,10 +120,7 @@ class AudioDebugLogger {
   }
 
   /// Logs an unlock event (signal timeout).
-  void logUnlock({
-    required int totalSamples,
-    required int sampleRate,
-  }) {
+  void logUnlock({required int totalSamples, required int sampleRate}) {
     if (!enabled || _sink == null) return;
     final ts = (totalSamples * 1000 / sampleRate).round();
     _writeln('$ts,unlock,scanning,0,0,0,0,0,0,0,0,signal_timeout');

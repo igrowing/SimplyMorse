@@ -281,10 +281,7 @@ void main() {
 
     group('signal timeout (opt-in)', () {
       test('unlocks after prolonged silence when enabled', () {
-        final decoder = AudioDecoder(
-          signalTimeoutMs: 500,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(signalTimeoutMs: 500, minElementMs: 0);
 
         // Lock with long tone
         decoder.processSamples(generateTone(700, 8000, frameSize * 20));
@@ -302,10 +299,7 @@ void main() {
       });
 
       test('onUnlock callback is invoked on timeout', () {
-        final decoder = AudioDecoder(
-          signalTimeoutMs: 500,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(signalTimeoutMs: 500, minElementMs: 0);
         var unlocked = false;
         decoder.onUnlock = () => unlocked = true;
 
@@ -319,10 +313,7 @@ void main() {
       });
 
       test('does not unlock while tone is present', () {
-        final decoder = AudioDecoder(
-          signalTimeoutMs: 1000,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(signalTimeoutMs: 1000, minElementMs: 0);
 
         // Lock and keep feeding tone for a long time
         decoder
@@ -358,10 +349,7 @@ void main() {
       });
 
       test('uses fixed bandwidth when bandwidth > 0', () {
-        final decoder = AudioDecoder(
-          bandwidth: 80,
-          minElementMs: 0,
-        );
+        final decoder = AudioDecoder(bandwidth: 80, minElementMs: 0);
         decoder.processSamples(generateTone(700, 8000, frameSize * 20));
 
         expect(decoder.state, DecoderState.locked);

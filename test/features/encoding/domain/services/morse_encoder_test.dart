@@ -34,9 +34,7 @@ void main() {
     test('encodes word gap as empty morseCode', () {
       final symbols = encoder.encode('HI THERE', settings);
 
-      final spaceSymbol = symbols.firstWhere(
-        (s) => s.character == ' ',
-      );
+      final spaceSymbol = symbols.firstWhere((s) => s.character == ' ');
       expect(spaceSymbol.morseCode, isEmpty);
       expect(spaceSymbol.isWordGap, isTrue);
     });
@@ -98,23 +96,15 @@ void main() {
       final symbols = encoder.encode('ABC', settings);
 
       for (var i = 1; i < symbols.length; i++) {
-        expect(
-          symbols[i].startMs,
-          greaterThan(symbols[i - 1].startMs),
-        );
+        expect(symbols[i].startMs, greaterThan(symbols[i - 1].startMs));
       }
     });
 
     test('word gap duration equals 7 dits', () {
       final symbols = encoder.encode('A B', settings);
 
-      final space = symbols.firstWhere(
-        (s) => s.isWordGap,
-      );
-      expect(
-        space.durationMs,
-        closeTo(settings.wordGapMs, 0.01),
-      );
+      final space = symbols.firstWhere((s) => s.isWordGap);
+      expect(space.durationMs, closeTo(settings.wordGapMs, 0.01));
     });
   });
 
@@ -152,9 +142,7 @@ void main() {
 
       // Find the inter-character gap (off event with charIndex 0
       // after the last on event of A)
-      final gapEvents = events.where(
-        (e) => !e.isOn && e.charIndex == 0,
-      );
+      final gapEvents = events.where((e) => !e.isOn && e.charIndex == 0);
       // A has no internal gaps after its last element, so the
       // inter-char gap should be the last off event for A
       final lastGap = gapEvents.last;
@@ -167,17 +155,12 @@ void main() {
 
       // Find the word gap event (off event with charIndex of
       // the space symbol)
-      final spaceIndex = symbols.indexWhere(
-        (s) => s.isWordGap,
-      );
+      final spaceIndex = symbols.indexWhere((s) => s.isWordGap);
       final wordGapEvents = events.where(
         (e) => e.charIndex == spaceIndex && !e.isOn,
       );
       expect(wordGapEvents, hasLength(1));
-      expect(
-        wordGapEvents.first.durationMs,
-        settings.wordGapMs.round(),
-      );
+      expect(wordGapEvents.first.durationMs, settings.wordGapMs.round());
     });
 
     test('all on events have positive duration', () {
@@ -259,14 +242,8 @@ void main() {
         farnsworthEnabled: true,
         farnsworthEffectiveWpm: 10,
       );
-      expect(
-        farnsworth.charGapMs,
-        greaterThan(standard.charGapMs),
-      );
-      expect(
-        farnsworth.wordGapMs,
-        greaterThan(standard.wordGapMs),
-      );
+      expect(farnsworth.charGapMs, greaterThan(standard.charGapMs));
+      expect(farnsworth.wordGapMs, greaterThan(standard.wordGapMs));
     });
   });
 }

@@ -73,10 +73,7 @@ void main() {
         }
 
         final history = await repository.getAll();
-        expect(
-          history.length,
-          AppConstants.maxHistoryEntries,
-        );
+        expect(history.length, AppConstants.maxHistoryEntries);
       });
 
       test('keeps most recent entries when limit exceeded', () async {

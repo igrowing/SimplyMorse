@@ -8,10 +8,7 @@ import 'package:meta/meta.dart';
 /// for a gap (intra-character, inter-character, or word gap).
 @immutable
 class DecodedElement extends Equatable {
-  const DecodedElement({
-    required this.isOn,
-    required this.durationMs,
-  });
+  const DecodedElement({required this.isOn, required this.durationMs});
 
   final bool isOn;
   final int durationMs;

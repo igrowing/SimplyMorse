@@ -840,9 +840,7 @@ class AudioDecoder {
   void _checkReTune() {
     if (_reTuneBuffer.length < fftSize) return;
 
-    final power = _fft.powerSpectrum(
-      Float64List.fromList(_reTuneBuffer),
-    );
+    final power = _fft.powerSpectrum(Float64List.fromList(_reTuneBuffer));
 
     final minBin = _fft.frequencyToBin(minFreq, sampleRate);
     final maxBin = _fft

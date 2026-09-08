@@ -44,28 +44,25 @@ void main() {
       expect(f.y, closeTo(33.5, 0.01));
     });
 
-    test(
-      'tracks steady drift (sliding motion)',
-      () {
-        final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
+    test('tracks steady drift (sliding motion)', () {
+      final f = AlphaBetaFilter(alpha: 0.7, beta: 0.1);
 
-        var trueX = 40.0;
-        var trueY = 30.0;
-        f.initialize(trueX, trueY);
+      var trueX = 40.0;
+      var trueY = 30.0;
+      f.initialize(trueX, trueY);
 
-        for (var i = 0; i < 100; i++) {
-          trueX += 2;
-          trueY += 1;
-          f
-            ..predict(0.033)
-            ..update(trueX, trueY, 0.033);
-        }
+      for (var i = 0; i < 100; i++) {
+        trueX += 2;
+        trueY += 1;
+        f
+          ..predict(0.033)
+          ..update(trueX, trueY, 0.033);
+      }
 
-        expect(f.x, closeTo(trueX, 3));
-        expect(f.y, closeTo(trueY, 2));
-        expect(f.vx, closeTo(60, 15));
-      },
-    );
+      expect(f.x, closeTo(trueX, 3));
+      expect(f.y, closeTo(trueY, 2));
+      expect(f.vx, closeTo(60, 15));
+    });
 
     test('smooths oscillation (hand shaking)', () {
       // Lower alpha → more smoothing
@@ -150,14 +147,11 @@ void main() {
       expect(f.y, 28);
     });
 
-    test(
-      'predict on uninitialized filter is a no-op',
-      () {
-        final f = AlphaBetaFilter();
-        f.predict(0.033);
-        expect(f.x, 0);
-        expect(f.y, 0);
-      },
-    );
+    test('predict on uninitialized filter is a no-op', () {
+      final f = AlphaBetaFilter();
+      f.predict(0.033);
+      expect(f.x, 0);
+      expect(f.y, 0);
+    });
   });
 }

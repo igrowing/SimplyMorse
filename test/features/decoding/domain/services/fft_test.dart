@@ -8,11 +8,7 @@ void main() {
   group('FFT', () {
     var fft = FFT(256);
 
-    List<double> generateSineWave(
-      double freq,
-      int sampleRate,
-      int n,
-    ) {
+    List<double> generateSineWave(double freq, int sampleRate, int n) {
       return List.generate(n, (i) {
         return sin(2 * pi * freq * i / sampleRate);
       });

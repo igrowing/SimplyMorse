@@ -94,10 +94,7 @@ class LocalStorageDatasource {
   }
 
   Future<void> saveTextHistory(List<String> history) async {
-    await _instance.setString(
-      AppConstants.textHistoryKey,
-      jsonEncode(history),
-    );
+    await _instance.setString(AppConstants.textHistoryKey, jsonEncode(history));
   }
 
   Future<void> clearTextHistory() async {

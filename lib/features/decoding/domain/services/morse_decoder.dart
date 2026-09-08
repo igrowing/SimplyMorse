@@ -106,10 +106,7 @@ class MorseDecoder {
   /// 20 WPM; fixed 1.4 measured: fine at 20 WPM but splits the
   /// "!" of an 8 WPM recording), so it is interpolated by the
   /// estimated dit duration.
-  double _effectiveGapThreshold(
-    double dit,
-    List<DecodedElement> elements,
-  ) {
+  double _effectiveGapThreshold(double dit, List<DecodedElement> elements) {
     if (dit >= _slowDitMs) return gapThreshold;
     if (!_isLagDistorted(elements, dit)) return gapThreshold;
     if (dit <= _fastDitMs) {
@@ -192,10 +189,7 @@ class MorseDecoder {
   /// separately from inter-character gaps — if it is
   /// significantly larger than the mark-dit, Farnsworth timing
   /// is detected and used.
-  String decodeElements(
-    List<DecodedElement> elements, {
-    double? ditMs,
-  }) {
+  String decodeElements(List<DecodedElement> elements, {double? ditMs}) {
     if (elements.isEmpty) return '';
 
     final dit = ditMs ?? _estimateDitDuration(elements);

@@ -204,9 +204,9 @@ class MainScreen extends StatelessWidget {
 
   void _navigateToInfo(BuildContext context) {
     unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
-      ),
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const InfoScreen())),
     );
   }
 }

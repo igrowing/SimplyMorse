@@ -52,10 +52,7 @@ class Goertzel {
   ///
   /// [hopSize] is the number of samples to advance between
   /// windows.
-  List<double> processStream(
-    List<double> samples, {
-    required int hopSize,
-  }) {
+  List<double> processStream(List<double> samples, {required int hopSize}) {
     final results = <double>[];
     for (var i = 0; i + blockSize <= samples.length; i += hopSize) {
       final block = samples.sublist(i, i + blockSize);

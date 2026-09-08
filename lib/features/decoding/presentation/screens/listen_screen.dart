@@ -100,9 +100,9 @@ class _ListenScreenState extends State<ListenScreen> {
     await _feedbackService.lightImpact();
     await _shareService.copyToClipboard(_controller.decodedText);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
   Future<void> _onSharePressed() async {
@@ -131,9 +131,7 @@ class _ListenScreenState extends State<ListenScreen> {
                   ),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 700,
-                      ),
+                      constraints: const BoxConstraints(maxWidth: 700),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -144,9 +142,7 @@ class _ListenScreenState extends State<ListenScreen> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: _buildDecodedTextInput(context),
-                              ),
+                              Expanded(child: _buildDecodedTextInput(context)),
                               const SizedBox(width: 16),
                               Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -171,9 +167,7 @@ class _ListenScreenState extends State<ListenScreen> {
                 ),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: 500,
-                    ),
+                    constraints: const BoxConstraints(maxWidth: 500),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -216,20 +210,14 @@ class _ListenScreenState extends State<ListenScreen> {
     return Consumer<DecodingController>(
       builder: (context, ctrl, _) {
         final (color, label) = switch (ctrl.status) {
-          DecodingStatus.idle => (
-            theme.colorScheme.outline,
-            'Idle',
-          ),
+          DecodingStatus.idle => (theme.colorScheme.outline, 'Idle'),
           DecodingStatus.listening => (
             ctrl.isCalibrating
                 ? theme.colorScheme.tertiary
                 : theme.colorScheme.primary,
             ctrl.isCalibrating ? 'Scanning…' : 'Listening…',
           ),
-          DecodingStatus.paused => (
-            theme.colorScheme.tertiary,
-            'Paused',
-          ),
+          DecodingStatus.paused => (theme.colorScheme.tertiary, 'Paused'),
         };
 
         return Wrap(
@@ -244,9 +232,7 @@ class _ListenScreenState extends State<ListenScreen> {
                 const SizedBox(width: 8),
                 Text(
                   label,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: color,
-                  ),
+                  style: theme.textTheme.bodyMedium?.copyWith(color: color),
                 ),
               ],
             ),
@@ -254,11 +240,7 @@ class _ListenScreenState extends State<ListenScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.lock,
-                    size: 14,
-                    color: theme.colorScheme.primary,
-                  ),
+                  Icon(Icons.lock, size: 14, color: theme.colorScheme.primary),
                   const SizedBox(width: 4),
                   Text(
                     'Locked at ${ctrl.lockedFrequency.round()} Hz',
@@ -272,11 +254,7 @@ class _ListenScreenState extends State<ListenScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.speed,
-                    size: 14,
-                    color: theme.colorScheme.outline,
-                  ),
+                  Icon(Icons.speed, size: 14, color: theme.colorScheme.outline),
                   const SizedBox(width: 4),
                   Text(
                     '${ctrl.currentWpm} WPM',
@@ -424,9 +402,9 @@ class _ListenScreenState extends State<ListenScreen> {
 
   void _navigateToInfo(BuildContext context) {
     unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
-      ),
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const InfoScreen())),
     );
   }
 }

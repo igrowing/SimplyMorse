@@ -32,12 +32,7 @@ class VideoFrame extends Equatable {
   }
 
   /// Mean luminance of a rectangular sub-region.
-  double regionMeanLuminance(
-    int x,
-    int y,
-    int w,
-    int h,
-  ) {
+  double regionMeanLuminance(int x, int y, int w, int h) {
     var sum = 0.0;
     var count = 0;
     final yMax = min(y + h, height);
@@ -67,12 +62,7 @@ class VideoFrame extends Equatable {
   /// leaves mostly the beacon's own on/off contrast. Returns 0 if the
   /// annulus has no pixels in frame (e.g. a region already touching
   /// the frame edge), so callers get a safe brightness-only fallback.
-  double annulusMeanLuminance(
-    int cx,
-    int cy,
-    int innerHalf,
-    int outerHalf,
-  ) {
+  double annulusMeanLuminance(int cx, int cy, int innerHalf, int outerHalf) {
     var sum = 0.0;
     var count = 0;
     final yMin = max(cy - outerHalf, 0);

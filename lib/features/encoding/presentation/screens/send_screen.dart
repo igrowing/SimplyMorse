@@ -157,9 +157,9 @@ class _SendScreenState extends State<SendScreen> {
                   Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleLarge?.copyWith(color: Colors.white),
                   ),
                   const SizedBox(height: 24),
                   TweenAnimationBuilder<double>(
@@ -182,10 +182,7 @@ class _SendScreenState extends State<SendScreen> {
                   OutlinedButton.icon(
                     onPressed: _onPausePressed,
                     icon: const Icon(Icons.cancel_outlined, size: 28),
-                    label: const Text(
-                      'Cancel',
-                      style: TextStyle(fontSize: 20),
-                    ),
+                    label: const Text('Cancel', style: TextStyle(fontSize: 20)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Colors.white54, width: 2),
@@ -231,10 +228,7 @@ class _SendScreenState extends State<SendScreen> {
           Expanded(
             flex: 3,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 16,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 400),
@@ -246,10 +240,7 @@ class _SendScreenState extends State<SendScreen> {
               ),
             ),
           ),
-          Expanded(
-            flex: 2,
-            child: _buildVisualPanel(context),
-          ),
+          Expanded(flex: 2, child: _buildVisualPanel(context)),
         ],
       ),
     );
@@ -776,9 +767,9 @@ class _SendScreenState extends State<SendScreen> {
                 children: [
                   Text(
                     'Repeating in',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleLarge?.copyWith(color: Colors.white),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -793,10 +784,7 @@ class _SendScreenState extends State<SendScreen> {
                   OutlinedButton.icon(
                     onPressed: _onPausePressed,
                     icon: const Icon(Icons.cancel_outlined, size: 28),
-                    label: const Text(
-                      'Cancel',
-                      style: TextStyle(fontSize: 20),
-                    ),
+                    label: const Text('Cancel', style: TextStyle(fontSize: 20)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Colors.white54, width: 2),
@@ -834,9 +822,9 @@ class _SendScreenState extends State<SendScreen> {
 
   void _navigateToInfo(BuildContext context) {
     unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
-      ),
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const InfoScreen())),
     );
   }
 }

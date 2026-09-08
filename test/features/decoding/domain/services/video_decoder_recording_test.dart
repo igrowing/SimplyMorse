@@ -183,10 +183,7 @@ void main() {
           expect(result.elements.length, greaterThan(20));
           expect(result.text, isNotEmpty);
 
-          final cer = characterErrorRate(
-            result.text,
-            fixture.expectedText,
-          );
+          final cer = characterErrorRate(result.text, fixture.expectedText);
 
           // Ignored: avoid_print is intentional for this test case.
           // ignore: avoid_print

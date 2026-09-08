@@ -10,9 +10,7 @@ void main() {
   mockWakelockToggleChannel();
 
   Future<void> pumpInfo(WidgetTester tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: InfoScreen()),
-    );
+    await tester.pumpWidget(const MaterialApp(home: InfoScreen()));
   }
 
   group('InfoScreen', () {
@@ -22,10 +20,7 @@ void main() {
       expect(find.text('Morse basics'), findsOneWidget);
       expect(find.text('Pauses and timing'), findsOneWidget);
       expect(find.text('Farnsworth timing'), findsOneWidget);
-      expect(
-        find.text('Symbols the app can decode'),
-        findsOneWidget,
-      );
+      expect(find.text('Symbols the app can decode'), findsOneWidget);
       expect(find.text('Common abbreviations'), findsOneWidget);
     });
 
@@ -57,25 +52,17 @@ void main() {
         find.textContaining('Pause between symbols (letters)'),
         findsOneWidget,
       );
-      expect(
-        find.textContaining('Pause between words'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Pause between words'), findsOneWidget);
     });
 
     testWidgets('explains Farnsworth timing', (tester) async {
       await pumpInfo(tester);
 
       expect(
-        find.textContaining(
-          'stretches the pauses between characters',
-        ),
+        find.textContaining('stretches the pauses between characters'),
         findsOneWidget,
       );
-      expect(
-        find.textContaining('effective speed of 10 WPM'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('effective speed of 10 WPM'), findsOneWidget);
     });
 
     testWidgets('lists the requested abbreviations', (tester) async {
@@ -86,28 +73,16 @@ void main() {
       for (final abbrev in ['73', 'GN', 'SK', 'C', 'N', 'CQ']) {
         expect(find.text(abbrev), findsWidgets);
       }
-      expect(
-        find.textContaining('Best regards'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Good night'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Best regards'), findsOneWidget);
+      expect(find.textContaining('Good night'), findsOneWidget);
     });
 
     testWidgets('notes the Latin Extended opt-in behavior', (tester) async {
       await pumpInfo(tester);
 
       // findsWidgets: also the subsection title.
-      expect(
-        find.textContaining('Latin Extended'),
-        findsWidgets,
-      );
-      expect(
-        find.textContaining('decoded only when Latin'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Latin Extended'), findsWidgets);
+      expect(find.textContaining('decoded only when Latin'), findsOneWidget);
     });
 
     testWidgets('scrolls to the abbreviations chapter', (tester) async {

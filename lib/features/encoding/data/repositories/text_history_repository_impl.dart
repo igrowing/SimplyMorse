@@ -19,10 +19,7 @@ class TextHistoryRepositoryImpl implements TextHistoryRepository {
       ..remove(text)
       ..insert(0, text);
     if (history.length > AppConstants.maxHistoryEntries) {
-      history.removeRange(
-        AppConstants.maxHistoryEntries,
-        history.length,
-      );
+      history.removeRange(AppConstants.maxHistoryEntries, history.length);
     }
     await _dataSource.saveTextHistory(history);
   }

@@ -100,24 +100,21 @@ class MorseTransmitter {
 
     // Start progress timer
     final startTime = DateTime.now();
-    _progressTimer = Timer.periodic(
-      const Duration(milliseconds: 50),
-      (timer) {
-        final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-        if (elapsedMs >= totalDuration) {
-          timer.cancel();
-          onComplete();
-          return;
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
+      if (elapsedMs >= totalDuration) {
+        timer.cancel();
+        onComplete();
+        return;
+      }
+      var currentChar = -1;
+      for (final entry in charStartTimes.entries) {
+        if (entry.value <= elapsedMs) {
+          currentChar = entry.key;
         }
-        var currentChar = -1;
-        for (final entry in charStartTimes.entries) {
-          if (entry.value <= elapsedMs) {
-            currentChar = entry.key;
-          }
-        }
-        onProgress(currentChar);
-      },
-    );
+      }
+      onProgress(currentChar);
+    });
 
     // Audio transmission
     if (settings.needsAudio) {
@@ -153,18 +150,10 @@ class MorseTransmitter {
     countdownRemaining.dispose();
   }
 
-  Uint8List _generateWav(
-    List<ToneEvent> events,
-    double toneHz,
-  ) {
+  Uint8List _generateWav(List<ToneEvent> events, double toneHz) {
     final generator = WavGenerator();
     final segments = events
-        .map(
-          (e) => ToneSegment(
-            isOn: e.isOn,
-            durationMs: e.durationMs,
-          ),
-        )
+        .map((e) => ToneSegment(isOn: e.isOn, durationMs: e.durationMs))
         .toList();
     return generator.generate(segments, toneHz);
   }
@@ -194,9 +183,7 @@ class MorseTransmitter {
           displayBlink.value = false;
         }
       }
-      await Future<void>.delayed(
-        Duration(milliseconds: event.durationMs),
-      );
+      await Future<void>.delayed(Duration(milliseconds: event.durationMs));
     }
     if (settings.needsTorch) {
       await _torchService.disable();

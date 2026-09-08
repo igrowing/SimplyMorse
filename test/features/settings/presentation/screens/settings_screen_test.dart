@@ -90,34 +90,22 @@ void main() {
 
     // Enabled and reflecting the persisted value (false).
     await tester.tap(
-      find.descendant(
-        of: switchFinder,
-        matching: find.byType(Switch),
-      ),
+      find.descendant(of: switchFinder, matching: find.byType(Switch)),
     );
     await tester.pumpAndSettle();
 
     expect(fakeRepo.farnsworthEnabled, isTrue);
     expect(fakeRepo.saveFarnsworthCount, 1);
-    expect(
-      (tester.widget(switchFinder) as SwitchListTile?)?.value,
-      isTrue,
-    );
+    expect((tester.widget(switchFinder) as SwitchListTile?)?.value, isTrue);
 
     // Toggling back persists false.
     await tester.tap(
-      find.descendant(
-        of: switchFinder,
-        matching: find.byType(Switch),
-      ),
+      find.descendant(of: switchFinder, matching: find.byType(Switch)),
     );
     await tester.pumpAndSettle();
 
     expect(fakeRepo.farnsworthEnabled, isFalse);
     expect(fakeRepo.saveFarnsworthCount, 2);
-    expect(
-      (tester.widget(switchFinder) as SwitchListTile?)?.value,
-      isFalse,
-    );
+    expect((tester.widget(switchFinder) as SwitchListTile?)?.value, isFalse);
   });
 }

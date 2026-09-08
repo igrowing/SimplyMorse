@@ -40,18 +40,12 @@ void main() {
     group('saveSpeed', () {
       test('persists minimum speed value', () async {
         await repository.saveSpeed(AppConstants.minSpeedWpm);
-        expect(
-          await repository.getSpeed(),
-          AppConstants.minSpeedWpm,
-        );
+        expect(await repository.getSpeed(), AppConstants.minSpeedWpm);
       });
 
       test('persists maximum speed value', () async {
         await repository.saveSpeed(AppConstants.maxSpeedWpm);
-        expect(
-          await repository.getSpeed(),
-          AppConstants.maxSpeedWpm,
-        );
+        expect(await repository.getSpeed(), AppConstants.maxSpeedWpm);
       });
 
       test('persists fractional speed value', () async {
@@ -76,18 +70,12 @@ void main() {
     group('saveTone', () {
       test('persists minimum tone value', () async {
         await repository.saveTone(AppConstants.minToneHz);
-        expect(
-          await repository.getTone(),
-          AppConstants.minToneHz,
-        );
+        expect(await repository.getTone(), AppConstants.minToneHz);
       });
 
       test('persists maximum tone value', () async {
         await repository.saveTone(AppConstants.maxToneHz);
-        expect(
-          await repository.getTone(),
-          AppConstants.maxToneHz,
-        );
+        expect(await repository.getTone(), AppConstants.maxToneHz);
       });
 
       test('persists fractional tone value', () async {
@@ -116,9 +104,7 @@ void main() {
       });
 
       test('persists maximum delay', () async {
-        await repository.saveInitialDelay(
-          AppConstants.maxInitialDelaySec,
-        );
+        await repository.saveInitialDelay(AppConstants.maxInitialDelaySec);
         expect(
           await repository.getInitialDelay(),
           AppConstants.maxInitialDelaySec,

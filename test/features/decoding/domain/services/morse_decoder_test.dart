@@ -99,9 +99,7 @@ void main() {
     // S = ... (3 dits + 2 intra-gaps)
     // O = --- (3 dahs + 2 intra-gaps)
     // char gap = 3 dits
-    List<DecodedElement> s(
-      int ditMs,
-    ) {
+    List<DecodedElement> s(int ditMs) {
       final gap = ditMs;
       return [
         DecodedElement(isOn: true, durationMs: ditMs),
@@ -135,10 +133,7 @@ void main() {
         ...s(ditMs),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'SOS');
     });
 
@@ -166,10 +161,7 @@ void main() {
         ...o(ditMs),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'S O');
     });
 
@@ -179,10 +171,7 @@ void main() {
         const DecodedElement(isOn: true, durationMs: ditMs),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'E');
     });
 
@@ -193,10 +182,7 @@ void main() {
         const DecodedElement(isOn: true, durationMs: dahMs),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'T');
     });
 
@@ -220,10 +206,7 @@ void main() {
         ...o(ditMs),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'SO');
     });
 
@@ -236,23 +219,15 @@ void main() {
         ...o(ditMs),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'SO');
     });
 
     test('flushes trailing symbol without gap', () {
       const ditMs = 100;
-      final elements = <DecodedElement>[
-        ...s(ditMs),
-      ];
+      final elements = <DecodedElement>[...s(ditMs)];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, 'S');
     });
 
@@ -279,10 +254,7 @@ void main() {
         const DecodedElement(isOn: false, durationMs: ditMs * 3),
       ];
 
-      final result = decoder.decodeElements(
-        elements,
-        ditMs: ditMs.toDouble(),
-      );
+      final result = decoder.decodeElements(elements, ditMs: ditMs.toDouble());
       expect(result, isEmpty);
     });
   });
@@ -381,105 +353,91 @@ void main() {
       expect(result, 'SOS');
     });
 
-    test(
-      'without Farnsworth detection, standard timing would '
-      'split Farnsworth chars into words',
-      () {
-        // Simulate the OLD behavior: use the mark-dit for
-        // all gap classification. A 360ms gap / 60ms dit = 6.0,
-        // which hits the wordGapThreshold — char-gap becomes
-        // word-gap, splitting "SOS" into "S O S".
-        final elements = buildFarnsworthSos();
+    test('without Farnsworth detection, standard timing would '
+        'split Farnsworth chars into words', () {
+      // Simulate the OLD behavior: use the mark-dit for
+      // all gap classification. A 360ms gap / 60ms dit = 6.0,
+      // which hits the wordGapThreshold — char-gap becomes
+      // word-gap, splitting "SOS" into "S O S".
+      final elements = buildFarnsworthSos();
 
-        // Force standard timing by passing ditMs explicitly
-        // and using a decoder that doesn't detect Farnsworth
-        // (gapDit == dit). We simulate this by using a decoder
-        // with a very high wordGapThreshold that prevents
-        // word-gaps, proving the Farnsworth gap would have
-        // been a word-gap.
-        final noFarnsworth = MorseDecoder(wordGapThreshold: 99);
-        final result = noFarnsworth.decodeElements(elements, ditMs: 60);
-        // With wordGapThreshold=99, all gaps are char-gaps,
-        // so we get "SOS" — but the real old behavior (6.0)
-        // without Farnsworth detection would give "S O S".
-        expect(result, 'SOS');
-      },
-    );
+      // Force standard timing by passing ditMs explicitly
+      // and using a decoder that doesn't detect Farnsworth
+      // (gapDit == dit). We simulate this by using a decoder
+      // with a very high wordGapThreshold that prevents
+      // word-gaps, proving the Farnsworth gap would have
+      // been a word-gap.
+      final noFarnsworth = MorseDecoder(wordGapThreshold: 99);
+      final result = noFarnsworth.decodeElements(elements, ditMs: 60);
+      // With wordGapThreshold=99, all gaps are char-gaps,
+      // so we get "SOS" — but the real old behavior (6.0)
+      // without Farnsworth detection would give "S O S".
+      expect(result, 'SOS');
+    });
 
-    test(
-      'Farnsworth timing with word gap still separates words',
-      () {
-        // "SOS SOS" with Farnsworth timing:
-        // char-gaps at 360ms, word-gap at 840ms.
-        final elements = [
-          // First SOS
-          ...buildFarnsworthSos(),
-          // Farnsworth word-gap (840ms = 7 × 120ms Farnsworth dit)
-          const DecodedElement(isOn: false, durationMs: 840),
-          // Second SOS
-          ...buildFarnsworthSos(),
-        ];
+    test('Farnsworth timing with word gap still separates words', () {
+      // "SOS SOS" with Farnsworth timing:
+      // char-gaps at 360ms, word-gap at 840ms.
+      final elements = [
+        // First SOS
+        ...buildFarnsworthSos(),
+        // Farnsworth word-gap (840ms = 7 × 120ms Farnsworth dit)
+        const DecodedElement(isOn: false, durationMs: 840),
+        // Second SOS
+        ...buildFarnsworthSos(),
+      ];
 
-        final decoder = MorseDecoder();
-        final result = decoder.decodeElements(elements);
-        expect(result, 'SOS SOS');
-      },
-    );
+      final decoder = MorseDecoder();
+      final result = decoder.decodeElements(elements);
+      expect(result, 'SOS SOS');
+    });
 
-    test(
-      'standard timing with word gap still separates words',
-      () {
-        final elements = [
-          // First SOS
-          ...buildStandardSos(),
-          // Standard word-gap (420ms = 7 × 60ms)
-          const DecodedElement(isOn: false, durationMs: 420),
-          // Second SOS
-          ...buildStandardSos(),
-        ];
+    test('standard timing with word gap still separates words', () {
+      final elements = [
+        // First SOS
+        ...buildStandardSos(),
+        // Standard word-gap (420ms = 7 × 60ms)
+        const DecodedElement(isOn: false, durationMs: 420),
+        // Second SOS
+        ...buildStandardSos(),
+      ];
 
-        final decoder = MorseDecoder();
-        final result = decoder.decodeElements(elements);
-        expect(result, 'SOS SOS');
-      },
-    );
+      final decoder = MorseDecoder();
+      final result = decoder.decodeElements(elements);
+      expect(result, 'SOS SOS');
+    });
 
-    test(
-      'does not false-positive Farnsworth on jittered standard timing',
-      () {
-        // Standard timing with jitter: char-gaps at 3.5 × dit
-        // (210ms instead of 180ms at 20 WPM). This should NOT
-        // trigger Farnsworth detection (3.5/3 = 1.17 < 1.2).
-        // Elements encode STE = ... - .
-        final elements = [
-          // S = ... (3 dits with intra-gaps)
-          const DecodedElement(isOn: true, durationMs: 60),
-          const DecodedElement(isOn: false, durationMs: 60),
-          const DecodedElement(isOn: true, durationMs: 60),
-          const DecodedElement(isOn: false, durationMs: 60),
-          const DecodedElement(isOn: true, durationMs: 60),
-          // Jittered char-gap at 210ms
-          const DecodedElement(isOn: false, durationMs: 210),
-          // T = - (1 dah)
-          const DecodedElement(isOn: true, durationMs: 180),
-          // Jittered char-gap at 210ms
-          const DecodedElement(isOn: false, durationMs: 210),
-          // E = . (1 dit)
-          const DecodedElement(isOn: true, durationMs: 60),
-        ];
+    test('does not false-positive Farnsworth on jittered standard timing', () {
+      // Standard timing with jitter: char-gaps at 3.5 × dit
+      // (210ms instead of 180ms at 20 WPM). This should NOT
+      // trigger Farnsworth detection (3.5/3 = 1.17 < 1.2).
+      // Elements encode STE = ... - .
+      final elements = [
+        // S = ... (3 dits with intra-gaps)
+        const DecodedElement(isOn: true, durationMs: 60),
+        const DecodedElement(isOn: false, durationMs: 60),
+        const DecodedElement(isOn: true, durationMs: 60),
+        const DecodedElement(isOn: false, durationMs: 60),
+        const DecodedElement(isOn: true, durationMs: 60),
+        // Jittered char-gap at 210ms
+        const DecodedElement(isOn: false, durationMs: 210),
+        // T = - (1 dah)
+        const DecodedElement(isOn: true, durationMs: 180),
+        // Jittered char-gap at 210ms
+        const DecodedElement(isOn: false, durationMs: 210),
+        // E = . (1 dit)
+        const DecodedElement(isOn: true, durationMs: 60),
+      ];
 
-        final decoder = MorseDecoder();
-        final result = decoder.decodeElements(elements);
-        // Should decode as "STE" (not "S T E" with spaces)
-        expect(result, 'STE');
-      },
-    );
+      final decoder = MorseDecoder();
+      final result = decoder.decodeElements(elements);
+      // Should decode as "STE" (not "S T E" with spaces)
+      expect(result, 'STE');
+    });
 
     test('single character does not trigger Farnsworth', () {
       // "E" — a single dit with no inter-character gaps.
-      final elements = [
-        const DecodedElement(isOn: true, durationMs: 60),
-      ];
+      final elements = [const DecodedElement(isOn: true, durationMs: 60)];
 
       final decoder = MorseDecoder();
       final result = decoder.decodeElements(elements);

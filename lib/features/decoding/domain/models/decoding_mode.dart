@@ -1,5 +1,2 @@
 /// The two decoding modes.
-enum DecodingMode {
-  audio,
-  video,
-}
+enum DecodingMode { audio, video }

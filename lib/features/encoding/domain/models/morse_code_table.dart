@@ -151,16 +151,8 @@ class MorseCodeTable {
   }
 
   static List<Map<String, String>> _buildReverseTables() {
-    final ascii = {
-      ..._latin,
-      ..._numbers,
-      ..._punctuation,
-      ..._prosigns,
-    };
-    final extended = {
-      ...ascii,
-      ..._latinExtended,
-    };
+    final ascii = {..._latin, ..._numbers, ..._punctuation, ..._prosigns};
+    final extended = {...ascii, ..._latinExtended};
     // Index by priority: [0]=empty, [1]=latin, [2]=+numbers,
     // [3]=+punctuation+prosigns, [4]=+latinExtended
     return [

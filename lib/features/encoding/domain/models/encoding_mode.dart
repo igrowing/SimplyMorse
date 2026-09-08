@@ -3,11 +3,7 @@ import 'package:simply_morse/features/encoding/domain/models/light_method.dart'
     show LightMethod;
 
 /// The three encoding transmission modes.
-enum EncodingMode {
-  sound,
-  flash,
-  both,
-}
+enum EncodingMode { sound, flash, both }
 
 /// Extension providing display metadata for each mode.
 extension EncodingModeX on EncodingMode {

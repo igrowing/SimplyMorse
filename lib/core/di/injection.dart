@@ -54,9 +54,7 @@ Future<void> configureDependencies() async {
     ..registerSingleton<ShareService>(ShareServiceImpl())
     ..registerSingleton<FeedbackService>(FeedbackServiceImpl())
     ..registerSingleton<LocalStorageDatasource>(dataSource)
-    ..registerSingleton<SettingsRepository>(
-      SettingsRepositoryImpl(dataSource),
-    )
+    ..registerSingleton<SettingsRepository>(SettingsRepositoryImpl(dataSource))
     ..registerSingleton<TextHistoryRepository>(
       TextHistoryRepositoryImpl(dataSource),
     )
@@ -68,9 +66,7 @@ Future<void> configureDependencies() async {
     ..registerSingleton<ThemeController>(ThemeController())
     ..registerSingleton<ScreenTimeoutService>(ScreenTimeoutService())
     ..registerFactory<MorseTransmitter>(
-      () => MorseTransmitter(
-        torchService: getIt<TorchService>(),
-      ),
+      () => MorseTransmitter(torchService: getIt<TorchService>()),
     )
     ..registerFactory<EncodingController>(
       () => EncodingController(
@@ -81,11 +77,7 @@ Future<void> configureDependencies() async {
       ),
     )
     ..registerFactory<AudioDecoder>(
-      () => AudioDecoder(
-        sampleRate: 44100,
-        fftSize: 2048,
-        blockSize: 220,
-      ),
+      () => AudioDecoder(sampleRate: 44100, fftSize: 2048, blockSize: 220),
     )
     ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
     // TEMP DEBUG: enabled to investigate the video decoder —

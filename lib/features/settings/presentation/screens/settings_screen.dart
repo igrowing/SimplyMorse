@@ -140,10 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Expanded(
           child: SwitchListTile(
-            title: Text(
-              'Farnsworth timing',
-              style: theme.textTheme.bodyLarge,
-            ),
+            title: Text('Farnsworth timing', style: theme.textTheme.bodyLarge),
             subtitle: Text(
               'Characters at full speed, extended gaps between characters',
               style: theme.textTheme.bodySmall?.copyWith(
@@ -295,11 +292,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.coffee,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
+                Icon(Icons.coffee, size: 20, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
                 Text(
                   'Buy me a coffee',

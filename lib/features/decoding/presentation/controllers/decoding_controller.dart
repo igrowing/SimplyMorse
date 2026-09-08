@@ -321,10 +321,7 @@ class DecodingController extends ChangeNotifier {
       ..onElement = _onElement
       ..onLock = _onLock
       ..onUnlock = () {
-        adl?.logUnlock(
-          totalSamples: 0,
-          sampleRate: 8000,
-        );
+        adl?.logUnlock(totalSamples: 0, sampleRate: 8000);
         _lockedFrequency = 0;
         notifyListeners();
       };

@@ -25,9 +25,7 @@ void main() {
     cameraCapture = FakeCameraCapture();
   });
 
-  DecodingController makeController({
-    DecodingMode mode = DecodingMode.audio,
-  }) {
+  DecodingController makeController({DecodingMode mode = DecodingMode.audio}) {
     final controller = DecodingController(
       morseDecoder: morseDecoder,
       audioDecoder: audioDecoder,
@@ -321,15 +319,12 @@ void main() {
           final on = i.isEven;
           cameraCapture.emit(
             VideoFrame(
-              luminance: List<double>.generate(
-                80 * 60,
-                (j) {
-                  final x = j % 80;
-                  final y = j ~/ 80;
-                  final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
-                  return on && inSpot ? 0.9 : 0.1;
-                },
-              ),
+              luminance: List<double>.generate(80 * 60, (j) {
+                final x = j % 80;
+                final y = j ~/ 80;
+                final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
+                return on && inSpot ? 0.9 : 0.1;
+              }),
               width: 80,
               height: 60,
               timestampMs: i * 33,
@@ -354,15 +349,12 @@ void main() {
           final on = i.isEven;
           cameraCapture.emit(
             VideoFrame(
-              luminance: List<double>.generate(
-                80 * 60,
-                (j) {
-                  final x = j % 80;
-                  final y = j ~/ 80;
-                  final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
-                  return on && inSpot ? 0.9 : 0.1;
-                },
-              ),
+              luminance: List<double>.generate(80 * 60, (j) {
+                final x = j % 80;
+                final y = j ~/ 80;
+                final inSpot = x >= 36 && x < 44 && y >= 26 && y < 34;
+                return on && inSpot ? 0.9 : 0.1;
+              }),
               width: 80,
               height: 60,
               timestampMs: 2000 + i * 33,

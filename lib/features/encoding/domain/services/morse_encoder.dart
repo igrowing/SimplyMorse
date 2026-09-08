@@ -89,13 +89,7 @@ class MorseEncoder {
             ? settings.ditMs.round()
             : settings.dahMs.round();
 
-        events.add(
-          ToneEvent(
-            isOn: true,
-            durationMs: duration,
-            charIndex: i,
-          ),
-        );
+        events.add(ToneEvent(isOn: true, durationMs: duration, charIndex: i));
 
         if (j < symbol.morseCode.length - 1) {
           events.add(

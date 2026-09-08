@@ -178,9 +178,7 @@ class _SeeScreenState extends State<SeeScreen> {
           label: 'Share',
           onPressed: () {
             unawaited(
-              SharePlus.instance.share(
-                ShareParams(files: [XFile(path)]),
-              ),
+              SharePlus.instance.share(ShareParams(files: [XFile(path)])),
             );
           },
         ),
@@ -198,9 +196,9 @@ class _SeeScreenState extends State<SeeScreen> {
     await _feedbackService.lightImpact();
     await _shareService.copyToClipboard(_controller.decodedText);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
   Future<void> _onSharePressed() async {
@@ -554,10 +552,7 @@ class _SeeScreenState extends State<SeeScreen> {
         children: [
           Icon(Icons.camera_alt, size: 64, color: Colors.white54),
           SizedBox(height: 12),
-          Text(
-            'Camera preview',
-            style: TextStyle(color: Colors.white54),
-          ),
+          Text('Camera preview', style: TextStyle(color: Colors.white54)),
         ],
       ),
     );
@@ -640,11 +635,7 @@ class _SeeScreenState extends State<SeeScreen> {
               ? Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.circle,
-                      size: _statusBarIconSize,
-                      color: color,
-                    ),
+                    Icon(Icons.circle, size: _statusBarIconSize, color: color),
                     const SizedBox(width: _statusBarIconGap),
                     Flexible(
                       child: Text(
@@ -780,16 +771,8 @@ class _SeeScreenState extends State<SeeScreen> {
       );
       return Expanded(
         child: primary
-            ? FilledButton(
-                onPressed: onPressed,
-                style: style,
-                child: child,
-              )
-            : OutlinedButton(
-                onPressed: onPressed,
-                style: style,
-                child: child,
-              ),
+            ? FilledButton(onPressed: onPressed, style: style, child: child)
+            : OutlinedButton(onPressed: onPressed, style: style, child: child),
       );
     }
 
@@ -830,10 +813,7 @@ class _SeeScreenState extends State<SeeScreen> {
   /// first, Copy + Share on the second — each button stays wide
   /// enough to read and tap comfortably. Used in the portrait
   /// layout's bottom strip.
-  Widget _buildBottomButtons(
-    BuildContext context,
-    DecodingController ctrl,
-  ) {
+  Widget _buildBottomButtons(BuildContext context, DecodingController ctrl) {
     final actions = _buildActionButtons(context, ctrl);
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -849,10 +829,7 @@ class _SeeScreenState extends State<SeeScreen> {
   /// layout's right-hand column, within thumb reach of a landscape
   /// grip rather than a bottom strip that's awkward to reach
   /// one-handed in that orientation.
-  Widget _buildSideButtons(
-    BuildContext context,
-    DecodingController ctrl,
-  ) {
+  Widget _buildSideButtons(BuildContext context, DecodingController ctrl) {
     final actions = _buildActionButtons(context, ctrl);
     return Column(
       children: [
@@ -928,9 +905,9 @@ class _SeeScreenState extends State<SeeScreen> {
 
   void _navigateToInfo(BuildContext context) {
     unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const InfoScreen()),
-      ),
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const InfoScreen())),
     );
   }
 }

@@ -40,10 +40,7 @@ void main(List<String> args) {
 
   for (var i = 0; i < trace.length; i++) {
     final isOn = threshold.process(trace[i], timestampMs: i * frameMs);
-    builder.transition(
-      nowOn: isOn,
-      timeMs: threshold.effectiveTransitionMs,
-    );
+    builder.transition(nowOn: isOn, timeMs: threshold.effectiveTransitionMs);
   }
   builder.flush();
   gate.flush();

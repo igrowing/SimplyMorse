@@ -160,41 +160,35 @@ void main() {
       expect(find.text('Clear'), findsOneWidget);
     });
 
-    testWidgets(
-      'bottom actions are split into two rows',
-      (tester) async {
-        // This 2x2 grid is the portrait layout specifically (the
-        // landscape layout stacks all four vertically in a side
-        // column instead — see 'action buttons stack vertically in
-        // landscape' below) — force a portrait shape rather than
-        // relying on the default test surface.
-        tester
-          ..view.physicalSize = const Size(400, 800)
-          ..view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('bottom actions are split into two rows', (tester) async {
+      // This 2x2 grid is the portrait layout specifically (the
+      // landscape layout stacks all four vertically in a side
+      // column instead — see 'action buttons stack vertically in
+      // landscape' below) — force a portrait shape rather than
+      // relying on the default test surface.
+      tester
+        ..view.physicalSize = const Size(400, 800)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        await pumpScreen(tester);
+      await pumpScreen(tester);
 
-        // First row: Start/Pause + Clear. Second row: Copy + Share,
-        // strictly below the first row.
-        final startRect = tester.getRect(find.text('Start'));
-        final clearRect = tester.getRect(find.text('Clear'));
-        final copyRect = tester.getRect(find.text('Copy'));
-        final shareRect = tester.getRect(find.text('Share'));
+      // First row: Start/Pause + Clear. Second row: Copy + Share,
+      // strictly below the first row.
+      final startRect = tester.getRect(find.text('Start'));
+      final clearRect = tester.getRect(find.text('Clear'));
+      final copyRect = tester.getRect(find.text('Copy'));
+      final shareRect = tester.getRect(find.text('Share'));
 
-        expect(clearRect.top, closeTo(startRect.top, 1));
-        expect(copyRect.top, greaterThan(startRect.bottom));
-        expect(shareRect.top, closeTo(copyRect.top, 1));
-      },
-    );
+      expect(clearRect.top, closeTo(startRect.top, 1));
+      expect(copyRect.top, greaterThan(startRect.bottom));
+      expect(shareRect.top, closeTo(copyRect.top, 1));
+    });
 
     testWidgets('shows decoded text input field', (tester) async {
       await pumpScreen(tester);
-      expect(
-        find.text('Decoded text will appear here…'),
-        findsOneWidget,
-      );
+      expect(find.text('Decoded text will appear here…'), findsOneWidget);
     });
 
     testWidgets('shows camera preview placeholder when not initialized', (
@@ -204,9 +198,7 @@ void main() {
       expect(find.text('Camera preview'), findsOneWidget);
     });
 
-    testWidgets('no reticle before the camera initializes', (
-      tester,
-    ) async {
+    testWidgets('no reticle before the camera initializes', (tester) async {
       await pumpScreen(tester);
       // In the test harness no real camera is available, so the
       // placeholder shows and the reticle must NOT be painted —
@@ -252,9 +244,7 @@ void main() {
   });
 
   group('SeeScreen share/clipboard', () {
-    testWidgets('Copy/Share are disabled when no decoded text', (
-      tester,
-    ) async {
+    testWidgets('Copy/Share are disabled when no decoded text', (tester) async {
       await pumpScreen(tester);
       // The buttons are always visible in the bottom row but
       // inert until there is text to act on.
@@ -286,10 +276,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Type text so the buttons have something to act on.
-      await tester.enterText(
-        find.byType(TextField),
-        'HELLO',
-      );
+      await tester.enterText(find.byType(TextField), 'HELLO');
       await tester.pumpAndSettle();
 
       final copy = tester.widget<OutlinedButton>(
@@ -417,46 +404,40 @@ void main() {
         expect(center.dy, closeTo(0.1 * canvasSize.height, 0.001));
       });
 
-      test(
-        'portrait: buffer fraction is rotated 90° before mapping onto the '
-        'canvas',
-        () {
-          // A 90°-clockwise rotation sends buffer fraction (fx, fy)
-          // to canvas fraction (1 - fy, fx) — see
-          // frameFractionToDisplayFraction's doc comment. For
-          // (0.9, 0.1) that is (0.9, 0.9): the point sits near the
-          // buffer's RIGHT edge, which becomes the canvas's BOTTOM
-          // edge after the rotation — not near the top, as a plain
-          // (unrotated) mapping would place it.
-          const portraitCanvas = Size(120, 160);
-          final center = TrackedSpotPainter.centerOf(
+      test('portrait: buffer fraction is rotated 90° before mapping onto the '
+          'canvas', () {
+        // A 90°-clockwise rotation sends buffer fraction (fx, fy)
+        // to canvas fraction (1 - fy, fx) — see
+        // frameFractionToDisplayFraction's doc comment. For
+        // (0.9, 0.1) that is (0.9, 0.9): the point sits near the
+        // buffer's RIGHT edge, which becomes the canvas's BOTTOM
+        // edge after the rotation — not near the top, as a plain
+        // (unrotated) mapping would place it.
+        const portraitCanvas = Size(120, 160);
+        final center = TrackedSpotPainter.centerOf(
+          offCenterInfo,
+          portraitCanvas,
+          isPortrait: true,
+        );
+        expect(center.dx, closeTo(0.9 * portraitCanvas.width, 0.001));
+        expect(center.dy, closeTo(0.9 * portraitCanvas.height, 0.001));
+      });
+
+      test("portrait: spot diameter scales off the buffer's HEIGHT axis", () {
+        // In portrait the canvas's width axis corresponds to the
+        // buffer's 60px-tall axis (rotation swaps the axes), not
+        // its 80px-wide axis — 8 processing px on that 60px axis,
+        // scaled onto a 120-px-wide canvas: 8/60 * 120 = 16.
+        const portraitCanvas = Size(120, 160);
+        expect(
+          TrackedSpotPainter.spotDiameterOf(
             offCenterInfo,
             portraitCanvas,
             isPortrait: true,
-          );
-          expect(center.dx, closeTo(0.9 * portraitCanvas.width, 0.001));
-          expect(center.dy, closeTo(0.9 * portraitCanvas.height, 0.001));
-        },
-      );
-
-      test(
-        "portrait: spot diameter scales off the buffer's HEIGHT axis",
-        () {
-          // In portrait the canvas's width axis corresponds to the
-          // buffer's 60px-tall axis (rotation swaps the axes), not
-          // its 80px-wide axis — 8 processing px on that 60px axis,
-          // scaled onto a 120-px-wide canvas: 8/60 * 120 = 16.
-          const portraitCanvas = Size(120, 160);
-          expect(
-            TrackedSpotPainter.spotDiameterOf(
-              offCenterInfo,
-              portraitCanvas,
-              isPortrait: true,
-            ),
-            closeTo(16, 0.001),
-          );
-        },
-      );
+          ),
+          closeTo(16, 0.001),
+        );
+      });
     });
 
     testWidgets('paints without throwing for on and off marks', (tester) async {
@@ -478,9 +459,7 @@ void main() {
           home: SizedBox(
             width: 160,
             height: 120,
-            child: CustomPaint(
-              painter: painter,
-            ),
+            child: CustomPaint(painter: painter),
           ),
         ),
       );
@@ -489,9 +468,7 @@ void main() {
           home: SizedBox(
             width: 160,
             height: 120,
-            child: CustomPaint(
-              painter: painterOff,
-            ),
+            child: CustomPaint(painter: painterOff),
           ),
         ),
       );
@@ -530,99 +507,93 @@ void main() {
       CameraPlatform.instance = originalCameraPlatform;
     });
 
-    testWidgets(
-      'keeps the correct aspect ratio in portrait (no stretch)',
-      (tester) async {
-        tester
-          ..view.physicalSize = const Size(400, 800)
-          ..view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('keeps the correct aspect ratio in portrait (no stretch)', (
+      tester,
+    ) async {
+      tester
+        ..view.physicalSize = const Size(400, 800)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        final camImpl = GetIt.instance<CameraCaptureImpl>();
-        await camImpl.initialize();
-        expect(camImpl.controller!.value.isInitialized, isTrue);
+      final camImpl = GetIt.instance<CameraCaptureImpl>();
+      await camImpl.initialize();
+      expect(camImpl.controller!.value.isInitialized, isTrue);
 
-        await pumpScreen(tester);
+      await pumpScreen(tester);
 
-        final previewRect = tester.getRect(find.byType(CameraPreview));
+      final previewRect = tester.getRect(find.byType(CameraPreview));
 
-        // The frame's correct display aspect in portrait is
-        // 720/1280 = 0.5625 (width/height) — the sensor's aspect
-        // inverted for portrait — not the raw sensor 1280/720. This
-        // must hold under either fit mode, so derive the expected
-        // width from the *measured* height rather than hardcoding
-        // either dimension.
-        final expectedWidth = previewRect.height * (720 / 1280);
-        expect(previewRect.width, closeTo(expectedWidth, 5));
-      },
-    );
+      // The frame's correct display aspect in portrait is
+      // 720/1280 = 0.5625 (width/height) — the sensor's aspect
+      // inverted for portrait — not the raw sensor 1280/720. This
+      // must hold under either fit mode, so derive the expected
+      // width from the *measured* height rather than hardcoding
+      // either dimension.
+      final expectedWidth = previewRect.height * (720 / 1280);
+      expect(previewRect.width, closeTo(expectedWidth, 5));
+    });
 
-    testWidgets(
-      'letterboxes a portrait screen — bars top/bottom, no crop',
-      (tester) async {
-        tester
-          ..view.physicalSize = const Size(400, 800)
-          ..view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('letterboxes a portrait screen — bars top/bottom, no crop', (
+      tester,
+    ) async {
+      tester
+        ..view.physicalSize = const Size(400, 800)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        final camImpl = GetIt.instance<CameraCaptureImpl>();
-        await camImpl.initialize();
+      final camImpl = GetIt.instance<CameraCaptureImpl>();
+      await camImpl.initialize();
 
-        await pumpScreen(tester);
+      await pumpScreen(tester);
 
-        final screenRect = tester.getRect(find.byType(MaterialApp));
-        final previewRect = tester.getRect(find.byType(CameraPreview));
+      final screenRect = tester.getRect(find.byType(MaterialApp));
+      final previewRect = tester.getRect(find.byType(CameraPreview));
 
-        // Contain-fit: the frame is never larger than the screen on
-        // either axis (no crop) ...
-        expect(previewRect.width, lessThanOrEqualTo(screenRect.width + 0.5));
-        expect(previewRect.height, lessThanOrEqualTo(screenRect.height + 0.5));
-        // ... and in portrait, a 16:9 sensor is proportionally
-        // wider than the screen, so it's constrained by width —
-        // the full screen width is used, with bars above/below.
-        expect(previewRect.width, closeTo(screenRect.width, 1));
-        expect(previewRect.height, lessThan(screenRect.height));
-      },
-    );
+      // Contain-fit: the frame is never larger than the screen on
+      // either axis (no crop) ...
+      expect(previewRect.width, lessThanOrEqualTo(screenRect.width + 0.5));
+      expect(previewRect.height, lessThanOrEqualTo(screenRect.height + 0.5));
+      // ... and in portrait, a 16:9 sensor is proportionally
+      // wider than the screen, so it's constrained by width —
+      // the full screen width is used, with bars above/below.
+      expect(previewRect.width, closeTo(screenRect.width, 1));
+      expect(previewRect.height, lessThan(screenRect.height));
+    });
 
-    testWidgets(
-      'letterboxes a landscape screen — bars left/right, no crop',
-      (tester) async {
-        tester
-          ..view.physicalSize = const Size(800, 400)
-          ..view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('letterboxes a landscape screen — bars left/right, no crop', (
+      tester,
+    ) async {
+      tester
+        ..view.physicalSize = const Size(800, 400)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        final camImpl = GetIt.instance<CameraCaptureImpl>();
-        await camImpl.initialize();
+      final camImpl = GetIt.instance<CameraCaptureImpl>();
+      await camImpl.initialize();
 
-        await pumpScreen(tester);
+      await pumpScreen(tester);
 
-        final screenRect = tester.getRect(find.byType(MaterialApp));
-        final previewRect = tester.getRect(find.byType(CameraPreview));
+      final screenRect = tester.getRect(find.byType(MaterialApp));
+      final previewRect = tester.getRect(find.byType(CameraPreview));
 
-        // No crop on either axis ...
-        expect(previewRect.width, lessThanOrEqualTo(screenRect.width + 0.5));
-        expect(previewRect.height, lessThanOrEqualTo(screenRect.height + 0.5));
-        // ... and here the body (screen minus the app bar) is
-        // proportionally wider than a 16:9 sensor, so contain-fit
-        // is constrained by height, leaving the frame narrower than
-        // the screen — bars on the sides. Under the old cover-fit
-        // this would instead stretch to the full screen width
-        // (cropping the excess height), so this is the assertion
-        // that actually distinguishes contain from cover.
-        expect(previewRect.width, lessThan(screenRect.width * 0.95));
-        // Correct, unswapped aspect for landscape (no bar-induced
-        // distortion of the frame's own shape).
-        expect(
-          previewRect.width / previewRect.height,
-          closeTo(1280 / 720, 0.02),
-        );
-      },
-    );
+      // No crop on either axis ...
+      expect(previewRect.width, lessThanOrEqualTo(screenRect.width + 0.5));
+      expect(previewRect.height, lessThanOrEqualTo(screenRect.height + 0.5));
+      // ... and here the body (screen minus the app bar) is
+      // proportionally wider than a 16:9 sensor, so contain-fit
+      // is constrained by height, leaving the frame narrower than
+      // the screen — bars on the sides. Under the old cover-fit
+      // this would instead stretch to the full screen width
+      // (cropping the excess height), so this is the assertion
+      // that actually distinguishes contain from cover.
+      expect(previewRect.width, lessThan(screenRect.width * 0.95));
+      // Correct, unswapped aspect for landscape (no bar-induced
+      // distortion of the frame's own shape).
+      expect(previewRect.width / previewRect.height, closeTo(1280 / 720, 0.02));
+    });
 
     testWidgets(
       'reticle matches the portrait-corrected target area, not the raw '
@@ -685,62 +656,58 @@ void main() {
       CameraPlatform.instance = originalCameraPlatform;
     });
 
-    testWidgets(
-      'splits into two lines when the state + details do not fit',
-      (tester) async {
-        // Narrow enough that "Idle · 1280×720 · 120 FPS" cannot
-        // fit one line alongside the status icon and the pill's own
-        // padding. This is a portrait shape (600 > 130), so it hits
-        // the portrait layout's status bar.
-        tester
-          ..view.physicalSize = const Size(130, 600)
-          ..view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('splits into two lines when the state + details do not fit', (
+      tester,
+    ) async {
+      // Narrow enough that "Idle · 1280×720 · 120 FPS" cannot
+      // fit one line alongside the status icon and the pill's own
+      // padding. This is a portrait shape (600 > 130), so it hits
+      // the portrait layout's status bar.
+      tester
+        ..view.physicalSize = const Size(130, 600)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        final camImpl = GetIt.instance<CameraCaptureImpl>();
-        await camImpl.initialize();
+      final camImpl = GetIt.instance<CameraCaptureImpl>();
+      await camImpl.initialize();
 
-        await pumpScreen(tester);
+      await pumpScreen(tester);
 
-        // Split into a state line and a details line, each its own
-        // Text widget — not silently ellipsized away as one line.
-        // The negotiated capture rate (120, the first of
-        // CameraCaptureImpl's preferred rates FakeCameraPlatform
-        // always grants) shows alongside the resolution even while
-        // idle — see the status bar's doc comment.
-        expect(find.text('Idle'), findsOneWidget);
-        expect(find.textContaining('1280×720'), findsOneWidget);
-        expect(find.textContaining('120 FPS'), findsOneWidget);
-        // The combined single-line form must NOT be present.
-        expect(find.textContaining('Idle ·'), findsNothing);
-      },
-    );
+      // Split into a state line and a details line, each its own
+      // Text widget — not silently ellipsized away as one line.
+      // The negotiated capture rate (120, the first of
+      // CameraCaptureImpl's preferred rates FakeCameraPlatform
+      // always grants) shows alongside the resolution even while
+      // idle — see the status bar's doc comment.
+      expect(find.text('Idle'), findsOneWidget);
+      expect(find.textContaining('1280×720'), findsOneWidget);
+      expect(find.textContaining('120 FPS'), findsOneWidget);
+      // The combined single-line form must NOT be present.
+      expect(find.textContaining('Idle ·'), findsNothing);
+    });
 
-    testWidgets(
-      'stays on one line on a wide enough screen',
-      (tester) async {
-        // Landscape shape (800 > 600) — hits the landscape layout,
-        // which still keeps the status bar at the top (see
-        // _buildLandscapeBody), and it's wide enough that the same
-        // text needn't wrap there either.
-        tester
-          ..view.physicalSize = const Size(800, 600)
-          ..view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('stays on one line on a wide enough screen', (tester) async {
+      // Landscape shape (800 > 600) — hits the landscape layout,
+      // which still keeps the status bar at the top (see
+      // _buildLandscapeBody), and it's wide enough that the same
+      // text needn't wrap there either.
+      tester
+        ..view.physicalSize = const Size(800, 600)
+        ..view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        final camImpl = GetIt.instance<CameraCaptureImpl>();
-        await camImpl.initialize();
+      final camImpl = GetIt.instance<CameraCaptureImpl>();
+      await camImpl.initialize();
 
-        await pumpScreen(tester);
+      await pumpScreen(tester);
 
-        expect(
-          find.text('Idle · 1280×720 · 120 FPS · up to 36 WPM'),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(
+        find.text('Idle · 1280×720 · 120 FPS · up to 36 WPM'),
+        findsOneWidget,
+      );
+    });
   });
 
   group('SeeScreen landscape layout', () {
@@ -785,14 +752,9 @@ void main() {
       }
     }
 
-    testWidgets('decoded text box is visible (not gated away)', (
-      tester,
-    ) async {
+    testWidgets('decoded text box is visible (not gated away)', (tester) async {
       await pumpLandscape(tester);
-      expect(
-        find.text('Decoded text will appear here…'),
-        findsOneWidget,
-      );
+      expect(find.text('Decoded text will appear here…'), findsOneWidget);
     });
 
     testWidgets('decoded text box sits on the left of the screen', (
@@ -807,29 +769,28 @@ void main() {
       expect(textFieldRect.right, lessThan(screenRect.width * 0.5));
     });
 
-    testWidgets(
-      'action buttons form a vertical stack on the right',
-      (tester) async {
-        await pumpLandscape(tester);
+    testWidgets('action buttons form a vertical stack on the right', (
+      tester,
+    ) async {
+      await pumpLandscape(tester);
 
-        final screenRect = tester.getRect(find.byType(MaterialApp));
-        final startRect = tester.getRect(find.text('Start'));
-        final clearRect = tester.getRect(find.text('Clear'));
-        final copyRect = tester.getRect(find.text('Copy'));
-        final shareRect = tester.getRect(find.text('Share'));
+      final screenRect = tester.getRect(find.byType(MaterialApp));
+      final startRect = tester.getRect(find.text('Start'));
+      final clearRect = tester.getRect(find.text('Clear'));
+      final copyRect = tester.getRect(find.text('Copy'));
+      final shareRect = tester.getRect(find.text('Share'));
 
-        // On the right of the screen ...
-        for (final r in [startRect, clearRect, copyRect, shareRect]) {
-          expect(r.left, greaterThan(screenRect.width * 0.6));
-        }
-        // ... stacked vertically, in order, one per row (each
-        // button's row strictly below the previous one) — not
-        // paired up two-per-row the way the portrait layout does.
-        expect(clearRect.top, greaterThan(startRect.bottom));
-        expect(copyRect.top, greaterThan(clearRect.bottom));
-        expect(shareRect.top, greaterThan(copyRect.bottom));
-      },
-    );
+      // On the right of the screen ...
+      for (final r in [startRect, clearRect, copyRect, shareRect]) {
+        expect(r.left, greaterThan(screenRect.width * 0.6));
+      }
+      // ... stacked vertically, in order, one per row (each
+      // button's row strictly below the previous one) — not
+      // paired up two-per-row the way the portrait layout does.
+      expect(clearRect.top, greaterThan(startRect.bottom));
+      expect(copyRect.top, greaterThan(clearRect.bottom));
+      expect(shareRect.top, greaterThan(copyRect.bottom));
+    });
 
     testWidgets('status bar stays near the top', (tester) async {
       await pumpLandscape(tester);

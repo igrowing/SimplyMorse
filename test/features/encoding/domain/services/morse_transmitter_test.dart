@@ -356,21 +356,18 @@ void main() {
         expect(onEvents.first.durationMs, dahMs.round());
       });
 
-      test(
-        'SOS has 9 on events (3 dits + 3 dahs + 3 dits)',
-        () {
-          const settings = EncodingSettings(
-            mode: EncodingMode.flash,
-            speedWpm: 20,
-            toneHz: 700,
-            initialDelaySec: 0,
-          );
-          final symbols = encoder.encode('SOS', settings);
-          final events = encoder.buildTimeline(symbols, settings);
+      test('SOS has 9 on events (3 dits + 3 dahs + 3 dits)', () {
+        const settings = EncodingSettings(
+          mode: EncodingMode.flash,
+          speedWpm: 20,
+          toneHz: 700,
+          initialDelaySec: 0,
+        );
+        final symbols = encoder.encode('SOS', settings);
+        final events = encoder.buildTimeline(symbols, settings);
 
-          expect(events.where((e) => e.isOn).length, 9);
-        },
-      );
+        expect(events.where((e) => e.isOn).length, 9);
+      });
     });
   });
 }

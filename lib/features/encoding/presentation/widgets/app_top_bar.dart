@@ -45,9 +45,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
           ? IconButton(
               icon: const Icon(Icons.arrow_back),
               onPressed: () => Navigator.of(context).maybePop(),
-              tooltip: MaterialLocalizations.of(
-                context,
-              ).backButtonTooltip,
+              tooltip: MaterialLocalizations.of(context).backButtonTooltip,
             )
           : const Padding(
               padding: EdgeInsets.all(10),
@@ -59,10 +57,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
             ),
       title: Text(
         titleText ?? AppConstants.appName,
-        style: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),
       actions: [
         if (onInfoTap != null)
