@@ -17,14 +17,34 @@ class AudioCaptureImpl implements AudioCapture {
   bool _isActive = false;
 
   @override
+  DebugAudioCaptureEventCallback? onDebugEvent;
+
+  int _wallMs() => DateTime.now().millisecondsSinceEpoch;
+
+  @override
   bool get isActive => _isActive;
 
   @override
-  Future<bool> hasPermission() => _recorder.hasPermission();
+  Future<bool> hasPermission() async {
+    final granted = await _recorder.hasPermission();
+    onDebugEvent?.call(
+      timestampMs: _wallMs(),
+      event: 'permission',
+      detail: 'granted=${granted ? 1 : 0}',
+    );
+    return granted;
+  }
 
   @override
   Stream<List<double>> start() async* {
     _isActive = true;
+    final wallStart = _wallMs();
+    onDebugEvent?.call(
+      timestampMs: wallStart,
+      event: 'start',
+      detail: 'requested_sample_rate=44100 channels=1 pcm16',
+    );
+
     final stream = await _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
@@ -35,9 +55,25 @@ class AudioCaptureImpl implements AudioCapture {
         noiseSuppress: false,
       ),
     );
+    onDebugEvent?.call(
+      timestampMs: _wallMs(),
+      event: 'started',
+      dtMs: _wallMs() - wallStart,
+    );
 
+    var bufferCount = 0;
+    var lastBufferMs = _wallMs();
     await for (final data in stream) {
       if (!_isActive) break;
+      final now = _wallMs();
+      bufferCount++;
+      onDebugEvent?.call(
+        timestampMs: now,
+        event: 'buffer',
+        dtMs: now - lastBufferMs,
+        detail: 'n=$bufferCount bytes=${data.length}',
+      );
+      lastBufferMs = now;
       yield _bytesToSamples(data);
     }
     _isActive = false;
@@ -45,11 +81,15 @@ class AudioCaptureImpl implements AudioCapture {
 
   @override
   Future<void> stop() async {
+    if (!_isActive) return;
     _isActive = false;
+    onDebugEvent?.call(timestampMs: _wallMs(), event: 'stop');
     try {
       await _recorder.stop();
-    } on Exception {
-      // Already stopped — safe to ignore.
+    } on Object {
+      // Recorder already stopped or the platform threw while
+      // tearing down — the stream is closed either way, which
+      // wakes the sample generator's await-for loop.
     }
   }
 

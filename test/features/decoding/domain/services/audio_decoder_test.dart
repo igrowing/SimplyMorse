@@ -324,6 +324,379 @@ void main() {
       });
     });
 
+    group('debug logging', () {
+      test('onDebugScanning reports concentration and run state', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+        Map<String, Object?>? last;
+        decoder.onDebugScanning =
+            ({
+              required timestampMs,
+              required frameIdx,
+              required dominantBin,
+              required dominantFreqHz,
+              required dominantPower,
+              required avgOtherPower,
+              required snr,
+              required concentration,
+              required noiseFloor,
+              required runLen,
+              required runBin,
+              required runFreqHz,
+              required detectionCount,
+              required framesSinceDetection,
+              required monotonic,
+              required locked,
+            }) {
+              last = {
+                'timestampMs': timestampMs,
+                'frameIdx': frameIdx,
+                'concentration': concentration,
+                'snr': snr,
+                'runLen': runLen,
+                'runBin': runBin,
+                'monotonic': monotonic,
+                'locked': locked,
+                'noiseFloor': noiseFloor,
+              };
+            };
+
+        decoder.processSamples(generateTone(700, 8000, frameSize * 2));
+
+        expect(last, isNotNull);
+        expect(last!['monotonic'], isTrue);
+        // A pure keyed tone concentrates nearly all its in-band
+        // energy around one frequency — the property that
+        // rejects voice and bursts.
+        expect(last!['concentration']! as double, greaterThan(0.6));
+        expect(last!['snr']! as double, greaterThan(4));
+        // Both frames were monotonic at the same bin.
+        expect(last!['runLen'], 2);
+        expect(last!['runBin'], 22);
+        // _frameIndex counts processed FFT frames 1-based.
+        expect(last!['frameIdx'], 2);
+      });
+
+      test('onDebugLock reports the long_tone path and bin grid', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+        Map<String, Object?>? lockRow;
+        decoder.onDebugLock =
+            ({
+              required timestampMs,
+              required freqHz,
+              required interpFreqHz,
+              required bin,
+              required bestAvgPower,
+              required noiseFloor,
+              required onThresholdFactor,
+              required path,
+            }) {
+              lockRow = {
+                'timestampMs': timestampMs,
+                'freqHz': freqHz,
+                'bin': bin,
+                'bestAvgPower': bestAvgPower,
+                'noiseFloor': noiseFloor,
+                'path': path,
+              };
+            };
+
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+
+        expect(decoder.state, DecoderState.locked);
+        expect(lockRow, isNotNull);
+        expect(lockRow!['path'], 'long_tone');
+        // Parabolic interpolation recovers the true frequency
+        // from the 31.25 Hz FFT bin grid (700 Hz = bin 22.4).
+        expect(lockRow!['bin'], 22);
+        expect(lockRow!['freqHz']! as double, closeTo(700, 10));
+        expect(lockRow!['timestampMs']! as int, greaterThan(0));
+        expect(lockRow!['noiseFloor']! as double, greaterThanOrEqualTo(0));
+      });
+
+      test('onDebugDetection and onDebugLock report the repeats path', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+        final detectionCounts = <int>[];
+        decoder.onDebugDetection =
+            ({
+              required timestampMs,
+              required frameIdx,
+              required runBin,
+              required runFreqHz,
+              required runLenFrames,
+              required runMs,
+              required detectionCount,
+              required gapFrames,
+            }) {
+              detectionCounts.add(detectionCount);
+            };
+        Map<String, Object?>? lockRow;
+        decoder.onDebugLock =
+            ({
+              required freqHz,
+              required interpFreqHz,
+              required bin,
+              required bestAvgPower,
+              required noiseFloor,
+              required onThresholdFactor,
+              required path,
+              required timestampMs,
+            }) {
+              lockRow = {'path': path, 'freqHz': freqHz};
+            };
+
+        for (var i = 0; i < 3; i++) {
+          decoder.processSamples(generateTone(700, 8000, frameSize * 6));
+          decoder.processSamples(generateSilence(frameSize * 3));
+        }
+
+        expect(decoder.state, DecoderState.locked);
+        expect(detectionCounts, [1, 2, 3]);
+        expect(lockRow!['path'], 'repeats');
+      });
+
+      test('onDebugReplay reports seeded levels and profile', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+        Map<String, Object?>? replayRow;
+        decoder.onDebugReplay =
+            ({
+              required timestampMs,
+              required blocks,
+              required windowMs,
+              required markDb,
+              required spaceDb,
+              required ditEstimateMs,
+              required profile,
+            }) {
+              replayRow = {
+                'blocks': blocks,
+                'windowMs': windowMs,
+                'markDb': markDb,
+                'spaceDb': spaceDb,
+                'ditEstimateMs': ditEstimateMs,
+                'profile': profile,
+              };
+            };
+
+        for (var i = 0; i < 3; i++) {
+          decoder.processSamples(generateTone(700, 8000, frameSize * 6));
+          decoder.processSamples(generateSilence(frameSize * 3));
+        }
+
+        expect(replayRow, isNotNull);
+        // The three-burst pattern gives the dit estimator three
+        // on-runs, so it can pick a profile: 192 ms marks are
+        // slower than the 85.7 ms fast boundary → normal.
+        expect(replayRow!['blocks']! as int, greaterThan(0));
+        expect(replayRow!['ditEstimateMs']! as int, greaterThan(150));
+        expect(replayRow!['ditEstimateMs']! as int, lessThan(250));
+        expect(replayRow!['profile'], 'normal');
+        expect(
+          replayRow!['markDb']! as double,
+          greaterThan(replayRow!['spaceDb']! as double),
+        );
+      });
+
+      test('onDebugTracking reports level-tracker state per block', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+        Map<String, Object?>? last;
+        decoder.onDebugTracking =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required freqHz,
+              required env,
+              required envDb,
+              required markDb,
+              required spaceDb,
+              required thresholdDb,
+              required onThrDb,
+              required offThrDb,
+              required separationDb,
+              required isReady,
+              required isConfident,
+              required wantOn,
+              required isOn,
+              required ditMs,
+              required wpm,
+              required profile,
+            }) {
+              last = {
+                'blockIdx': blockIdx,
+                'freqHz': freqHz,
+                'env': env,
+                'envDb': envDb,
+                'markDb': markDb,
+                'spaceDb': spaceDb,
+                'thresholdDb': thresholdDb,
+                'onThrDb': onThrDb,
+                'offThrDb': offThrDb,
+                'isReady': isReady,
+                'isConfident': isConfident,
+                'wantOn': wantOn,
+                'profile': profile,
+              };
+            };
+
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        decoder
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20));
+
+        // The replayed acquisition window plus the tracked blocks
+        // both pass through _trackEnvelope — the last row is from
+        // live tracking with converged levels.
+        expect(last, isNotNull);
+        expect(last!['isReady'], isTrue);
+        expect(last!['isConfident'], isTrue);
+        expect(last!['markDb'], isNotNull);
+        expect(last!['profile'], isNotNull);
+        // Threshold sits strictly between the two levels, with the
+        // hysteresis band symmetric around it.
+        expect(
+          last!['thresholdDb']! as double,
+          greaterThan(last!['spaceDb']! as double),
+        );
+        expect(
+          last!['thresholdDb']! as double,
+          lessThan(last!['markDb']! as double),
+        );
+        expect(
+          (last!['onThrDb']! as double) - (last!['thresholdDb']! as double),
+          closeTo(2.5, 0.1),
+        );
+        // Envelope is logged in both domains and they agree.
+        expect(
+          last!['envDb']! as double,
+          closeTo(20 * log(max(last!['env']! as double, 1e-10)) / ln10, 0.1),
+        );
+      });
+
+      test('onDebugTransition reports ascending sequence numbers', () {
+        final decoder = AudioDecoder(minElementMs: 0);
+        final seqs = <int>[];
+        decoder.onDebugTransition =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required isOn,
+              required durationMs,
+              required seq,
+              required ditMs,
+              required wpm,
+            }) {
+              seqs.add(seq);
+            };
+
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 40))
+          ..flush();
+
+        expect(seqs, isNotEmpty);
+        expect(seqs, List.generate(seqs.length, (i) => i + 1));
+      });
+
+      test('onDebugUnlock reports content-time and reason', () {
+        final decoder = AudioDecoder(signalTimeoutMs: 500, minElementMs: 0);
+        Map<String, Object?>? unlockRow;
+        decoder.onDebugUnlock =
+            ({
+              required timestampMs,
+              required reason,
+              required blockIdx,
+            }) {
+              unlockRow = {
+                'timestampMs': timestampMs,
+                'reason': reason,
+                'blockIdx': blockIdx,
+              };
+            };
+
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateSilence(blockSize * 40))
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 200));
+
+        expect(decoder.state, DecoderState.scanning);
+        expect(unlockRow, isNotNull);
+        expect(unlockRow!['reason'], 'signal_timeout');
+        // Content-time timestamp — the old wiring hardcoded 0.
+        expect(unlockRow!['timestampMs']! as int, greaterThan(0));
+        expect(unlockRow!['blockIdx']! as int, greaterThan(0));
+      });
+
+      test('onDebugRetuneCheck reports dominant vs locked frequency', () {
+        final decoder = AudioDecoder(
+          reTuneIntervalBlocks: 5,
+          minElementMs: 0,
+        );
+        final retuneRows = <Map<String, Object?>>[];
+        decoder.onDebugRetuneCheck =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required dominantFreqHz,
+              required dominantPower,
+              required lockedFreqHz,
+              required lockedPower,
+              required avgOtherPower,
+              required unlocked,
+            }) {
+              retuneRows.add({
+                'dominantFreqHz': dominantFreqHz,
+                'lockedFreqHz': lockedFreqHz,
+                'unlocked': unlocked,
+              });
+            };
+        Map<String, Object?>? unlockRow;
+        decoder.onDebugUnlock =
+            ({required timestampMs, required reason, required blockIdx}) {
+              unlockRow = {'reason': reason};
+            };
+
+        // Lock at 700 Hz, then QSY to 500 Hz. The new tone carries
+        // background noise — a pure tone drives avgOther to ~0 in
+        // float, which makes the re-tune comparison of
+        // locked-frequency power against the band average
+        // meaningless; a real microphone always provides a floor.
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        expect(decoder.state, DecoderState.locked);
+
+        final newTone = generateTone(500, 8000, 80 * 40);
+        final newNoise = generateNoise(80 * 40, amplitude: 0.01);
+        final noisy = List.generate(
+          newTone.length,
+          (i) => newTone[i] + newNoise[i],
+        );
+        for (var i = 0; i < 40 && decoder.state == DecoderState.locked; i++) {
+          decoder.processSamples(noisy.sublist(i * 80, (i + 1) * 80));
+        }
+
+        expect(retuneRows, isNotEmpty);
+        // Every check reports the frequency the decoder is locked
+        // to — the parabolic-interpolated ~691 Hz for a true 700 Hz
+        // tone on this bin grid.
+        for (final row in retuneRows) {
+          expect(row['lockedFreqHz']! as double, closeTo(700, 15));
+        }
+        // The first check may still see residual 700 Hz audio from
+        // the lock tone trailing the pipeline; the unlock happens
+        // on the first check with a genuine 500 Hz dominant.
+        expect(retuneRows.last['unlocked'] as bool?, isTrue);
+        expect(
+          retuneRows.last['dominantFreqHz']! as double,
+          closeTo(500, 40),
+        );
+        expect(unlockRow!['reason'], 'retune');
+        expect(decoder.state, DecoderState.scanning);
+      });
+    });
+
     group('reset', () {
       test('clears all state', () {
         final decoder = AudioDecoder(minElementMs: 0);

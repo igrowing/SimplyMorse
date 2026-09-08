@@ -154,6 +154,69 @@ void main() {
       expect(out, hasLength(n));
     });
 
+    test('onMerge fires when a glitch is folded back', () {
+      final merges = <Map<String, Object>>[];
+      out = [];
+      final b = ElementBuilder(
+        onElement: out.add,
+        onMerge: ({required absorbedMs, required intoOn}) {
+          merges.add({'absorbedMs': absorbedMs, 'intoOn': intoOn});
+        },
+        minElementMs: 10,
+        glitchRatio: 0.25,
+      );
+
+      // Build enough mark history for a dit estimate (6 marks of
+      // 100 ms → unit 100 ms → glitch threshold 25 ms). Elements
+      // emit one transition late, so 7 cycles are needed for the
+      // 6th mark to reach the history.
+      var t = 0.0;
+      for (var i = 0; i < 7; i++) {
+        b
+          ..transition(nowOn: true, timeMs: t)
+          ..transition(nowOn: false, timeMs: t + 100);
+        t += 160; // 100 ms mark + 60 ms gap
+      }
+      expect(b.currentUnitMs, 100);
+      expect(merges, isEmpty);
+
+      // A 10 ms off-blip in the middle of a mark — well under
+      // the 25 ms threshold — folds back into the pending ON
+      // element, which is the segment the glitch interrupted.
+      b
+        ..transition(nowOn: true, timeMs: t)
+        ..transition(nowOn: false, timeMs: t + 150)
+        ..transition(nowOn: true, timeMs: t + 160)
+        ..transition(nowOn: false, timeMs: t + 300);
+
+      expect(merges, hasLength(1));
+      expect(merges.single['absorbedMs'], 10);
+      expect(merges.single['intoOn'], isTrue);
+    });
+
+    test('onMerge stays silent for segments at or above threshold', () {
+      final merges = <Map<String, Object>>[];
+      out = [];
+      final b = ElementBuilder(
+        onElement: out.add,
+        onMerge: ({required absorbedMs, required intoOn}) {
+          merges.add({'absorbedMs': absorbedMs, 'intoOn': intoOn});
+        },
+        minElementMs: 10,
+        glitchRatio: 0.25,
+      );
+
+      b
+        ..transition(nowOn: false, timeMs: 0)
+        ..transition(nowOn: true, timeMs: 100)
+        ..transition(nowOn: false, timeMs: 200)
+        ..transition(nowOn: true, timeMs: 300)
+        ..flush();
+
+      expect(merges, isEmpty);
+      expect(out, isNotEmpty);
+    });
+
     test('reset clears history and pending state', () {
       final b = make()
         ..transition(nowOn: false, timeMs: 0)

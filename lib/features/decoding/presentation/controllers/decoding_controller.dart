@@ -282,46 +282,31 @@ class DecodingController extends ChangeNotifier {
     if (_audioDecoder == null || _audioCapture == null) return;
     _audioDecoder.reset();
 
-    // Wire debug logger if enabled
+    // Wire debug logger if enabled. The debug callbacks mirror
+    // the logger's method signatures one-to-one, so they can be
+    // assigned as direct tear-offs.
     final adl = _debugLogger;
     if (adl != null && adl.enabled) {
       unawaited(adl.start());
-      _audioDecoder.onDebugScanning =
-          ({
-            required totalSamples,
-            required sampleRate,
-            required dominantBin,
-            required dominantPower,
-            required avgOtherPower,
-            required snr,
-            required consecutiveFrames,
-            required persistenceNeeded,
-            required locked,
-          }) {
-            adl.logScanning(
-              totalSamples: totalSamples,
-              sampleRate: sampleRate,
-              dominantBin: dominantBin,
-              dominantPower: dominantPower,
-              avgOtherPower: avgOtherPower,
-              snr: snr,
-              consecutiveFrames: consecutiveFrames,
-              persistenceNeeded: persistenceNeeded,
-            );
-          };
-
-      _audioDecoder.onDebugLock = adl.logLock;
-
-      _audioDecoder.onDebugTracking = adl.logTracking;
-
-      _audioDecoder.onDebugTransition = adl.logTransition;
+      _audioDecoder
+        ..onDebugScanning = adl.logScanning
+        ..onDebugDetection = adl.logDetection
+        ..onDebugLock = adl.logLock
+        ..onDebugReplay = adl.logReplay
+        ..onDebugTracking = adl.logTracking
+        ..onDebugTransition = adl.logTransition
+        ..onDebugGlitchMerge = adl.logGlitchMerge
+        ..onDebugRetuneCheck = adl.logRetuneCheck
+        ..onDebugUnlock = adl.logUnlock;
     }
 
     _audioDecoder
       ..onElement = _onElement
       ..onLock = _onLock
+      // The unlock debug row is emitted by the decoder itself
+      // (onDebugUnlock) with the real content-time timestamp and
+      // reason; this handler is UI state only.
       ..onUnlock = () {
-        adl?.logUnlock(totalSamples: 0, sampleRate: 8000);
         _lockedFrequency = 0;
         notifyListeners();
       };

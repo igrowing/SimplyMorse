@@ -1,3 +1,14 @@
+/// Debug log callback for recorder lifecycle events — the audio
+/// counterpart of the camera side's capture-event callback.
+/// Timestamps are wall-clock ms.
+typedef DebugAudioCaptureEventCallback =
+    void Function({
+      required int timestampMs,
+      required String event,
+      int? dtMs,
+      String? detail,
+    });
+
 /// Abstract interface for audio capture from a microphone.
 ///
 /// Implementations live in the data layer (e.g. using the
@@ -20,4 +31,14 @@ abstract interface class AudioCapture {
   /// Checks whether the microphone permission has been
   /// granted.
   Future<bool> hasPermission();
+
+  /// Optional debug hook for recorder lifecycle events.
+  ///
+  /// Set by the composition layer; the capture implementation
+  /// reports permission checks, start configuration, buffer
+  /// arrivals (with wall-clock dt), and stop here. Buffer rows
+  /// make stream stalls and sample drops visible as timeline
+  /// holes — problems the decoder itself cannot see.
+  DebugAudioCaptureEventCallback? get onDebugEvent;
+  set onDebugEvent(DebugAudioCaptureEventCallback? callback);
 }

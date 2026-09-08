@@ -27,6 +27,7 @@ import 'package:simply_morse/features/decoding/domain/models/decoded_element.dar
 class ElementBuilder {
   ElementBuilder({
     required this.onElement,
+    this.onMerge,
     this.minElementMs = 10,
     this.glitchRatio = 0.25,
     this.maxGlitchMs = 150,
@@ -35,6 +36,16 @@ class ElementBuilder {
 
   /// Receives each completed element.
   final void Function(DecodedElement element) onElement;
+
+  /// Optional hook fired whenever a segment shorter than the
+  /// glitch threshold is folded back into its neighbours:
+  /// `absorbedMs` = duration of the absorbed segment,
+  /// `intoOn` = polarity of the element it merged back into.
+  ///
+  /// Debug instrumentation only — decoding behaviour is identical
+  /// when null. Merges are otherwise invisible from the emitted
+  /// element stream, which just shows fewer transitions.
+  final void Function({required int absorbedMs, required bool intoOn})? onMerge;
 
   /// Absolute floor for the glitch threshold, used until the element
   /// rate has been estimated.
@@ -97,6 +108,7 @@ class ElementBuilder {
     final durationMs = (timeMs - _segStartMs).round();
 
     if (durationMs < glitchThresholdMs && _pendingIsOn != null) {
+      onMerge?.call(absorbedMs: durationMs, intoOn: _pendingIsOn!);
       // Fold the glitch, and the segment it interrupted, back into the
       // pending element by reverting to the pending polarity.
       _isOn = _pendingIsOn!;

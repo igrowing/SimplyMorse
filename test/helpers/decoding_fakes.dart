@@ -11,6 +11,15 @@ class FakeAudioCapture implements AudioCapture {
   final bool hasPermissionValue;
   final _controller = StreamController<List<double>>.broadcast();
   bool _isActive = false;
+  DebugAudioCaptureEventCallback? _onDebugEvent;
+
+  @override
+  DebugAudioCaptureEventCallback? get onDebugEvent => _onDebugEvent;
+
+  @override
+  set onDebugEvent(DebugAudioCaptureEventCallback? callback) {
+    _onDebugEvent = callback;
+  }
 
   @override
   Stream<List<double>> start() {

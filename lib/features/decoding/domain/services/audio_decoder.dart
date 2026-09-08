@@ -7,52 +7,142 @@ import 'package:simply_morse/features/decoding/domain/services/iir_envelope_dete
 import 'package:simply_morse/features/decoding/domain/services/level_tracker.dart';
 import 'package:simply_morse/features/decoding/domain/services/noise_floor_estimator.dart';
 
+// -- Debug log callbacks ------------------------------------------
+//
+// Signatures mirror AudioDebugLogger's methods one-to-one so the
+// composition layer can assign them directly
+// (`decoder.onDebugScanning = logger.logScanning`). Timestamps are
+// content time in ms (derived from total samples — the same clock
+// as the emitted elements).
+
 /// Debug log callback for scanning frames.
 typedef DebugScanningCallback =
     void Function({
-      required int totalSamples,
-      required int sampleRate,
+      required int timestampMs,
+      required int frameIdx,
       required int dominantBin,
+      required double dominantFreqHz,
       required double dominantPower,
       required double avgOtherPower,
       required double snr,
-      required int consecutiveFrames,
-      required int persistenceNeeded,
+      required double concentration,
+      required double noiseFloor,
+      required int runLen,
+      required int runBin,
+      required double runFreqHz,
+      required int detectionCount,
+      required int framesSinceDetection,
+      required bool monotonic,
       required bool locked,
     });
 
-/// Debug log callback for lock events.
+/// Debug log callback for completed monotonic runs (detections).
+typedef DebugDetectionCallback =
+    void Function({
+      required int timestampMs,
+      required int frameIdx,
+      required int runBin,
+      required double runFreqHz,
+      required int runLenFrames,
+      required double runMs,
+      required int detectionCount,
+      required int gapFrames,
+    });
+
+/// Debug log callback for the lock event. [path] names the
+/// criterion that fired: `long_tone` or `repeats`.
 typedef DebugLockCallback =
     void Function({
-      required int totalSamples,
-      required int sampleRate,
-      required double freq,
+      required int timestampMs,
+      required double freqHz,
+      required double interpFreqHz,
+      required int bin,
       required double bestAvgPower,
       required double noiseFloor,
       required double onThresholdFactor,
+      required String path,
     });
 
-/// Debug log callback for tracking frames.
+/// Debug log callback for the pre-lock replay.
+typedef DebugReplayCallback =
+    void Function({
+      required int timestampMs,
+      required int blocks,
+      required int windowMs,
+      required double? markDb,
+      required double? spaceDb,
+      required int? ditEstimateMs,
+      required String profile,
+    });
+
+/// Debug log callback for tracking blocks.
 typedef DebugTrackingCallback =
     void Function({
-      required int totalSamples,
-      required int sampleRate,
-      required double freq,
-      required double power,
-      required double envelope,
-      required double noiseFloor,
-      required double onThreshold,
-      required double offThreshold,
+      required int timestampMs,
+      required int blockIdx,
+      required double freqHz,
+      required double env,
+      required double envDb,
+      required double? markDb,
+      required double? spaceDb,
+      required double thresholdDb,
+      required double onThrDb,
+      required double offThrDb,
+      required double separationDb,
+      required bool isReady,
+      required bool isConfident,
+      required bool wantOn,
       required bool isOn,
+      required int? ditMs,
+      required int? wpm,
+      required String profile,
     });
 
-/// Debug log callback for transitions.
+/// Debug log callback for completed elements.
 typedef DebugTransitionCallback =
     void Function({
-      required int totalSamples,
-      required int sampleRate,
+      required int timestampMs,
+      required int blockIdx,
       required bool isOn,
       required int durationMs,
+      required int seq,
+      required int? ditMs,
+      required int? wpm,
+    });
+
+/// Debug log callback for glitch merges inside the element
+/// builder.
+typedef DebugGlitchMergeCallback =
+    void Function({
+      required int timestampMs,
+      required int blockIdx,
+      required int absorbedMs,
+      required int thresholdMs,
+      required bool intoOn,
+      required int? ditMs,
+      required int? wpm,
+    });
+
+/// Debug log callback for periodic re-tune checks while tracking.
+typedef DebugRetuneCallback =
+    void Function({
+      required int timestampMs,
+      required int blockIdx,
+      required double dominantFreqHz,
+      required double dominantPower,
+      required double lockedFreqHz,
+      required double lockedPower,
+      required double avgOtherPower,
+      required bool unlocked,
+    });
+
+/// Debug log callback for the decoder returning to scanning.
+/// [reason] is `signal_timeout` or `retune`.
+typedef DebugUnlockCallback =
+    void Function({
+      required int timestampMs,
+      required String reason,
+      required int blockIdx,
     });
 
 /// State of the audio decoding pipeline.
@@ -425,6 +515,17 @@ class AudioDecoder {
   /// Turns on/off transitions into elements, merging glitches.
   late final ElementBuilder _elements = ElementBuilder(
     onElement: _emit,
+    onMerge: ({required absorbedMs, required intoOn}) {
+      onDebugGlitchMerge?.call(
+        timestampMs: _contentMs,
+        blockIdx: _blockIdx,
+        absorbedMs: absorbedMs,
+        thresholdMs: _elements.glitchThresholdMs,
+        intoOn: intoOn,
+        ditMs: _ditEstimateMs,
+        wpm: _wpmEstimate,
+      );
+    },
     minElementMs: minElementMs,
     glitchRatio: glitchRatio,
   );
@@ -444,9 +545,34 @@ class AudioDecoder {
 
   // -- Debug callbacks --
   DebugScanningCallback? onDebugScanning;
+  DebugDetectionCallback? onDebugDetection;
   DebugLockCallback? onDebugLock;
+  DebugReplayCallback? onDebugReplay;
   DebugTrackingCallback? onDebugTracking;
   DebugTransitionCallback? onDebugTransition;
+  DebugGlitchMergeCallback? onDebugGlitchMerge;
+  DebugRetuneCallback? onDebugRetuneCheck;
+  DebugUnlockCallback? onDebugUnlock;
+
+  /// Level-tracking profile in force: `default` (constructor
+  /// constants), `fast`, or `normal` — see [fastDitThresholdMs].
+  String _profile = 'default';
+
+  /// Count of elements emitted this session, for the debug log.
+  int _emitSeq = 0;
+
+  /// Content time in ms — the clock the emitted elements use.
+  int get _contentMs => (_totalSamples * 1000 / sampleRate).round();
+
+  int get _blockIdx => _totalSamples ~/ blockSize;
+
+  int? get _ditEstimateMs => _elements.currentUnitMs;
+
+  int? get _wpmEstimate {
+    final dit = _ditEstimateMs;
+    if (dit == null || dit <= 0) return null;
+    return (1200000 / dit).round();
+  }
 
   /// Processes a batch of audio samples.
   void processSamples(List<double> samples) {
@@ -579,7 +705,7 @@ class AudioDecoder {
 
       // Check for immediate lock: single long stable tone (≥ 500 ms).
       if (_runLen >= _longToneFrames) {
-        _lockFromScan();
+        _lockFromScan(path: 'long_tone');
         return;
       }
     } else {
@@ -590,15 +716,25 @@ class AudioDecoder {
       _runLen = 0;
     }
 
+    final runBin = _runBin ?? bestBin;
     onDebugScanning?.call(
-      totalSamples: _totalSamples,
-      sampleRate: sampleRate,
+      timestampMs: _contentMs,
+      frameIdx: _frameIndex,
       dominantBin: bestBin,
+      dominantFreqHz: bestBin * sampleRate / fftSize,
       dominantPower: bestPower,
       avgOtherPower: avgOther,
       snr: snr,
-      consecutiveFrames: _runLen,
-      persistenceNeeded: _minToneFrames,
+      concentration: concentration,
+      noiseFloor: _noiseFloor.noiseFloor,
+      runLen: _runLen,
+      runBin: runBin,
+      runFreqHz: runBin * sampleRate / fftSize,
+      detectionCount: _detectionCount,
+      framesSinceDetection: _lastDetectionBin == null
+          ? -1
+          : _frameIndex - _lastDetectionEndFrame,
+      monotonic: isMonotonic,
       locked: _state == DecoderState.locked,
     );
   }
@@ -609,6 +745,10 @@ class AudioDecoder {
   void _endRun() {
     if (_runBin == null || _runLen < _minToneFrames) return;
 
+    final gapFrames = _lastDetectionBin == null
+        ? -1
+        : _frameIndex - _lastDetectionEndFrame;
+
     // Check repeat criterion: same frequency, within 2000 ms.
     if (_lastDetectionBin != null &&
         (_runBin! - _lastDetectionBin!).abs() <= 1 &&
@@ -617,7 +757,8 @@ class AudioDecoder {
       _detectionCount++;
       if (_detectionCount >= requiredDetections) {
         // Enough detections at the same frequency → lock.
-        _lockFromScan();
+        _emitDetection(gapFrames);
+        _lockFromScan(path: 'repeats');
         return;
       }
     } else {
@@ -625,12 +766,28 @@ class AudioDecoder {
       _detectionCount = 1;
     }
 
+    _emitDetection(gapFrames);
+
     // Record this detection for future repeat checks.
     _lastDetectionBin = _runBin;
     _lastDetectionEndFrame = _frameIndex;
   }
 
-  void _lockFromScan() {
+  void _emitDetection(int gapFrames) {
+    final runBin = _runBin!;
+    onDebugDetection?.call(
+      timestampMs: _contentMs,
+      frameIdx: _frameIndex,
+      runBin: runBin,
+      runFreqHz: runBin * sampleRate / fftSize,
+      runLenFrames: _runLen,
+      runMs: _runLen * _frameMs,
+      detectionCount: _detectionCount,
+      gapFrames: gapFrames,
+    );
+  }
+
+  void _lockFromScan({required String path}) {
     if (_binPowerAccum.isEmpty || _scanFrames == 0) return;
 
     // Find the best accumulated bin.
@@ -676,12 +833,14 @@ class AudioDecoder {
     final freq = (bestBin + subBinOffset) * sampleRate / fftSize;
 
     onDebugLock?.call(
-      totalSamples: _totalSamples,
-      sampleRate: sampleRate,
-      freq: freq,
+      timestampMs: _contentMs,
+      freqHz: freq,
+      interpFreqHz: freq,
+      bin: bestBin,
       bestAvgPower: bestAvgPower,
-      noiseFloor: 0,
+      noiseFloor: _noiseFloor.noiseFloor,
       onThresholdFactor: onThresholdFactor,
+      path: path,
     );
 
     _lock(freq);
@@ -724,6 +883,18 @@ class AudioDecoder {
   void _replayPreLock() {
     if (preLockBufferMs <= 0 || _preLock.length < blockSize * 4) {
       _preLock.clear();
+      // Log the skip: an empty replay window is itself a fact
+      // worth seeing offline — it explains a lost leading
+      // character as "nothing retained to re-decode".
+      onDebugReplay?.call(
+        timestampMs: _contentMs,
+        blocks: 0,
+        windowMs: 0,
+        markDb: _levels.markDb,
+        spaceDb: _levels.spaceDb,
+        ditEstimateMs: null,
+        profile: _profile,
+      );
       return;
     }
 
@@ -748,6 +919,7 @@ class AudioDecoder {
     final ditEstimateMs = _estimateDitMs(envelopes);
     if (ditEstimateMs != null) {
       final fast = ditEstimateMs < fastDitThresholdMs;
+      _profile = fast ? 'fast' : 'normal';
       _levels.reconfigure(
         attackMs: fast ? fastLevelAttackMs : normalLevelAttackMs,
         releaseMs: fast ? fastLevelReleaseMs : normalLevelReleaseMs,
@@ -756,6 +928,15 @@ class AudioDecoder {
             : normalThresholdOffsetDb,
       );
     }
+    onDebugReplay?.call(
+      timestampMs: _contentMs,
+      blocks: blocks,
+      windowMs: (blocks * blockSize * 1000 / sampleRate).round(),
+      markDb: _levels.markDb,
+      spaceDb: _levels.spaceDb,
+      ditEstimateMs: ditEstimateMs,
+      profile: _profile,
+    );
     // If no estimate could be made (too few elements in the buffer),
     // _levels keeps running with levelAttackMs/levelReleaseMs/
     // thresholdOffsetDb — the un-gated constructor defaults.
@@ -869,25 +1050,38 @@ class AudioDecoder {
 
     final avgOther = otherCount > 0 ? otherPower / otherCount : 0.0;
     final dominantFreq = bestBin * sampleRate / fftSize;
+    final lockedFreq = _lockedFreq;
+    final lockedBin = _fft
+        .frequencyToBin(lockedFreq, sampleRate)
+        .clamp(0, power.length - 1);
+    final lockedPower = power[lockedBin];
 
     // Only re-tune if:
     // 1. The dominant frequency is significantly different (> 50 Hz)
     // 2. The new frequency is a real tone (SNR >= onThresholdFactor)
     // 3. The current locked frequency's power is below the average
     //    (the signal at the locked freq is gone)
-    if ((dominantFreq - _lockedFreq).abs() > 50 &&
+    final willUnlock =
+        (dominantFreq - lockedFreq).abs() > 50 &&
         avgOther > 0 &&
-        bestPower / avgOther >= onThresholdFactor) {
-      final lockedBin = _fft
-          .frequencyToBin(_lockedFreq, sampleRate)
-          .clamp(0, power.length - 1);
-      final lockedPower = power[lockedBin];
+        bestPower / avgOther >= onThresholdFactor &&
+        lockedPower < avgOther * 2;
 
-      if (lockedPower < avgOther * 2) {
-        // Signal at the locked frequency is gone, and a new tone
-        // has appeared — unlock and re-scan.
-        _unlock();
-      }
+    onDebugRetuneCheck?.call(
+      timestampMs: _contentMs,
+      blockIdx: _blockIdx,
+      dominantFreqHz: dominantFreq,
+      dominantPower: bestPower,
+      lockedFreqHz: lockedFreq,
+      lockedPower: lockedPower,
+      avgOtherPower: avgOther,
+      unlocked: willUnlock,
+    );
+
+    if (willUnlock) {
+      // Signal at the locked frequency is gone, and a new tone
+      // has appeared — unlock and re-scan.
+      _unlock(reason: 'retune');
     }
   }
 
@@ -896,30 +1090,42 @@ class AudioDecoder {
     final blockMs = blockSize * 1000 / sampleRate;
     final wantOn = _levels.process(env, blockMs);
 
+    // Emitted before the isReady gate so the level bootstrap is
+    // visible in the log — the is_ready/is_confident columns show
+    // why no elements appear during that window.
+    onDebugTracking?.call(
+      timestampMs: _contentMs,
+      blockIdx: _blockIdx,
+      freqHz: _lockedFreq,
+      env: env,
+      envDb: LevelTracker.toDb(env),
+      markDb: _levels.markDb,
+      spaceDb: _levels.spaceDb,
+      thresholdDb: _levels.isReady ? _levels.thresholdDb : 0,
+      onThrDb: _levels.isReady ? _levels.thresholdDb + hysteresisDb : 0,
+      offThrDb: _levels.isReady ? _levels.thresholdDb - hysteresisDb : 0,
+      separationDb: _levels.isReady ? _levels.separationDb : 0,
+      isReady: _levels.isReady,
+      isConfident: _levels.isConfident,
+      wantOn: wantOn,
+      isOn: _isOn,
+      ditMs: _ditEstimateMs,
+      wpm: _wpmEstimate,
+      profile: _profile,
+    );
+
     // Auto-unlock (only if signalTimeoutMs > 0).
     // Default: permanent lock, no unlock during listening.
     if (signalTimeoutMs > 0) {
       if (wantOn) _lastSignalSample = _totalSamples;
       final silenceMs = (_totalSamples - _lastSignalSample) * 1000 / sampleRate;
       if (_seenFirstOn && silenceMs >= signalTimeoutMs) {
-        _unlock();
+        _unlock(reason: 'signal_timeout');
         return;
       }
     }
 
     if (!_levels.isReady) return;
-
-    onDebugTracking?.call(
-      totalSamples: _totalSamples,
-      sampleRate: sampleRate,
-      freq: _lockedFreq,
-      power: env,
-      envelope: env,
-      noiseFloor: _levels.markDb ?? 0,
-      onThreshold: _levels.thresholdDb + hysteresisDb,
-      offThreshold: _levels.thresholdDb - hysteresisDb,
-      isOn: _isOn,
-    );
 
     if (wantOn != _isOn) {
       _isOn = wantOn;
@@ -928,7 +1134,15 @@ class AudioDecoder {
     }
   }
 
-  void _unlock() {
+  void _unlock({String reason = 'signal_timeout'}) {
+    // Emitted before any state is cleared so the row carries the
+    // decoder's real content-time timestamp and block index.
+    onDebugUnlock?.call(
+      timestampMs: _contentMs,
+      reason: reason,
+      blockIdx: _blockIdx,
+    );
+
     // Emit the final off-element so the MorseDecoder sees the gap
     // as a word boundary rather than losing it entirely.
     _elements.flush();
@@ -965,11 +1179,15 @@ class AudioDecoder {
   }
 
   void _emit(DecodedElement element) {
+    _emitSeq++;
     onDebugTransition?.call(
-      totalSamples: _totalSamples,
-      sampleRate: sampleRate,
+      timestampMs: _contentMs,
+      blockIdx: _blockIdx,
       isOn: element.isOn,
       durationMs: element.durationMs,
+      seq: _emitSeq,
+      ditMs: _ditEstimateMs,
+      wpm: _wpmEstimate,
     );
     onElement?.call(element);
   }
@@ -985,6 +1203,8 @@ class AudioDecoder {
     _state = DecoderState.scanning;
     _buffer.clear();
     _detector = null;
+    _profile = 'default';
+    _emitSeq = 0;
     _isOn = false;
     _seenFirstOn = false;
     _levels.reset();

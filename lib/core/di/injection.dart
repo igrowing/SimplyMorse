@@ -79,11 +79,12 @@ Future<void> configureDependencies() async {
     ..registerFactory<AudioDecoder>(
       () => AudioDecoder(sampleRate: 44100, fftSize: 2048, blockSize: 220),
     )
-    ..registerSingleton<AudioDebugLogger>(AudioDebugLogger())
-    // TEMP DEBUG: enabled to investigate the video decoder —
-    // flip back to `enabled: false` (or remove the argument, the
-    // default) once done. Writes a timestamped CSV to the app's
-    // documents directory; see VideoDebugLogger.start().
+    // TEMP DEBUG: both enabled for the ongoing decode
+    // investigations — flip back to `enabled: false` (or remove
+    // the argument, the default) once done. Each writes a
+    // timestamped CSV to the app's documents directory; see the
+    // respective logger's start().
+    ..registerSingleton<AudioDebugLogger>(AudioDebugLogger(enabled: true))
     ..registerSingleton<VideoDebugLogger>(VideoDebugLogger(enabled: true));
 
   // Camera capture lifecycle events (frame-rate requests,
@@ -94,6 +95,20 @@ Future<void> configureDependencies() async {
         getIt<VideoDebugLogger>().logCapture(
           timestampMs: timestampMs,
           event: event,
+          detail: detail,
+        );
+      };
+
+  // Recorder lifecycle events (permission, start config, buffer
+  // arrivals with wall-clock dt, stop) go to the audio debug log
+  // when logging is enabled — the audio side's counterpart of
+  // the camera wiring above.
+  getIt<AudioCapture>().onDebugEvent =
+      ({required timestampMs, required event, dtMs, detail}) {
+        getIt<AudioDebugLogger>().logCapture(
+          timestampMs: timestampMs,
+          event: event,
+          dtMs: dtMs,
           detail: detail,
         );
       };

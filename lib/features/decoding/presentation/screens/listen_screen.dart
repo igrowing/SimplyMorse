@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:simply_morse/core/services/feedback_service.dart';
 import 'package:simply_morse/core/services/screen_timeout_service.dart';
 import 'package:simply_morse/core/services/share_service.dart';
@@ -78,11 +79,57 @@ class _ListenScreenState extends State<ListenScreen> {
       return;
     }
     _controller.start();
+
+    // TEMP DEBUG: see _showAudioDebugLogSnackBar's doc comment.
+    // The path is set asynchronously inside AudioDebugLogger.start()
+    // (it awaits the documents directory), so give it a moment
+    // before reading it.
+    if (_controller.isDebugLoggingEnabled) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      _showAudioDebugLogSnackBar();
+    }
   }
 
   Future<void> _onPausePressed() async {
     await _feedbackService.lightImpact();
     _controller.pause();
+
+    // TEMP DEBUG: re-offer the share action once there's
+    // actually decoder data in the log — see
+    // _showAudioDebugLogSnackBar.
+    if (_controller.isDebugLoggingEnabled) {
+      _showAudioDebugLogSnackBar();
+    }
+  }
+
+  /// TEMP DEBUG: offers to share the audio debug log's CSV file.
+  /// Remove this together with the `enabled: true` override for
+  /// AudioDebugLogger in injection.dart once the audio decoder
+  /// investigation is done.
+  ///
+  /// The file lives in getApplicationDocumentsDirectory(), which
+  /// on Android is app-private internal storage — unreachable
+  /// from any file browser. Sharing the file directly via the
+  /// system share sheet sidesteps filesystem access entirely
+  /// (same rationale as the video debug log on the See screen).
+  void _showAudioDebugLogSnackBar() {
+    final path = _controller.debugLogPath;
+    debugPrint('Audio debug log: $path');
+    if (!mounted || path == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Audio debug log ready'),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () {
+            unawaited(
+              SharePlus.instance.share(ShareParams(files: [XFile(path)])),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _onResumePressed() async {
