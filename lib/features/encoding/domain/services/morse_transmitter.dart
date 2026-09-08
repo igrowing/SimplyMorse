@@ -54,6 +54,14 @@ class MorseTransmitter {
   Timer? _progressTimer;
   bool _isRunning = false;
 
+  /// Completes when the tone/flash timeline has fully played out
+  /// (or when [stop] aborts it). In audio-only mode there is no
+  /// blocking playback loop to await, so [transmit] waits on this
+  /// instead — it is driven by the same wall-clock as the progress
+  /// highlight, so the caller resumes exactly when the last element
+  /// finishes, not several seconds early or late.
+  Completer<void>? _timelineComplete;
+
   /// Transmits the given [events] using the specified [settings].
   Future<void> transmit({
     required List<ToneEvent> events,
@@ -98,12 +106,27 @@ class MorseTransmitter {
     }
     final totalDuration = elapsed;
 
-    // Start progress timer
+    // Kick off audio first. AudioPlayer.play() only returns once
+    // playback has actually started, so anchoring the progress clock
+    // after it keeps the highlight — and the audio-only wait below —
+    // aligned with the sound the listener hears.
+    if (settings.needsAudio) {
+      await playAudio(_generateWav(events, settings.toneHz));
+      if (!_isRunning) return;
+    }
+
+    // One wall-clock for the whole timeline: it advances the progress
+    // highlight, fires onComplete, and completes [_timelineComplete]
+    // when the last element has been sent.
     final startTime = DateTime.now();
+    final timelineComplete = Completer<void>();
+    _timelineComplete = timelineComplete;
     _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
       if (elapsedMs >= totalDuration) {
         timer.cancel();
+        if (!timelineComplete.isCompleted) timelineComplete.complete();
+        onProgress(-1);
         onComplete();
         return;
       }
@@ -116,18 +139,18 @@ class MorseTransmitter {
       onProgress(currentChar);
     });
 
-    // Audio transmission
-    if (settings.needsAudio) {
-      final wav = _generateWav(events, settings.toneHz);
-      await _audioPlayer.setReleaseMode(ReleaseMode.stop);
-      await _audioPlayer.play(BytesSource(wav));
-    }
-
-    // Visual transmission (torch and/or display)
+    // The visual sequence blocks for its full duration on its own.
+    // Audio-only has no such loop, so wait out the shared timeline
+    // clock — otherwise transmit() resolves the instant playback
+    // starts and the caller (the loop's between-repeats delay) begins
+    // counting down over the still-playing tone, cutting it short.
     if (settings.needsTorch || settings.needsDisplay) {
       await _runVisualSequence(events, settings);
+    } else if (settings.needsAudio) {
+      await timelineComplete.future;
     }
 
+    _timelineComplete = null;
     _isRunning = false;
   }
 
@@ -136,6 +159,10 @@ class MorseTransmitter {
     _isRunning = false;
     _progressTimer?.cancel();
     _progressTimer = null;
+    if (_timelineComplete?.isCompleted == false) {
+      _timelineComplete!.complete();
+    }
+    _timelineComplete = null;
     countdownRemaining.value = null;
     await _player?.stop();
     await _torchService.disable();
@@ -148,6 +175,20 @@ class MorseTransmitter {
     unawaited(_player?.dispose());
     displayBlink.dispose();
     countdownRemaining.dispose();
+  }
+
+  /// Starts audio playback of the generated [wav]. Returns once
+  /// playback has been kicked off — [AudioPlayer.play] does not
+  /// wait for the tone to finish, which is why [transmit] waits
+  /// out the timeline itself in audio-only mode.
+  ///
+  /// Overridable so tests can exercise the timeline logic without
+  /// a platform audio backend.
+  @protected
+  @visibleForTesting
+  Future<void> playAudio(Uint8List wav) async {
+    await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+    await _audioPlayer.play(BytesSource(wav));
   }
 
   Uint8List _generateWav(List<ToneEvent> events, double toneHz) {

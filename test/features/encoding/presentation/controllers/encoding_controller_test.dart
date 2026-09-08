@@ -338,6 +338,42 @@ void main() {
 
         expect(controller.transmission.status, TransmissionStatus.completed);
       });
+
+      test('stays transmitting during the between-repeats countdown', () async {
+        await controller.init();
+        await controller.updateRepeatLoop(value: true);
+        await controller.updateRepeatDelay(3);
+        controller.updateText('E');
+
+        final run = controller.send();
+        // Let the first pass finish and the repeat countdown start.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(controller.transmission.status, TransmissionStatus.transmitting);
+        expect(controller.isTransmitting, isTrue);
+        expect(controller.repeatCountdown.value, isNotNull);
+
+        await controller.pause();
+        await run;
+
+        expect(controller.transmission.status, TransmissionStatus.idle);
+        expect(controller.repeatCountdown.value, isNull);
+      });
+
+      test('never reports "completed" for a stopped loop', () async {
+        await controller.init();
+        await controller.updateRepeatLoop(value: true);
+        await controller.updateRepeatDelay(0);
+        controller.updateText('E');
+        // Stop as soon as the second pass is dispatched.
+        transmitter.onTransmit = (count) {
+          if (count >= 2) unawaited(controller.pause());
+        };
+
+        await controller.send();
+
+        expect(controller.transmission.status, TransmissionStatus.idle);
+      });
     });
 
     group('clear', () {

@@ -192,35 +192,53 @@ class EncodingController extends ChangeNotifier {
   Future<void> send() async {
     if (_text.isEmpty || isTransmitting) return;
     _isRepeatCancelled = false;
-    // The initial delay only prepares the operator before the first
-    // transmission. Loop repeats skip it — the between-repeats delay
-    // already spaces them for the receiver.
-    await _sendOnce();
-    while (_repeatLoop && !_isRepeatCancelled) {
-      // Wait between repeats
-      if (_isRepeatCancelled) break;
 
-      final seconds = _repeatDelaySec.round();
-      for (var i = seconds; i >= 1; i--) {
-        if (_isRepeatCancelled) {
-          repeatCountdown.value = null;
-          return;
-        }
-        repeatCountdown.value = i;
-        await Future<void>.delayed(const Duration(seconds: 1));
-      }
-      repeatCountdown.value = null;
-
-      if (_isRepeatCancelled) break;
-      await _sendOnce(applyInitialDelay: false);
-    }
-  }
-
-  Future<void> _sendOnce({bool applyInitialDelay = true}) async {
+    // The controller stays in the "transmitting" state for the whole
+    // run — the tone/flash passes *and* the pauses between loop
+    // repeats. The UI keys its Stop button and its locked-down
+    // controls off this, so it never flips back to the editable idle
+    // look between a repeat ending and the next countdown starting.
     _transmission = _transmission.copyWith(
       status: TransmissionStatus.transmitting,
       currentCharIndex: -1,
     );
+    notifyListeners();
+
+    var pass = 0;
+    while (!_isRepeatCancelled) {
+      // The initial delay only prepares the operator before the very
+      // first transmission. Loop repeats skip it — the between-repeats
+      // delay already spaces them for the receiver.
+      if (pass > 0 && await _runRepeatCountdown()) break;
+
+      // Blocks until the last element has actually been sent, so the
+      // repeat countdown on the next pass starts right on its heels.
+      // `_sendOnce`'s completion callback moves the state to
+      // `completed` on the final (non-looping) pass; a looping pass
+      // stays `transmitting` so the UI keeps its Stop control.
+      await _sendOnce(applyInitialDelay: pass == 0);
+      pass++;
+
+      if (!_repeatLoop) break;
+    }
+  }
+
+  /// Counts down the delay between loop repeats, ticking
+  /// [repeatCountdown] once per second. Returns true if the loop was
+  /// cancelled before the countdown finished.
+  Future<bool> _runRepeatCountdown() async {
+    final seconds = _repeatDelaySec.round();
+    for (var i = seconds; i >= 1; i--) {
+      if (_isRepeatCancelled) break;
+      repeatCountdown.value = i;
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
+    repeatCountdown.value = null;
+    return _isRepeatCancelled;
+  }
+
+  Future<void> _sendOnce({bool applyInitialDelay = true}) async {
+    _transmission = _transmission.copyWith(currentCharIndex: -1);
     notifyListeners();
 
     await _historyRepo.save(_text);
@@ -253,8 +271,14 @@ class EncodingController extends ChangeNotifier {
         notifyListeners();
       },
       onComplete: () {
+        // A looping pass stays `transmitting` — the run isn't over,
+        // the between-repeats countdown is next, and the UI must keep
+        // its Stop control instead of flipping to the editable idle
+        // look. Only a non-looping send lands on `completed`.
         _transmission = _transmission.copyWith(
-          status: TransmissionStatus.completed,
+          status: _repeatLoop
+              ? TransmissionStatus.transmitting
+              : TransmissionStatus.completed,
           currentCharIndex: -1,
         );
         notifyListeners();

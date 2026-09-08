@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_mode.dart';
 import 'package:simply_morse/features/encoding/domain/models/encoding_settings.dart';
@@ -6,6 +8,19 @@ import 'package:simply_morse/features/encoding/domain/services/morse_encoder.dar
 import 'package:simply_morse/features/encoding/domain/services/morse_transmitter.dart';
 
 import '../../../../helpers/fakes.dart';
+
+/// Transmitter with the platform audio backend stubbed out so the
+/// audio-only timeline behaviour can be tested without a real player.
+class StubAudioTransmitter extends MorseTransmitter {
+  StubAudioTransmitter() : super(torchService: FakeTorchService());
+
+  int playAudioCount = 0;
+
+  @override
+  Future<void> playAudio(Uint8List wav) async {
+    playAudioCount++;
+  }
+}
 
 void main() {
   late FakeTorchService torch;
@@ -368,6 +383,75 @@ void main() {
 
         expect(events.where((e) => e.isOn).length, 9);
       });
+    });
+
+    group('audio-only timeline', () {
+      test('blocks until the tone timeline elapses', () async {
+        final audioTransmitter = StubAudioTransmitter();
+        addTearDown(audioTransmitter.dispose);
+
+        const settings = EncodingSettings(
+          mode: EncodingMode.sound,
+          speedWpm: 20,
+          toneHz: 700,
+          initialDelaySec: 0,
+        );
+        final events = encoder.buildTimeline(
+          encoder.encode('PARIS', settings),
+          settings,
+        );
+        final totalMs = events.fold<int>(0, (sum, e) => sum + e.durationMs);
+
+        var completed = false;
+        final sw = Stopwatch()..start();
+        await audioTransmitter.transmit(
+          events: events,
+          settings: settings,
+          onProgress: (_) {},
+          onComplete: () => completed = true,
+        );
+        sw.stop();
+
+        expect(audioTransmitter.playAudioCount, 1);
+        expect(completed, isTrue);
+        // Must have blocked for roughly the whole timeline, not
+        // returned the instant playback was kicked off.
+        expect(sw.elapsedMilliseconds, greaterThan((totalMs * 0.8).round()));
+      });
+
+      test(
+        'stop() during audio-only playback unblocks transmit promptly',
+        () async {
+          final audioTransmitter = StubAudioTransmitter();
+          addTearDown(audioTransmitter.dispose);
+
+          const settings = EncodingSettings(
+            mode: EncodingMode.sound,
+            speedWpm: 8,
+            toneHz: 700,
+            initialDelaySec: 0,
+          );
+          final events = encoder.buildTimeline(
+            encoder.encode('PARIS PARIS', settings),
+            settings,
+          );
+
+          final future = audioTransmitter.transmit(
+            events: events,
+            settings: settings,
+            onProgress: (_) {},
+            onComplete: () {},
+          );
+
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          final sw = Stopwatch()..start();
+          await audioTransmitter.stop();
+          await future;
+          sw.stop();
+
+          expect(sw.elapsedMilliseconds, lessThan(300));
+        },
+      );
     });
   });
 }
