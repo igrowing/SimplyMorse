@@ -43,8 +43,8 @@ void main() {
       expect(rows.first, contains('frames_since_det'));
       expect(
         rows.first.split(',').length,
-        // 36 data columns + detail
-        37,
+        // 35 data columns + detail
+        36,
       );
     });
 
@@ -82,7 +82,6 @@ void main() {
         offThrDb: -22.5,
         separationDb: 35,
         isReady: true,
-        isConfident: true,
         wantOn: true,
         isOn: false,
         ditMs: 100,
@@ -123,7 +122,7 @@ void main() {
       expect(cells[2], 'locked'); // event
       expect(cells[6], '700.1'); // freq_hz
       expect(cells[7], '22'); // bin
-      expect(cells[36], 'path=long_tone on_thr_factor=4.0'); // detail
+      expect(cells[35], 'path=long_tone on_thr_factor=4.0'); // detail
     });
 
     test('omitted fields render as empty cells, not zeros', () async {
@@ -134,8 +133,8 @@ void main() {
       final cells = rows[1].split(',');
       expect(cells[5], ''); // seq
       expect(cells[11], ''); // snr
-      expect(cells[32], ''); // dit_ms
-      expect(cells[35], ''); // profile
+      expect(cells[31], ''); // dit_ms
+      expect(cells[34], ''); // profile
     });
 
     test('NaN values render blank, not "NaN"', () async {
@@ -153,7 +152,6 @@ void main() {
         offThrDb: 0,
         separationDb: 0,
         isReady: false,
-        isConfident: false,
         wantOn: false,
         isOn: false,
         ditMs: null,

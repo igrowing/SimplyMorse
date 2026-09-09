@@ -76,7 +76,7 @@ void main() {
     test('squelches while the two levels are closer than the minimum', () {
       final t = LevelTracker(minSeparationDb: 6)
         ..seed(markDb: -20, spaceDb: -23);
-      expect(t.isConfident, isFalse);
+      expect(t.separationDb, lessThan(t.minSeparationDb));
       // Even a sample far above the threshold reports off while the
       // levels are this close — there is no signal worth decoding.
       expect(t.process(1, 5), isFalse);

@@ -466,6 +466,7 @@ void main() {
               required spaceDb,
               required ditEstimateMs,
               required profile,
+              required detail,
             }) {
               replayRow = {
                 'blocks': blocks,
@@ -496,79 +497,36 @@ void main() {
         );
       });
 
-      test('onDebugTracking reports level-tracker state per block', () {
+      test('onDebugReplay reports convergence passes over the window', () {
         final decoder = AudioDecoder(minElementMs: 0);
-        Map<String, Object?>? last;
-        decoder.onDebugTracking =
+        String? replayDetail;
+        int? blockCount;
+        decoder.onDebugReplay =
             ({
               required timestampMs,
-              required blockIdx,
-              required freqHz,
-              required env,
-              required envDb,
+              required blocks,
+              required windowMs,
               required markDb,
               required spaceDb,
-              required thresholdDb,
-              required onThrDb,
-              required offThrDb,
-              required separationDb,
-              required isReady,
-              required isConfident,
-              required wantOn,
-              required isOn,
-              required ditMs,
-              required wpm,
+              required ditEstimateMs,
               required profile,
+              required detail,
             }) {
-              last = {
-                'blockIdx': blockIdx,
-                'freqHz': freqHz,
-                'env': env,
-                'envDb': envDb,
-                'markDb': markDb,
-                'spaceDb': spaceDb,
-                'thresholdDb': thresholdDb,
-                'onThrDb': onThrDb,
-                'offThrDb': offThrDb,
-                'isReady': isReady,
-                'isConfident': isConfident,
-                'wantOn': wantOn,
-                'profile': profile,
-              };
+              blockCount = blocks;
+              if (blocks > 0) replayDetail = detail;
             };
 
-        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
-        decoder
-          ..processSamples(generateSilence(blockSize * 40))
-          ..processSamples(generateTone(700, 8000, blockSize * 20));
+        for (var i = 0; i < 3; i++) {
+          decoder.processSamples(generateTone(700, 8000, frameSize * 6));
+          decoder.processSamples(generateSilence(frameSize * 3));
+        }
 
-        // The replayed acquisition window plus the tracked blocks
-        // both pass through _trackEnvelope — the last row is from
-        // live tracking with converged levels.
-        expect(last, isNotNull);
-        expect(last!['isReady'], isTrue);
-        expect(last!['isConfident'], isTrue);
-        expect(last!['markDb'], isNotNull);
-        expect(last!['profile'], isNotNull);
-        // Threshold sits strictly between the two levels, with the
-        // hysteresis band symmetric around it.
-        expect(
-          last!['thresholdDb']! as double,
-          greaterThan(last!['spaceDb']! as double),
-        );
-        expect(
-          last!['thresholdDb']! as double,
-          lessThan(last!['markDb']! as double),
-        );
-        expect(
-          (last!['onThrDb']! as double) - (last!['thresholdDb']! as double),
-          closeTo(2.5, 0.1),
-        );
-        // Envelope is logged in both domains and they agree.
-        expect(
-          last!['envDb']! as double,
-          closeTo(20 * log(max(last!['env']! as double, 1e-10)) / ln10, 0.1),
-        );
+        expect(blockCount! > 0, isTrue);
+        // The replay seed is no longer the raw percentile — it is
+        // the fixed point of the adaptation converged over the
+        // window, and the detail reports how many passes that took.
+        expect(replayDetail, isNotNull);
+        expect(replayDetail, matches(RegExp('^converge_passes=[1-9]')));
       });
 
       test('onDebugTransition reports ascending sequence numbers', () {

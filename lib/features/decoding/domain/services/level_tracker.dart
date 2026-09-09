@@ -28,8 +28,8 @@ import 'dart:math';
 /// duration bias of the old asymmetric 50 % / 25 % thresholds.
 ///
 /// When the two levels come within [minSeparationDb] the tracker
-/// squelches (reports off and [isConfident] is false) — there is no
-/// signal worth decoding, only noise.
+/// squelches (reports off) — there is no signal worth decoding,
+/// only noise.
 class LevelTracker {
   LevelTracker({
     this.attackMs = 120,
@@ -62,7 +62,8 @@ class LevelTracker {
   /// Half-width of the symmetric hysteresis band around the midpoint.
   final double hysteresisDb;
 
-  /// Minimum mark-to-space separation for the output to be trusted.
+  /// Whether the two levels are far enough apart to trust the
+  /// decision. (Docs on [minSeparationDb].)
   final double minSeparationDb;
 
   /// How far below the mark level the decision threshold sits, in dB.
@@ -152,9 +153,6 @@ class LevelTracker {
     final fromSpace = _spaceDb! + min(noiseMarginDb, separationDb * 0.6);
     return max(fromMark, fromSpace);
   }
-
-  /// Whether the levels are far enough apart to trust the decision.
-  bool get isConfident => isReady && separationDb >= minSeparationDb;
 
   /// Current on/off state.
   bool get isOn => _isOn;
@@ -252,6 +250,14 @@ class LevelTracker {
     }
 
     return _isOn;
+  }
+
+  /// Clears the on/off decision and the gap anchor without touching
+  /// the converged levels — used between convergence passes of the
+  /// pre-lock replay so each pass starts the decision state fresh.
+  void resetDecision() {
+    _isOn = false;
+    _spaceDbGapAnchor = null;
   }
 
   /// Clears all state.

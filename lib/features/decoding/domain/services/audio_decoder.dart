@@ -73,6 +73,7 @@ typedef DebugReplayCallback =
       required double? spaceDb,
       required int? ditEstimateMs,
       required String profile,
+      required String detail,
     });
 
 /// Debug log callback for tracking blocks.
@@ -90,7 +91,6 @@ typedef DebugTrackingCallback =
       required double offThrDb,
       required double separationDb,
       required bool isReady,
-      required bool isConfident,
       required bool wantOn,
       required bool isOn,
       required int? ditMs,
@@ -237,6 +237,8 @@ class AudioDecoder {
     this.fastLevelReleaseMs = 220,
     this.fastThresholdOffsetDb = 3.0,
     this.preLockBufferMs = 1200,
+    this.maxReplayConvergePasses = 4,
+    this.replayConvergeToleranceDb = 0.25,
     this.reTuneIntervalBlocks = 0,
   }) {
     _fft = FFT(fftSize);
@@ -423,14 +425,26 @@ class AudioDecoder {
   /// acquisition window can be re-decoded with converged levels
   /// instead of being lost. Set to 0 to disable.
   ///
-  /// Measured on the reference recordings, 1200 ms beats the original
-  /// 3000 ms (23 vs 26 total errors) and is stable across roughly
-  /// 800-1600 ms — anything much larger starts including audio from
-  /// well before the message began, and seeding the level tracker
-  /// from that (mostly background, occasionally a stray transient)
-  /// percentile sample can leave the very first character worse off
-  /// than a shorter, more tightly-targeted replay window would.
+  /// Hardware logs showed the acquisition window consistently spans
+  /// 1.5-3 s: locking itself takes 1-8 s (distance-dependent), and
+  /// the first one to three characters fall inside the retained
+  /// audio. With the convergence-seeded replay the percentile seed
+  /// that made large windows harmful is only a starting point for
+  /// the adaptation, so a longer window is safe — but the reference
+  /// recordings measured no benefit from extending beyond the
+  /// tuned 1200 ms, so the tuned value stands.
   final int preLockBufferMs;
+
+  /// Maximum number of convergence passes the pre-lock replay runs
+  /// over the retained audio before decoding it — see
+  /// [_replayPreLock]. Each pass feeds the whole window through the
+  /// level tracker's adaptation; passes stop early once the levels
+  /// move less than [replayConvergeToleranceDb] between two passes.
+  final int maxReplayConvergePasses;
+
+  /// Level movement (dB) between two convergence passes below which
+  /// the pre-lock replay considers the levels converged.
+  final double replayConvergeToleranceDb;
 
   /// How often (in tracking blocks) to re-check the FFT for a
   /// frequency change during tracking. Default 0 = disabled
@@ -870,16 +884,37 @@ class AudioDecoder {
   }
 
   /// Re-decodes the audio captured while the decoder was still
-  /// scanning.
+  /// scanning — in two passes.
   ///
-  /// Locking takes a few hundred milliseconds, and until the level
-  /// tracker converges the first thresholds are wrong — which is why
-  /// the leading character of a transmission was previously lost in
-  /// every reference recording (`HELLO` decoding as `SELLO`, `IELLO`,
-  /// `EELLO`). The retained audio is filtered once to measure the
-  /// mark and space levels, the tracker is seeded with them, and the
-  /// same audio is then decoded with converged levels, so the
-  /// acquisition window produces real elements instead of fragments.
+  /// Locking takes up to several seconds (distance-dependent), and
+  /// the first thresholds are wrong until the level tracker has
+  /// converged on real keying. Hardware logs showed the damage is
+  /// not the seed but the *hunting*: when levels keep adapting
+  /// during the first characters, marks go missing (`H` losing its
+  /// fourth dit at 1 m), phantom marks chop character gaps (H+E
+  /// merging into `5` at 2 m), and whole dits vanish into inflated
+  /// gaps. The two-pass replay replaces live hunting with offline
+  /// convergence:
+  ///
+  /// * **pass 1** filters the retained audio, seeds the levels from
+  ///   it, and picks the fast/normal profile — as before;
+  /// * **convergence passes** then feed the same envelopes through
+  ///   the tracker's adaptation repeatedly — emitting nothing —
+  ///   until the levels stop moving, so the seed handed to the
+  ///   decode is the fixed point of the real adaptation dynamics
+  ///   rather than a percentile guess;
+  /// * **pass 2** rewinds the clock and decodes those envelopes with
+  ///   the converged levels — live, still adapting. Freezing was
+  ///   tried and rejected: the level tracker's adaptation is part of
+  ///   what makes element-cutting work (amplitude drifts mid-message
+  ///   and the mark level follows it); decoding with frozen levels
+  ///   missed whole dits whose envelope sat just under the frozen
+  ///   ON threshold. The gain is entirely in the *seed*: what was
+  ///   measured on reference recordings as a percentile guess is now
+  ///   the fixed point the actual adaptation dynamics converge to,
+  ///   so the first characters are cut from levels that already
+  ///   know the real tone — not from a percentile that may sit above
+  ///   it.
   void _replayPreLock() {
     if (preLockBufferMs <= 0 || _preLock.length < blockSize * 4) {
       _preLock.clear();
@@ -894,11 +929,13 @@ class AudioDecoder {
         spaceDb: _levels.spaceDb,
         ditEstimateMs: null,
         profile: _profile,
+        detail: 'skipped=short_buffer',
       );
       return;
     }
 
     final blocks = _preLock.length ~/ blockSize;
+    final blockMs = blockSize * 1000 / sampleRate;
 
     // Pass 1 — filter the retained audio to obtain its envelope. This
     // also leaves the biquad primed with real signal history.
@@ -928,6 +965,33 @@ class AudioDecoder {
             : normalThresholdOffsetDb,
       );
     }
+
+    // Convergence passes — run the adaptation over the window until
+    // the levels settle. Each pass starts the on/off decision fresh
+    // so the adaptation dynamics are the only thing carried over.
+    var iterations = 0;
+    var converged = false;
+    for (var i = 0; i < maxReplayConvergePasses; i++) {
+      final markBefore = _levels.markDb;
+      final spaceBefore = _levels.spaceDb;
+      for (final env in envelopes) {
+        _levels.process(env, blockMs);
+      }
+      _levels.resetDecision();
+      iterations++;
+      final dMark = (markBefore != null && _levels.markDb != null)
+          ? (_levels.markDb! - markBefore).abs()
+          : double.infinity;
+      final dSpace = (spaceBefore != null && _levels.spaceDb != null)
+          ? (_levels.spaceDb! - spaceBefore).abs()
+          : double.infinity;
+      if (dMark < replayConvergeToleranceDb &&
+          dSpace < replayConvergeToleranceDb) {
+        converged = true;
+        break;
+      }
+    }
+
     onDebugReplay?.call(
       timestampMs: _contentMs,
       blocks: blocks,
@@ -936,13 +1000,16 @@ class AudioDecoder {
       spaceDb: _levels.spaceDb,
       ditEstimateMs: ditEstimateMs,
       profile: _profile,
+      detail:
+          'converge_passes=$iterations'
+          '${converged ? '' : ' (max)'}',
     );
     // If no estimate could be made (too few elements in the buffer),
     // _levels keeps running with levelAttackMs/levelReleaseMs/
     // thresholdOffsetDb — the un-gated constructor defaults.
 
     // Pass 2 — rewind the clock and decode those envelopes with the
-    // seeded levels, emitting the elements that were missed.
+    // converged levels, emitting the elements that were missed.
     _totalSamples -= blocks * blockSize;
     _preLock.clear();
 
@@ -1091,8 +1158,8 @@ class AudioDecoder {
     final wantOn = _levels.process(env, blockMs);
 
     // Emitted before the isReady gate so the level bootstrap is
-    // visible in the log — the is_ready/is_confident columns show
-    // why no elements appear during that window.
+    // visible in the log — the is_ready column shows why no
+    // elements appear during that window.
     onDebugTracking?.call(
       timestampMs: _contentMs,
       blockIdx: _blockIdx,
@@ -1106,7 +1173,6 @@ class AudioDecoder {
       offThrDb: _levels.isReady ? _levels.thresholdDb - hysteresisDb : 0,
       separationDb: _levels.isReady ? _levels.separationDb : 0,
       isReady: _levels.isReady,
-      isConfident: _levels.isConfident,
       wantOn: wantOn,
       isOn: _isOn,
       ditMs: _ditEstimateMs,

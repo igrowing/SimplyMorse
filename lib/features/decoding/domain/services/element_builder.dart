@@ -62,6 +62,13 @@ class ElementBuilder {
 
   final List<int> _recentOnMs = [];
 
+  /// Last committed unit estimate — updated when a mark element is
+  /// emitted, read by [currentUnitMs]. Null until [historySize]
+  /// bootstrap marks have accumulated. Kept as a field so the
+  /// getter stays pure while the estimate changes only on real
+  /// evidence (a completed mark).
+  int? _lastUnitMs;
+
   bool _isOn = false;
   double _segStartMs = 0;
   bool _started = false;
@@ -73,22 +80,81 @@ class ElementBuilder {
   /// Whether the builder currently considers the signal on.
   bool get isOn => _isOn;
 
+  /// Raw 25th-percentile unit — the historical running estimate,
+  /// kept for [glitchThresholdMs]. Merging behaviour was tuned
+  /// against this value (which, unlike the hardened estimate,
+  /// includes dahs in its sample and so reads ~20% high at dit/dah
+  /// ratios like Morse's); switching the threshold to the hardened
+  /// [currentUnitMs] would lower it and let borderline fragments
+  /// through that the tuned value absorbs.
+  int? get _rawPercentileUnitMs {
+    if (_recentOnMs.length < 6) return null;
+    final sorted = List<int>.from(_recentOnMs)..sort();
+    return sorted[(sorted.length * 0.25).floor()];
+  }
+
   /// Current glitch threshold in ms.
   int get glitchThresholdMs {
-    final unit = currentUnitMs;
+    final unit = _rawPercentileUnitMs;
     if (unit == null) return minElementMs;
     return (unit * glitchRatio).round().clamp(minElementMs, maxGlitchMs);
   }
 
-  /// Current dit estimate in ms — the 25th percentile of recent mark
-  /// durations — or null until enough history has accumulated to
-  /// trust it. Exposed (beyond [glitchThresholdMs]'s own use of it)
-  /// so callers can adapt other rate-dependent behaviour, such as the
-  /// depth of an on/off threshold, to the same estimate.
-  int? get currentUnitMs {
-    if (_recentOnMs.length < 6) return null;
+  /// Current dit estimate in ms, or null until at least 6 marks
+  /// have been seen. Exposed (beyond [glitchThresholdMs]'s own use
+  /// of it) so callers can adapt other rate-dependent behaviour,
+  /// such as the depth of an on/off threshold, to the same estimate.
+  ///
+  /// **Hardened against fragment pollution.** Hardware logs showed
+  /// the old running 25th percentile collapse from 60 ms to 30 ms on
+  /// a 20 WPM stream purely because threshold chatter chopped dahs
+  /// into 20-45 ms fragments that then dominated the low end of the
+  /// history. The estimate therefore only trusts marks inside a
+  /// plausible band around the current unit:
+  ///
+  /// * **bootstrap** (no estimate yet) — 25th percentile of the
+  ///   last [historySize] marks, as before;
+  /// * **fragment rejection** — only marks within 0.7x-2.2x the
+  ///   current unit feed the refinement, so fragments below and
+  ///   dahs above the band cannot drag it;
+  /// * **bounded adaptation** — the estimate moves at most 25%
+  ///   (up) / -35% (down) per emitted mark, so a burst of odd marks
+  ///   cannot snap it to a wrong cluster;
+  /// * **hold on thin evidence** — fewer than 4 in-band marks in
+  ///   the window keeps the previous estimate unchanged.
+  int? get currentUnitMs => _lastUnitMs;
+
+  /// Recomputes the unit estimate after a mark was added to the
+  /// history. See [currentUnitMs] for the guards.
+  void _recomputeUnit() {
+    if (_recentOnMs.length < 6) return;
     final sorted = List<int>.from(_recentOnMs)..sort();
-    return sorted[(sorted.length * 0.25).floor()];
+    final prev = _lastUnitMs;
+    if (prev == null) {
+      _lastUnitMs = sorted[(sorted.length * 0.25).floor()];
+      return;
+    }
+    final lo = (prev * 0.7).round();
+    final hi = (prev * 2.2).round();
+    final band = sorted.where((d) => d >= lo && d <= hi).toList();
+    int est;
+    if (band.length >= 4) {
+      // Healthy: enough in-band marks to trust the band estimate.
+      est = band[(band.length * 0.25).floor()];
+    } else if (band.isEmpty) {
+      // No in-band marks at all: the stream's rate has genuinely
+      // changed (or every recent mark was a fragment). Re-bootstrap
+      // from the raw percentile; the clamp below limits how far a
+      // single re-bootstrap can move the estimate.
+      est = sorted[(sorted.length * 0.25).floor()];
+    } else {
+      // Thin evidence mixed with out-of-band marks: hold the
+      // estimate until the picture is clearer.
+      return;
+    }
+    final loClamp = (prev * 0.65).round();
+    final hiClamp = (prev * 1.25).round();
+    _lastUnitMs = est < loClamp ? loClamp : (est > hiClamp ? hiClamp : est);
   }
 
   /// Records that the signal changed to [nowOn] at [timeMs].
@@ -169,6 +235,7 @@ class ElementBuilder {
     if (isOn) {
       _recentOnMs.add(durationMs);
       if (_recentOnMs.length > historySize) _recentOnMs.removeAt(0);
+      _recomputeUnit();
     }
 
     onElement(DecodedElement(isOn: isOn, durationMs: durationMs));
@@ -177,6 +244,7 @@ class ElementBuilder {
   /// Clears all state.
   void reset() {
     _recentOnMs.clear();
+    _lastUnitMs = null;
     _isOn = false;
     _segStartMs = 0;
     _started = false;

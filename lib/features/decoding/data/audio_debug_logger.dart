@@ -67,12 +67,12 @@ class AudioDebugLogger {
       'noise_floor,'
       'run_len,run_bin,run_freq_hz,detection_count,frames_since_det,monotonic,'
       'env,env_db,mark_db,space_db,threshold_db,on_thr_db,off_thr_db,'
-      'separation_db,is_ready,is_confident,want_on,is_on,'
+      'separation_db,is_ready,want_on,is_on,'
       'dit_ms,wpm,profile,dur_ms,detail';
 
   /// Number of data columns before `detail` — used to pad short
   /// rows so `detail` always lands in the same column.
-  static const _columnCount = 36;
+  static const _columnCount = 35;
 
   /// Starts a new log session.
   Future<void> start() async {
@@ -224,6 +224,7 @@ class AudioDebugLogger {
     required double? spaceDb,
     required int? ditEstimateMs,
     required String profile,
+    String? detail,
   }) {
     _emit(
       timestampMs: timestampMs,
@@ -233,7 +234,9 @@ class AudioDebugLogger {
       spaceDb: spaceDb,
       ditMs: ditEstimateMs,
       profile: profile,
-      detail: 'window_ms=$windowMs blocks=$blocks',
+      detail:
+          'window_ms=$windowMs blocks=$blocks'
+          '${detail == null ? '' : ' $detail'}',
     );
   }
 
@@ -252,7 +255,6 @@ class AudioDebugLogger {
     required double offThrDb,
     required double separationDb,
     required bool isReady,
-    required bool isConfident,
     required bool wantOn,
     required bool isOn,
     required int? ditMs,
@@ -275,7 +277,6 @@ class AudioDebugLogger {
       offThrDb: offThrDb,
       separationDb: separationDb,
       isReady: isReady,
-      isConfident: isConfident,
       wantOn: wantOn,
       isOn: isOn,
       ditMs: ditMs,
@@ -438,7 +439,6 @@ class AudioDebugLogger {
     double? offThrDb,
     double? separationDb,
     bool? isReady,
-    bool? isConfident,
     bool? wantOn,
     bool? isOn,
     int? ditMs,
@@ -479,7 +479,6 @@ class AudioDebugLogger {
       _f(offThrDb, 2),
       _f(separationDb, 2),
       _b(isReady),
-      _b(isConfident),
       _b(wantOn),
       _b(isOn),
       _i(ditMs),

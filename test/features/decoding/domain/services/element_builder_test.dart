@@ -226,5 +226,84 @@ void main() {
       expect(out, isEmpty);
       expect(b.isOn, isFalse);
     });
+
+    test('unit estimate survives a fragment storm', () {
+      // Hardware 20 WPM capture: threshold chatter chopped dahs
+      // into 20-45 ms fragments that dragged the old running
+      // percentile from 60 ms down to 30 ms. The hardened
+      // estimate must ignore them.
+      final b = make(minElementMs: 5);
+      var t = 0.0;
+      b.transition(nowOn: false, timeMs: t);
+      void mark(double d) {
+        b
+          ..transition(nowOn: true, timeMs: t += 150)
+          ..transition(nowOn: false, timeMs: t += d);
+      }
+
+      // Bootstrap: eight healthy 100 ms marks.
+      for (var i = 0; i < 8; i++) {
+        mark(100);
+      }
+      expect(b.currentUnitMs, 100);
+
+      // Storm: eight rounds of a chopped mark (30 ms) plus an
+      // intact one (100 ms). The old percentile would read the
+      // 25th percentile straight into the fragment cluster.
+      for (var i = 0; i < 8; i++) {
+        mark(30);
+        mark(100);
+      }
+      expect(b.currentUnitMs, greaterThanOrEqualTo(80));
+      expect(b.currentUnitMs, lessThanOrEqualTo(125));
+    });
+
+    test('unit estimate re-bootstraps after a genuine speed change', () {
+      final b = make(minElementMs: 5);
+      var t = 0.0;
+      b.transition(nowOn: false, timeMs: t);
+      void mark(double d) {
+        b
+          ..transition(nowOn: true, timeMs: t += 150)
+          ..transition(nowOn: false, timeMs: t += d);
+      }
+
+      for (var i = 0; i < 8; i++) {
+        mark(100);
+      }
+      expect(b.currentUnitMs, 100);
+
+      // The operator speeds up: all marks now 60 ms — below the
+      // 0.7x band edge. Once the 24-mark history window has fully
+      // turned over, no in-band marks remain, so the estimate
+      // re-bootstraps instead of holding a stale unit forever.
+      for (var i = 0; i < 24; i++) {
+        mark(60);
+      }
+      // The first re-bootstrap step is clamped to 0.65x the stale
+      // unit (65 ms); the next converges onto the 60 ms cluster.
+      mark(60);
+      expect(b.currentUnitMs, greaterThanOrEqualTo(55));
+      expect(b.currentUnitMs, lessThanOrEqualTo(81));
+    });
+
+    test('unit estimate moves at most 25% up per element', () {
+      final b = make(minElementMs: 5);
+      var t = 0.0;
+      b.transition(nowOn: false, timeMs: t);
+      void mark(double d) {
+        b
+          ..transition(nowOn: true, timeMs: t += 150)
+          ..transition(nowOn: false, timeMs: t += d);
+      }
+
+      for (var i = 0; i < 8; i++) {
+        mark(100);
+      }
+      // A jump of dah-scale marks cannot snap the estimate up:
+      // each step is clamped to 1.25x the previous value.
+      mark(220);
+      expect(b.currentUnitMs, lessThanOrEqualTo(125));
+    });
   });
 }
