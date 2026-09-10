@@ -150,6 +150,15 @@ class _SeeScreenState extends State<SeeScreen> {
   Future<void> _onResumePressed() async {
     await _feedbackService.lightImpact();
     _controller.resume();
+
+    // TEMP DEBUG: see _showVideoDebugLogSnackBar's doc comment.
+    // resume() restarts the debug logger too (a new CSV file), so
+    // give VideoDebugLogger.start() a moment before reading the
+    // path — same rationale as _onStartPressed.
+    if (_controller.isVideoDebugLoggingEnabled) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      _showVideoDebugLogSnackBar();
+    }
   }
 
   /// TEMP DEBUG: offers to share the video debug log's CSV file.

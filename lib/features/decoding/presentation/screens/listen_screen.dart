@@ -135,6 +135,15 @@ class _ListenScreenState extends State<ListenScreen> {
   Future<void> _onResumePressed() async {
     await _feedbackService.lightImpact();
     _controller.resume();
+
+    // TEMP DEBUG: see _showAudioDebugLogSnackBar's doc comment.
+    // resume() restarts the debug logger too (a new CSV file), so
+    // give AudioDebugLogger.start() a moment before reading the
+    // path — same rationale as _onStartPressed.
+    if (_controller.isDebugLoggingEnabled) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      _showAudioDebugLogSnackBar();
+    }
   }
 
   Future<void> _onClearPressed() async {
