@@ -59,25 +59,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: const AppTopBar(showSettingsIcon: false),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildSectionTitle(context, 'Appearance'),
-              const SizedBox(height: 12),
-              _buildThemeSelector(context),
-              const SizedBox(height: 32),
-              _buildSectionTitle(context, 'Transmission'),
-              const SizedBox(height: 12),
-              _buildFarnsworthTiming(context),
-              const SizedBox(height: 32),
-              _buildSectionTitle(context, 'Display'),
-              const SizedBox(height: 12),
-              _buildDisplayTimeoutSelector(context),
-              const SizedBox(height: 48),
-              _buildAppInfo(context),
-            ],
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 800),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildSectionTitle(context, 'Appearance'),
+                  const SizedBox(height: 12),
+                  _buildThemeSelector(context),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle(context, 'Transmission'),
+                  const SizedBox(height: 12),
+                  _buildFarnsworthTiming(context),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle(context, 'Display'),
+                  const SizedBox(height: 12),
+                  _buildDisplayTimeoutSelector(context),
+                  const SizedBox(height: 48),
+                  _buildAppInfo(context),
+                ],
+              ),
+            ),
           ),
         ),
       ),

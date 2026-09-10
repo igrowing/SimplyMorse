@@ -20,26 +20,31 @@ class InfoScreen extends StatelessWidget {
         titleText: 'Morse Code Guide',
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 48),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildSectionTitle(context, 'Morse basics'),
-              _buildBasicsChapter(context),
-              const SizedBox(height: 32),
-              _buildSectionTitle(context, 'Pauses and timing'),
-              _buildTimingChapter(context),
-              const SizedBox(height: 32),
-              _buildSectionTitle(context, 'Farnsworth timing'),
-              _buildFarnsworthChapter(context),
-              const SizedBox(height: 32),
-              _buildSectionTitle(context, 'Symbols the app can decode'),
-              _buildSymbolChapter(context),
-              const SizedBox(height: 32),
-              _buildSectionTitle(context, 'Common abbreviations'),
-              _buildAbbreviationChapter(context),
-            ],
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 800),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 48),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildSectionTitle(context, 'Morse basics'),
+                  _buildBasicsChapter(context),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle(context, 'Pauses and timing'),
+                  _buildTimingChapter(context),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle(context, 'Farnsworth timing'),
+                  _buildFarnsworthChapter(context),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle(context, 'Symbols the app can decode'),
+                  _buildSymbolChapter(context),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle(context, 'Common abbreviations'),
+                  _buildAbbreviationChapter(context),
+                ],
+              ),
+            ),
           ),
         ),
       ),
