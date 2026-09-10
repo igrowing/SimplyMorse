@@ -18,8 +18,27 @@ class WavGenerator {
 
   final int sampleRate;
 
+  /// Amplitude of the near-silent filler used in "off" segments when
+  /// [generate] is asked to keep the stream alive. About -80 dBFS — several
+  /// quantization steps above true digital zero, inaudible under any
+  /// normal listening setup, but never exactly zero.
+  static const double _keepAliveAmplitude = 3;
+
   /// Builds a complete WAV byte buffer from the given segments.
-  Uint8List generate(List<ToneSegment> segments, double frequency) {
+  ///
+  /// When [keepAlive] is true, "off" segments are filled with an
+  /// inaudible near-zero signal instead of true digital silence.
+  /// Web browsers can auto-suspend the Web Audio AudioContext after
+  /// the output has been genuinely silent for a while (a
+  /// battery-saving heuristic), and resuming it clips the start of
+  /// whatever plays next — so on web, a long gap (e.g. many spaces
+  /// between words) can swallow the following tone's opening. Never
+  /// letting the stream go truly silent avoids that.
+  Uint8List generate(
+    List<ToneSegment> segments,
+    double frequency, {
+    bool keepAlive = false,
+  }) {
     final totalSamples = segments.fold<int>(
       0,
       (sum, s) => sum + _msToSamples(s.durationMs),
@@ -32,6 +51,8 @@ class WavGenerator {
       final count = _msToSamples(segment.durationMs);
       if (segment.isOn) {
         _fillTone(samples, offset, count, frequency);
+      } else if (keepAlive) {
+        _fillKeepAlive(samples, offset, count, frequency);
       }
       offset += count;
     }
@@ -45,6 +66,19 @@ class WavGenerator {
       final envelope = _envelope(i, count, fadeSamples);
       final t = i / sampleRate;
       final value = sin(2 * pi * frequency * t) * envelope * 32767;
+      samples[offset + i] = value.round().clamp(-32768, 32767);
+    }
+  }
+
+  void _fillKeepAlive(
+    Int16List samples,
+    int offset,
+    int count,
+    double frequency,
+  ) {
+    for (var i = 0; i < count; i++) {
+      final t = i / sampleRate;
+      final value = sin(2 * pi * frequency * t) * _keepAliveAmplitude;
       samples[offset + i] = value.round().clamp(-32768, 32767);
     }
   }

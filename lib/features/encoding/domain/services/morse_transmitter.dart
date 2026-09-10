@@ -54,6 +54,10 @@ class MorseTransmitter {
   Timer? _progressTimer;
   bool _isRunning = false;
 
+  /// Whether the web audio pipeline has been warmed up yet. See
+  /// [_primeWebAudioContext] for why this exists.
+  bool _webAudioPrimed = false;
+
   /// Completes when the tone/flash timeline has fully played out
   /// (or when [stop] aborts it). In audio-only mode there is no
   /// blocking playback loop to await, so [transmit] waits on this
@@ -187,8 +191,29 @@ class MorseTransmitter {
   @protected
   @visibleForTesting
   Future<void> playAudio(Uint8List wav) async {
+    if (kIsWeb && !_webAudioPrimed) {
+      _webAudioPrimed = true;
+      await _primeWebAudioContext();
+    }
     await _audioPlayer.setReleaseMode(ReleaseMode.stop);
     await _audioPlayer.play(BytesSource(wav));
+  }
+
+  /// Browsers create the Web Audio context suspended and only resume
+  /// it on the first play() call. That resume is asynchronous, and
+  /// whatever audio is already queued while it spins up gets its
+  /// leading samples dropped — which is why, on web only, the very
+  /// first dit/dah of a fresh transmitter's first transmission was
+  /// getting swallowed while every element after it played fine.
+  /// Spending that one-time warm-up cost on a throwaway silent blip
+  /// keeps it from eating real audio.
+  Future<void> _primeWebAudioContext() async {
+    final silence = WavGenerator().generate(
+      const [ToneSegment(isOn: false, durationMs: 60)],
+      440,
+    );
+    await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+    await _audioPlayer.play(BytesSource(silence));
   }
 
   Uint8List _generateWav(List<ToneEvent> events, double toneHz) {
@@ -196,7 +221,7 @@ class MorseTransmitter {
     final segments = events
         .map((e) => ToneSegment(isOn: e.isOn, durationMs: e.durationMs))
         .toList();
-    return generator.generate(segments, toneHz);
+    return generator.generate(segments, toneHz, keepAlive: kIsWeb);
   }
 
   /// Runs the visual flash sequence, toggling both the

@@ -125,6 +125,32 @@ void main() {
       }
     });
 
+    test('keepAlive fills silence with a near-zero but non-zero signal', () {
+      final wav = generator.generate([
+        const ToneSegment(isOn: false, durationMs: 100),
+      ], 700, keepAlive: true);
+
+      var hasNonZero = false;
+      for (var i = 44; i < wav.length; i += 2) {
+        final sample = wav[i] | (wav[i + 1] << 8);
+        final signed = sample > 32767 ? sample - 65536 : sample;
+        expect(signed.abs(), lessThanOrEqualTo(3));
+        if (signed != 0) hasNonZero = true;
+      }
+      expect(hasNonZero, isTrue);
+    });
+
+    test('keepAlive leaves tone segments unaffected', () {
+      final withKeepAlive = generator.generate([
+        const ToneSegment(isOn: true, durationMs: 100),
+      ], 700, keepAlive: true);
+      final without = generator.generate([
+        const ToneSegment(isOn: true, durationMs: 100),
+      ], 700);
+
+      expect(withKeepAlive, equals(without));
+    });
+
     test('multiple segments produce correct total size', () {
       final wav = generator.generate([
         const ToneSegment(isOn: true, durationMs: 50),
