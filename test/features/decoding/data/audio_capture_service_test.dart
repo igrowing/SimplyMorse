@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:record_platform_interface/record_platform_interface.dart';
 import 'package:simply_morse/features/decoding/data/audio_capture_service.dart';
@@ -31,6 +32,56 @@ void main() {
   }
 
   group('AudioCaptureImpl debug events', () {
+    test('startDetail describes the android audio source', () {
+      // defaultSource: no support flag needed.
+      expect(
+        AudioCaptureImpl.startDetail(
+          platform: TargetPlatform.android,
+          audioSource: AndroidAudioSource.defaultSource,
+        ),
+        'requested_sample_rate=44100 channels=1 pcm16 '
+        'audio_source=defaultSource',
+      );
+
+      // unprocessed: the device support flag must be visible.
+      expect(
+        AudioCaptureImpl.startDetail(
+          platform: TargetPlatform.android,
+          audioSource: AndroidAudioSource.unprocessed,
+          unprocessedSupported: true,
+        ),
+        'requested_sample_rate=44100 channels=1 pcm16 '
+        'audio_source=unprocessed unprocessed_supported=1',
+      );
+      expect(
+        AudioCaptureImpl.startDetail(
+          platform: TargetPlatform.android,
+          audioSource: AndroidAudioSource.unprocessed,
+          unprocessedSupported: false,
+        ),
+        'requested_sample_rate=44100 channels=1 pcm16 '
+        'audio_source=unprocessed unprocessed_supported=0',
+      );
+      expect(
+        AudioCaptureImpl.startDetail(
+          platform: TargetPlatform.android,
+          audioSource: AndroidAudioSource.unprocessed,
+        ),
+        'requested_sample_rate=44100 channels=1 pcm16 '
+        'audio_source=unprocessed unprocessed_supported=?',
+      );
+    });
+
+    test('startDetail states disabled voice AGC on iOS', () {
+      expect(
+        AudioCaptureImpl.startDetail(
+          platform: TargetPlatform.iOS,
+          audioSource: AndroidAudioSource.defaultSource,
+        ),
+        'requested_sample_rate=44100 channels=1 pcm16 voice_agc=off',
+      );
+    });
+
     test('hasPermission reports the permission event', () async {
       final events = <Map<String, Object?>>[];
       capture.onDebugEvent =

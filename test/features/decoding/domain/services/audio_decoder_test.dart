@@ -804,7 +804,7 @@ void main() {
           minElementMs: 0,
           toneGateTimeoutMs: 4000,
         );
-        final gateRows = <Map<String, Object?>>[];
+        final gateRows = <({bool closed, int t})>[];
         decoder.onDebugToneGate =
             ({
               required timestampMs,
@@ -812,9 +812,9 @@ void main() {
               required closed,
               required absentMs,
             }) {
-              gateRows.add({'closed': closed, 't': timestampMs});
+              gateRows.add((closed: closed, t: timestampMs));
             };
-        final replays = <Map<String, Object?>>[];
+        final replays = <({int blocks, int spanMs})>[];
         decoder.onDebugGateReplay =
             ({
               required timestampMs,
@@ -822,9 +822,9 @@ void main() {
               required blocks,
               required spanMs,
             }) {
-              replays.add({'blocks': blocks, 'spanMs': spanMs});
+              replays.add((blocks: blocks, spanMs: spanMs));
             };
-        final transitions = <Map<String, Object?>>[];
+        final transitions = <({int t, bool on, num dur})>[];
         decoder.onDebugTransition =
             ({
               required timestampMs,
@@ -835,19 +835,15 @@ void main() {
               required ditMs,
               required wpm,
             }) {
-              transitions.add({
-                't': timestampMs,
-                'on': isOn,
-                'dur': durationMs,
-              });
+              transitions.add((t: timestampMs, on: isOn, dur: durationMs));
             };
 
         decoder
           ..processSamples(generateTone(700, 8000, frameSize * 20))
           ..processSamples(generateNoise(8000 * 45 ~/ 10, amplitude: 0.05));
-        expect(gateRows.last['closed'], isTrue);
+        expect(gateRows.last.closed, isTrue);
 
-        final reopenedAt = gateRows.last['t'] as int;
+        final reopenedAt = gateRows.last.t;
 
         // A single dit returns: the replay must recover its ON edge
         // (the pre-replay code swallowed it — W became M on
@@ -857,17 +853,17 @@ void main() {
           ..processSamples(generateSilence(blockSize * 40))
           ..flush();
 
-        expect(gateRows.last['closed'], isFalse);
+        expect(gateRows.last.closed, isFalse);
         expect(
           replays,
           isNotEmpty,
           reason: 'a gate_replay row must be logged on reopen',
         );
         final afterReopen = transitions
-            .where((tr) => (tr['t'] as int) >= reopenedAt - 2000)
+            .where((tr) => tr.t >= reopenedAt - 2000)
             .toList();
         expect(afterReopen, isNotEmpty);
-        final ons = afterReopen.where((tr) => tr['on'] as bool).toList();
+        final ons = afterReopen.where((tr) => tr.on).toList();
         expect(
           ons,
           isNotEmpty,
@@ -875,9 +871,9 @@ void main() {
         );
         final dit = ons.last;
         expect(
-          (dit['dur'] as num).toDouble(),
+          dit.dur.toDouble(),
           inInclusiveRange(100, 200),
-          reason: 'recovered dit duration ~150 ms, got ${dit['dur']}',
+          reason: 'recovered dit duration ~150 ms, got ${dit.dur}',
         );
       });
 
