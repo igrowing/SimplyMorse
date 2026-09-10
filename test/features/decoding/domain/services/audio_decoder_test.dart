@@ -730,7 +730,7 @@ void main() {
 
         // Lock, then replace the tone with room noise (the voice
         // scenario: in-band energy, but no concentrated tone).
-        decoder..processSamples(generateTone(700, 8000, frameSize * 20));
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
         expect(decoder.state, DecoderState.locked);
         final transitionsAtClose = transitions.length;
 
@@ -741,7 +741,7 @@ void main() {
 
         expect(gateRows, isNotEmpty);
         expect(gateRows.last['closed'], isTrue);
-        expect(gateRows.last['absentMs'] as int, greaterThan(4000));
+        expect(gateRows.last['absentMs'], greaterThan(4000));
         // No transitions may be emitted after the gate closes —
         // whatever the noise does to the band-pass envelope must
         // not become elements.
