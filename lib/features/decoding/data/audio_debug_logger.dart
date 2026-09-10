@@ -337,6 +337,34 @@ class AudioDebugLogger {
     );
   }
 
+  /// Logs one periodic tone-quality observation while tracking:
+  /// how tone-like the signal at the locked frequency still is,
+  /// with scanning-phase [snr]/[concentration] semantics. Pure
+  /// observation — the check never changes decoder state.
+  void logToneQuality({
+    required int timestampMs,
+    required int blockIdx,
+    required double lockedFreqHz,
+    required double lockedPower,
+    required double avgOtherPower,
+    required double snr,
+    required double concentration,
+    required bool tonePresent,
+  }) {
+    _emit(
+      timestampMs: timestampMs,
+      phase: 'tracking',
+      event: 'tone_quality',
+      idx: blockIdx,
+      freqHz: lockedFreqHz,
+      power: lockedPower,
+      avgOtherPower: avgOtherPower,
+      snr: snr,
+      concentration: concentration,
+      monotonic: tonePresent,
+    );
+  }
+
   /// Logs one periodic re-tune check while tracking: what the
   /// dominant frequency was, how much power remained at the
   /// locked frequency, and whether the check triggered an unlock.

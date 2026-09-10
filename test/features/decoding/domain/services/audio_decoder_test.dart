@@ -588,6 +588,57 @@ void main() {
         expect(unlockRow!['blockIdx']! as int, greaterThan(0));
       });
 
+      test('onDebugToneQuality reports tone presence without changing '
+          'the decode', () {
+        final decoder = AudioDecoder(
+          minElementMs: 0,
+          toneQualityIntervalBlocks: 10,
+        );
+        final qualityRows = <Map<String, Object?>>[];
+        decoder.onDebugToneQuality =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required lockedFreqHz,
+              required lockedPower,
+              required avgOtherPower,
+              required snr,
+              required concentration,
+              required tonePresent,
+            }) {
+              qualityRows.add({
+                'snr': snr,
+                'concentration': concentration,
+                'present': tonePresent,
+              });
+            };
+
+        // Lock on a 700 Hz tone.
+        decoder.processSamples(generateTone(700, 8000, frameSize * 20));
+        expect(decoder.state, DecoderState.locked);
+
+        // Tone present: quality checks must fire and see a
+        // concentrated, high-SNR signal.
+        final before = qualityRows.length;
+        decoder.processSamples(generateTone(700, 8000, blockSize * 40));
+        expect(qualityRows.length, greaterThan(before));
+        expect(
+          qualityRows.last['present'],
+          isTrue,
+          reason: 'a keyed tone at the locked frequency must read present',
+        );
+        expect(qualityRows.last['concentration'], greaterThan(0.5));
+
+        // Silence: no other-band power, so the frame can read as
+        // high-SNR, but concentration collapses — a tone is not
+        // present. Either way `present` must go false.
+        decoder.processSamples(generateSilence(blockSize * 40));
+        expect(qualityRows.last['present'], isFalse);
+
+        // Observation only: the decoder stays locked throughout.
+        expect(decoder.state, DecoderState.locked);
+      });
+
       test('onDebugRetuneCheck reports dominant vs locked frequency', () {
         final decoder = AudioDecoder(
           reTuneIntervalBlocks: 5,

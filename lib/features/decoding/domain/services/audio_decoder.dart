@@ -36,6 +36,20 @@ typedef DebugScanningCallback =
       required bool locked,
     });
 
+/// Debug callback for the periodic tone-quality check during
+/// tracking (observation only — it never changes decoder state).
+typedef DebugToneQualityCallback =
+    void Function({
+      required int timestampMs,
+      required int blockIdx,
+      required double lockedFreqHz,
+      required double lockedPower,
+      required double avgOtherPower,
+      required double snr,
+      required double concentration,
+      required bool tonePresent,
+    });
+
 /// Debug log callback for completed monotonic runs (detections).
 typedef DebugDetectionCallback =
     void Function({
@@ -240,6 +254,7 @@ class AudioDecoder {
     this.maxReplayConvergePasses = 4,
     this.replayConvergeToleranceDb = 0.25,
     this.reTuneIntervalBlocks = 0,
+    this.toneQualityIntervalBlocks = 10,
   }) {
     _fft = FFT(fftSize);
     _frameMs = fftSize * 1000 / sampleRate;
@@ -464,6 +479,25 @@ class AudioDecoder {
   /// appeared elsewhere.
   final int reTuneIntervalBlocks;
 
+  /// How often (in tracking blocks) to run the tone-quality check
+  /// during tracking. Default 10 = every 50 ms. 0 = disabled.
+  ///
+  /// Pure observation, no behavior: every [toneQualityIntervalBlocks]
+  /// blocks the decoder runs an FFT on the last [fftSize] samples
+  /// and measures how tone-like the signal at the locked frequency
+  /// still is — SNR and concentration with the same semantics as
+  /// the scanning phase, plus a combined present verdict using the
+  /// same [onThresholdFactor]/[minConcentration] thresholds. Hardware
+  /// captures showed voice and room noise holding 14-21 dB of
+  /// mark/space separation in the band-pass envelope, sailing past
+  /// the level tracker's squelch and decoding as junk characters —
+  /// while the tone-quality metrics cleanly separate a keyed tone
+  /// from voice (this is what they are computed to do in scanning).
+  /// This instrumentation exposes those metrics during tracking in
+  /// the debug CSV so an emission gate can be designed against data.
+  final int toneQualityIntervalBlocks;
+  int _toneQualityCounter = 0;
+
   // Derived scanning thresholds
   late final int _minToneFrames;
   late final int _longToneFrames;
@@ -566,6 +600,7 @@ class AudioDecoder {
   DebugTransitionCallback? onDebugTransition;
   DebugGlitchMergeCallback? onDebugGlitchMerge;
   DebugRetuneCallback? onDebugRetuneCheck;
+  DebugToneQualityCallback? onDebugToneQuality;
   DebugUnlockCallback? onDebugUnlock;
 
   /// Level-tracking profile in force: `default` (constructor
@@ -1057,12 +1092,25 @@ class AudioDecoder {
   // -- Tracking phase --------------------------------------------
 
   void _track(List<double> samples) {
+    // Keep the recent-audio buffer full for both the re-tuning
+    // check and the tone-quality observation check.
+    _reTuneBuffer.addAll(samples);
+    if (_reTuneBuffer.length > fftSize) {
+      _reTuneBuffer.removeRange(0, _reTuneBuffer.length - fftSize);
+    }
+
+    // Periodic tone-quality observation (never mutates state).
+    if (toneQualityIntervalBlocks > 0) {
+      _toneQualityCounter++;
+      if (_toneQualityCounter >= toneQualityIntervalBlocks &&
+          _reTuneBuffer.length >= fftSize) {
+        _toneQualityCounter = 0;
+        _checkToneQuality();
+      }
+    }
+
     // Periodic frequency re-tuning check.
     if (reTuneIntervalBlocks > 0) {
-      _reTuneBuffer.addAll(samples);
-      if (_reTuneBuffer.length > fftSize) {
-        _reTuneBuffer.removeRange(0, _reTuneBuffer.length - fftSize);
-      }
       _reTuneCounter++;
       if (_reTuneCounter >= reTuneIntervalBlocks &&
           _reTuneBuffer.length >= fftSize) {
@@ -1079,6 +1127,54 @@ class AudioDecoder {
     // so the decoded text completes each character as its final
     // element ends instead of one character late.
     _elements.tick(_totalSamples * 1000 / sampleRate);
+  }
+
+  /// Measures how tone-like the signal at the locked frequency still
+  /// is, with scanning-phase semantics, and reports it via
+  /// [onDebugToneQuality]. Observation only — no state change.
+  void _checkToneQuality() {
+    if (_reTuneBuffer.length < fftSize) return;
+    final lockedFreq = _lockedFreq;
+    final power = _fft.powerSpectrum(Float64List.fromList(_reTuneBuffer));
+
+    final lockedBin = _fft
+        .frequencyToBin(lockedFreq, sampleRate)
+        .clamp(0, power.length - 1);
+
+    // Band totals with the locked bin (±1) excluded from "other",
+    // mirroring the scanning-phase concentration computation.
+    var neighborhood = 0.0;
+    for (final b in [lockedBin - 1, lockedBin, lockedBin + 1]) {
+      if (b >= 0 && b < power.length) neighborhood += power[b];
+    }
+    var otherPower = 0.0;
+    var otherCount = 0;
+    final minBin = _fft.frequencyToBin(minFreq, sampleRate);
+    final maxBin = _fft
+        .frequencyToBin(maxFreq, sampleRate)
+        .clamp(0, power.length - 1);
+    for (var i = minBin; i <= maxBin; i++) {
+      if ((i - lockedBin).abs() <= 1) continue;
+      otherPower += power[i];
+      otherCount++;
+    }
+    final avgOther = otherCount > 0 ? otherPower / otherCount : 0.0;
+    final bandTotal = otherPower + neighborhood;
+    final concentration = bandTotal > 0 ? neighborhood / bandTotal : 0.0;
+    final snr = avgOther > 0 ? power[lockedBin] / avgOther : 999.0;
+    final present =
+        snr >= onThresholdFactor && concentration >= minConcentration;
+
+    onDebugToneQuality?.call(
+      timestampMs: _contentMs,
+      blockIdx: _blockIdx,
+      lockedFreqHz: lockedFreq,
+      lockedPower: power[lockedBin],
+      avgOtherPower: avgOther,
+      snr: snr,
+      concentration: concentration,
+      tonePresent: present,
+    );
   }
 
   /// Runs a quick FFT scan on the recent audio to check whether the

@@ -125,6 +125,31 @@ void main() {
       expect(cells[35], 'path=long_tone on_thr_factor=4.0'); // detail
     });
 
+    test('tone_quality rows land in their columns', () async {
+      final logger = await makeLogger();
+      logger.logToneQuality(
+        timestampMs: 5678,
+        blockIdx: 42,
+        lockedFreqHz: 692.6,
+        lockedPower: 0.123456,
+        avgOtherPower: 0.000012,
+        snr: 999,
+        concentration: 0.85,
+        tonePresent: true,
+      );
+      final rows = await readRows(logger);
+
+      final cells = rows[1].split(',');
+      expect(cells[0], '5678'); // timestamp_ms
+      expect(cells[1], 'tracking'); // phase
+      expect(cells[2], 'tone_quality'); // event
+      expect(cells[3], '42'); // idx
+      expect(cells[6], '692.6'); // freq_hz = locked
+      expect(cells[11], '999.00'); // snr
+      expect(cells[12], '0.850'); // concentration
+      expect(cells[19], '1'); // monotonic = tone present
+    });
+
     test('omitted fields render as empty cells, not zeros', () async {
       final logger = await makeLogger();
       logger.logCapture(timestampMs: 100, event: 'stop');
