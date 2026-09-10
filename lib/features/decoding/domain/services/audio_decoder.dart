@@ -50,6 +50,16 @@ typedef DebugToneQualityCallback =
       required bool tonePresent,
     });
 
+/// Debug callback for tone-gate state changes while tracking
+/// (closed = element emission suppressed; opened = resumed).
+typedef DebugToneGateCallback =
+    void Function({
+      required int timestampMs,
+      required int blockIdx,
+      required bool closed,
+      required int absentMs,
+    });
+
 /// Debug log callback for completed monotonic runs (detections).
 typedef DebugDetectionCallback =
     void Function({
@@ -231,7 +241,7 @@ class AudioDecoder {
     this.onThresholdFactor = 4,
     this.offThresholdFactor = 2,
     this.minElementMs = 10,
-    this.glitchRatio = 0.25,
+    this.glitchRatio = 0.35,
     this.minToneMs = 160,
     this.longToneMs = 500,
     this.requiredDetections = 3,
@@ -255,6 +265,7 @@ class AudioDecoder {
     this.replayConvergeToleranceDb = 0.25,
     this.reTuneIntervalBlocks = 0,
     this.toneQualityIntervalBlocks = 10,
+    this.toneGateTimeoutMs = 8000,
   }) {
     _fft = FFT(fftSize);
     _frameMs = fftSize * 1000 / sampleRate;
@@ -346,6 +357,20 @@ class AudioDecoder {
   /// transitions, but half a dit at 20 WPM, where it merges genuine
   /// dits into dahs. Scaling with the observed element rate keeps its
   /// meaning constant.
+  ///
+  /// Default 0.35 (raised from 0.25 after the 2026-09-10 hardware
+  /// captures): a 12 WPM/1 m capture produced a fragment storm of
+  /// 25-30 ms pieces — just above the 0.25 threshold (25 ms at
+  /// 100 ms units) — which survived merging, entered the unit
+  /// history, dragged the percentile into the fragment cluster and
+  /// collapsed the threshold in a spiral (decode: garbage T-storm).
+  /// At 0.35 the first fragments merge, the history stays clean and
+  /// the stream self-stabilizes; the same capture decodes with 2
+  /// character errors instead of 159, and a replay of all 15 usable
+  /// captures scored 0.35 as the global optimum (633 -> 310 total
+  /// errors). True Morse structure is >= 1 unit, so a 0.35 unit
+  /// merge threshold keeps ~3x headroom at every speed (21 ms at
+  /// 20 WPM, 84 ms at 5 WPM).
   final double glitchRatio;
 
   /// Half-width in dB of the symmetric hysteresis band used when
@@ -498,6 +523,40 @@ class AudioDecoder {
   final int toneQualityIntervalBlocks;
   int _toneQualityCounter = 0;
 
+  /// Tone gate: while tracking, suppress element emission once the
+  /// locked tone has been absent — per the tone-quality check — for
+  /// longer than this many milliseconds. Default 8000. 0 = disabled
+  /// (current behavior: decode whatever the band-pass passes).
+  ///
+  /// Hardware captures (voice + room noise, 2026-09-10) showed the
+  /// level tracker alone cannot tell a keyed tone from voice: voice
+  /// energy in the band holds 14-21 dB of mark/space separation,
+  /// past the 6 dB squelch, and decodes as junk characters for as
+  /// long as it lasts. The tone-quality metrics cleanly separate the
+  /// two — that is what they reject voice for in scanning — so this
+  /// gate holds elements back whenever the tone has been gone too
+  /// long to be Morse. The timeout must exceed the longest
+  /// legitimate pause: measured on the reference recordings, the
+  /// 3 WPM inter-word gap is ~5.4 s and the inter-repetition pause
+  /// ~4.9 s (the transmitter pads pauses beyond textbook timing),
+  /// so 8000 ms keeps ~50% margin over both.
+  ///
+  /// Known limitation (accepted, mirrors the pre-lock startup race
+  /// that replay seeding fixed for lock): when the tone returns
+  /// after a gate closure, up to one quality-check cadence (~50 ms)
+  /// of edges is swallowed by the silent polarity resync, so the
+  /// first element of the first character after a long pause may be
+  /// lost (observed: H -> S, W -> M at 4000 ms in the recordings).
+  /// If hardware validation shows this matters, the fix is a
+  /// reopen-replay using the pre-lock replay machinery — not
+  /// warranted until measured.
+  ///
+  /// Requires [toneQualityIntervalBlocks] > 0 (the gate is fed by
+  /// that check; with the check disabled the gate stays open).
+  final int toneGateTimeoutMs;
+  bool _gateClosed = false;
+  int _lastTonePresentMs = 0;
+
   // Derived scanning thresholds
   late final int _minToneFrames;
   late final int _longToneFrames;
@@ -601,6 +660,7 @@ class AudioDecoder {
   DebugGlitchMergeCallback? onDebugGlitchMerge;
   DebugRetuneCallback? onDebugRetuneCheck;
   DebugToneQualityCallback? onDebugToneQuality;
+  DebugToneGateCallback? onDebugToneGate;
   DebugUnlockCallback? onDebugUnlock;
 
   /// Level-tracking profile in force: `default` (constructor
@@ -838,6 +898,10 @@ class AudioDecoder {
 
   void _lockFromScan({required String path}) {
     if (_binPowerAccum.isEmpty || _scanFrames == 0) return;
+
+    // Fresh tone-gate state: the lock means the tone is present now.
+    _gateClosed = false;
+    _lastTonePresentMs = _contentMs;
 
     // Find the best accumulated bin.
     var bestBin = -1;
@@ -1165,6 +1229,9 @@ class AudioDecoder {
     final present =
         snr >= onThresholdFactor && concentration >= minConcentration;
 
+    // Feed the tone gate: remember when the tone was last present.
+    if (present) _lastTonePresentMs = _contentMs;
+
     onDebugToneQuality?.call(
       timestampMs: _contentMs,
       blockIdx: _blockIdx,
@@ -1288,6 +1355,34 @@ class AudioDecoder {
     }
 
     if (!_levels.isReady) return;
+
+    // Tone gate: once the locked tone has been absent longer than
+    // [toneGateTimeoutMs] (per the periodic quality check), stop
+    // emitting elements — voice and noise in the band decode as junk
+    // otherwise. The first ~[toneQualityIntervalBlocks] blocks of a
+    // returning tone may still be swallowed before the check sees
+    // it again (bounded by the check cadence), mirroring the known
+    // startup first-character limitation.
+    if (toneGateTimeoutMs > 0 && toneQualityIntervalBlocks > 0) {
+      final absentMs = _contentMs - _lastTonePresentMs;
+      final closed = absentMs > toneGateTimeoutMs;
+      if (closed != _gateClosed) {
+        _gateClosed = closed;
+        onDebugToneGate?.call(
+          timestampMs: _contentMs,
+          blockIdx: _blockIdx,
+          closed: closed,
+          absentMs: absentMs,
+        );
+      }
+      if (closed) {
+        // Silent polarity resync: keep _isOn current without
+        // emitting, so the first edge after the gate reopens is a
+        // true edge with a correct duration.
+        _isOn = wantOn;
+        return;
+      }
+    }
 
     if (wantOn != _isOn) {
       _isOn = wantOn;

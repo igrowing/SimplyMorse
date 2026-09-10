@@ -639,6 +639,166 @@ void main() {
         expect(decoder.state, DecoderState.locked);
       });
 
+      test('tone gate stays open through legitimate word gaps', () {
+        // The gate must never close mid-transmission: measured on
+        // the reference recordings, the 3 WPM inter-word gap is
+        // ~5.4 s and the inter-repetition pause ~4.9 s — the 8000 ms
+        // default must clear both (4000 ms closed mid-pause and
+        // corrupted the first character after it in the recordings).
+        for (final timeoutMs in [0, 8000]) {
+          final decoder = AudioDecoder(
+            minElementMs: 0,
+            toneGateTimeoutMs: timeoutMs,
+          );
+          final gateRows = <bool>[];
+          decoder.onDebugToneGate =
+              ({
+                required timestampMs,
+                required blockIdx,
+                required closed,
+                required absentMs,
+              }) {
+                gateRows.add(closed);
+              };
+          final transitions = <int>[];
+          decoder.onDebugTransition =
+              ({
+                required timestampMs,
+                required blockIdx,
+                required isOn,
+                required durationMs,
+                required seq,
+                required ditMs,
+                required wpm,
+              }) {
+                transitions.add(seq);
+              };
+
+          decoder
+            ..processSamples(generateTone(700, 8000, frameSize * 20))
+            // 5.5 s gap: above the longest measured recording pause
+            // (5.4 s), below the 8000 ms default.
+            ..processSamples(generateSilence(8000 * 55 ~/ 10))
+            ..processSamples(generateTone(700, 8000, blockSize * 20))
+            ..processSamples(generateSilence(blockSize * 40))
+            ..flush();
+
+          expect(decoder.state, DecoderState.locked);
+          expect(
+            gateRows,
+            isEmpty,
+            reason: 'gate must not close for a $timeoutMs ms configuration',
+          );
+          expect(transitions, isNotEmpty);
+        }
+      });
+
+      test('tone gate closes after timeout and suppresses junk elements', () {
+        // Explicit 4000 ms timeout keeps the noise span short; the
+        // default (8000 ms) is exercised by the recordings.
+        final decoder = AudioDecoder(
+          minElementMs: 0,
+          toneGateTimeoutMs: 4000,
+        );
+        final gateRows = <Map<String, Object?>>[];
+        decoder.onDebugToneGate =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required closed,
+              required absentMs,
+            }) {
+              gateRows.add({
+                'timestampMs': timestampMs,
+                'closed': closed,
+                'absentMs': absentMs,
+              });
+            };
+        final transitions = <int>[];
+        decoder.onDebugTransition =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required isOn,
+              required durationMs,
+              required seq,
+              required ditMs,
+              required wpm,
+            }) {
+              transitions.add(timestampMs);
+            };
+
+        // Lock, then replace the tone with room noise (the voice
+        // scenario: in-band energy, but no concentrated tone).
+        decoder..processSamples(generateTone(700, 8000, frameSize * 20));
+        expect(decoder.state, DecoderState.locked);
+        final transitionsAtClose = transitions.length;
+
+        // 4.5 s of noise: past the 4000 ms gate timeout.
+        final noise = generateNoise(8000 * 45 ~/ 10, amplitude: 0.05);
+        decoder.processSamples(noise);
+        decoder.flush();
+
+        expect(gateRows, isNotEmpty);
+        expect(gateRows.last['closed'], isTrue);
+        expect(gateRows.last['absentMs'] as int, greaterThan(4000));
+        // No transitions may be emitted after the gate closes —
+        // whatever the noise does to the band-pass envelope must
+        // not become elements.
+        expect(
+          transitions.length,
+          transitionsAtClose,
+          reason: 'voice/noise past the gate must not emit elements',
+        );
+      });
+
+      test('tone gate reopens when the tone returns', () {
+        final decoder = AudioDecoder(
+          minElementMs: 0,
+          toneGateTimeoutMs: 4000,
+        );
+        final gateRows = <Map<String, Object?>>[];
+        decoder.onDebugToneGate =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required closed,
+              required absentMs,
+            }) {
+              gateRows.add({'closed': closed});
+            };
+        final transitions = <int>[];
+        decoder.onDebugTransition =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required isOn,
+              required durationMs,
+              required seq,
+              required ditMs,
+              required wpm,
+            }) {
+              transitions.add(timestampMs);
+            };
+
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateNoise(8000 * 45 ~/ 10, amplitude: 0.05));
+        expect(gateRows, isNotEmpty);
+        expect(gateRows.last['closed'], isTrue);
+
+        // The keyed tone returns: the gate must reopen and the
+        // elements must flow again.
+        decoder
+          ..processSamples(generateTone(700, 8000, blockSize * 20))
+          ..processSamples(generateSilence(blockSize * 40))
+          ..flush();
+
+        expect(gateRows.last['closed'], isFalse);
+        expect(decoder.state, DecoderState.locked);
+        expect(transitions, isNotEmpty);
+      });
+
       test('onDebugRetuneCheck reports dominant vs locked frequency', () {
         final decoder = AudioDecoder(
           reTuneIntervalBlocks: 5,

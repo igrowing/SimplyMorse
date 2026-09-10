@@ -29,7 +29,7 @@ class ElementBuilder {
     required this.onElement,
     this.onMerge,
     this.minElementMs = 10,
-    this.glitchRatio = 0.25,
+    this.glitchRatio = 0.35,
     this.maxGlitchMs = 150,
     this.historySize = 24,
   });

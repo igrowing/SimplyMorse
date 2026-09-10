@@ -150,6 +150,24 @@ void main() {
       expect(cells[19], '1'); // monotonic = tone present
     });
 
+    test('tone gate rows land in their columns', () async {
+      final logger = await makeLogger();
+      logger.logToneGate(
+        timestampMs: 9100,
+        blockIdx: 77,
+        closed: true,
+        absentMs: 4020,
+      );
+      final rows = await readRows(logger);
+
+      final cells = rows[1].split(',');
+      expect(cells[0], '9100'); // timestamp_ms
+      expect(cells[1], 'tracking'); // phase
+      expect(cells[2], 'gate_closed'); // event
+      expect(cells[3], '77'); // idx
+      expect(cells[35], 'absent_ms=4020'); // detail
+    });
+
     test('omitted fields render as empty cells, not zeros', () async {
       final logger = await makeLogger();
       logger.logCapture(timestampMs: 100, event: 'stop');

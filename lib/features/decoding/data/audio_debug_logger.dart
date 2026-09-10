@@ -365,6 +365,24 @@ class AudioDebugLogger {
     );
   }
 
+  /// Logs a tone-gate state change while tracking: element emission
+  /// is suppressed while the gate is closed (locked tone absent for
+  /// longer than the configured timeout) and resumes when it opens.
+  void logToneGate({
+    required int timestampMs,
+    required int blockIdx,
+    required bool closed,
+    required int absentMs,
+  }) {
+    _emit(
+      timestampMs: timestampMs,
+      phase: 'tracking',
+      event: closed ? 'gate_closed' : 'gate_opened',
+      idx: blockIdx,
+      detail: 'absent_ms=$absentMs',
+    );
+  }
+
   /// Logs one periodic re-tune check while tracking: what the
   /// dominant frequency was, how much power remained at the
   /// locked frequency, and whether the check triggered an unlock.
