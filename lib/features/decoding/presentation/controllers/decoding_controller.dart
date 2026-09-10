@@ -299,6 +299,7 @@ class DecodingController extends ChangeNotifier {
         ..onDebugRetuneCheck = adl.logRetuneCheck
         ..onDebugToneQuality = adl.logToneQuality
         ..onDebugToneGate = adl.logToneGate
+        ..onDebugGateReplay = adl.logGateReplay
         ..onDebugUnlock = adl.logUnlock;
     }
 

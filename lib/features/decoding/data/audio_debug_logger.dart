@@ -383,6 +383,24 @@ class AudioDebugLogger {
     );
   }
 
+  /// Logs the gate reopen replay: the buffered closure window that
+  /// was re-processed to recover the first edges of the returning
+  /// tone (blocks = envelope blocks replayed, span_ms = their span).
+  void logGateReplay({
+    required int timestampMs,
+    required int blockIdx,
+    required int blocks,
+    required int spanMs,
+  }) {
+    _emit(
+      timestampMs: timestampMs,
+      phase: 'tracking',
+      event: 'gate_replay',
+      idx: blockIdx,
+      detail: 'blocks=$blocks span_ms=$spanMs',
+    );
+  }
+
   /// Logs one periodic re-tune check while tracking: what the
   /// dominant frequency was, how much power remained at the
   /// locked frequency, and whether the check triggered an unlock.

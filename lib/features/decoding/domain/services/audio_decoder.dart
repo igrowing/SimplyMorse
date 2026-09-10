@@ -60,6 +60,17 @@ typedef DebugToneGateCallback =
       required int absentMs,
     });
 
+/// Debug callback for the gate reopen replay: the buffered closure
+/// window re-processed to recover the first edges of the returning
+/// tone.
+typedef DebugGateReplayCallback =
+    void Function({
+      required int timestampMs,
+      required int blockIdx,
+      required int blocks,
+      required int spanMs,
+    });
+
 /// Debug log callback for completed monotonic runs (detections).
 typedef DebugDetectionCallback =
     void Function({
@@ -266,6 +277,7 @@ class AudioDecoder {
     this.reTuneIntervalBlocks = 0,
     this.toneQualityIntervalBlocks = 10,
     this.toneGateTimeoutMs = 8000,
+    this.gateReplayBlocks = 60,
   }) {
     _fft = FFT(fftSize);
     _frameMs = fftSize * 1000 / sampleRate;
@@ -541,21 +553,28 @@ class AudioDecoder {
   /// ~4.9 s (the transmitter pads pauses beyond textbook timing),
   /// so 8000 ms keeps ~50% margin over both.
   ///
-  /// Known limitation (accepted, mirrors the pre-lock startup race
-  /// that replay seeding fixed for lock): when the tone returns
-  /// after a gate closure, up to one quality-check cadence (~50 ms)
-  /// of edges is swallowed by the silent polarity resync, so the
-  /// first element of the first character after a long pause may be
-  /// lost (observed: H -> S, W -> M at 4000 ms in the recordings).
-  /// If hardware validation shows this matters, the fix is a
-  /// reopen-replay using the pre-lock replay machinery — not
-  /// warranted until measured.
+  /// While the gate is closed, level adaptation is frozen (voice
+  /// must not pollute the tracked mark/space) and recent envelopes
+  /// are buffered; when the tone returns, that window is replayed
+  /// through the tracker ([gateReplayBlocks]) so the first element
+  /// of the first character is recovered instead of swallowed
+  /// (observed on hardware: W -> M, H -> S without the replay).
   ///
   /// Requires [toneQualityIntervalBlocks] > 0 (the gate is fed by
   /// that check; with the check disabled the gate stays open).
   final int toneGateTimeoutMs;
   bool _gateClosed = false;
   int _lastTonePresentMs = 0;
+  final List<({int samples, double env})> _gateBuffer = [];
+
+  /// Envelopes buffered while the tone gate is closed, replayed
+  /// through the tracker when it reopens so the first edges of the
+  /// returning tone are emitted instead of swallowed. Default 60
+  /// blocks (300 ms at the 5 ms block size): the quality-check
+  /// cadence (~50 ms) bounds how long the tone can sound before the
+  /// first present check reopens the gate, so 300 ms always contains
+  /// the onset with margin. 0 = no replay (swallowed-edge behavior).
+  final int gateReplayBlocks;
 
   // Derived scanning thresholds
   late final int _minToneFrames;
@@ -661,6 +680,7 @@ class AudioDecoder {
   DebugRetuneCallback? onDebugRetuneCheck;
   DebugToneQualityCallback? onDebugToneQuality;
   DebugToneGateCallback? onDebugToneGate;
+  DebugGateReplayCallback? onDebugGateReplay;
   DebugUnlockCallback? onDebugUnlock;
 
   /// Level-tracking profile in force: `default` (constructor
@@ -1318,6 +1338,72 @@ class AudioDecoder {
   /// Thresholds one envelope value and records any transition.
   void _trackEnvelope(double env) {
     final blockMs = blockSize * 1000 / sampleRate;
+
+    // Tone gate: checked BEFORE level processing. Once the locked
+    // tone has been absent longer than [toneGateTimeoutMs] (per the
+    // periodic quality check), voice/noise must neither become
+    // elements nor pollute the tracked levels: adaptation is frozen
+    // and recent envelopes are buffered for the reopen replay.
+    var replayOnReopen = false;
+    if (toneGateTimeoutMs > 0 && toneQualityIntervalBlocks > 0) {
+      final absentMs = _contentMs - _lastTonePresentMs;
+      final closed = absentMs > toneGateTimeoutMs;
+      if (closed != _gateClosed) {
+        _gateClosed = closed;
+        onDebugToneGate?.call(
+          timestampMs: _contentMs,
+          blockIdx: _blockIdx,
+          closed: closed,
+          absentMs: absentMs,
+        );
+      }
+      if (closed) {
+        if (gateReplayBlocks > 0) {
+          _gateBuffer.add((samples: _totalSamples, env: env));
+          if (_gateBuffer.length > gateReplayBlocks) {
+            _gateBuffer.removeAt(0);
+          }
+        }
+
+        // Frozen-level tracking sample: wantOn is unknown with
+        // adaptation frozen (logged false); the gate_closed row
+        // marks the window.
+        onDebugTracking?.call(
+          timestampMs: _contentMs,
+          blockIdx: _blockIdx,
+          freqHz: _lockedFreq,
+          env: env,
+          envDb: LevelTracker.toDb(env),
+          markDb: _levels.markDb,
+          spaceDb: _levels.spaceDb,
+          thresholdDb: _levels.isReady ? _levels.thresholdDb : 0,
+          onThrDb: _levels.isReady ? _levels.thresholdDb + hysteresisDb : 0,
+          offThrDb: _levels.isReady ? _levels.thresholdDb - hysteresisDb : 0,
+          separationDb: _levels.isReady ? _levels.separationDb : 0,
+          isReady: _levels.isReady,
+          wantOn: false,
+          isOn: _isOn,
+          ditMs: _ditEstimateMs,
+          wpm: _wpmEstimate,
+          profile: _profile,
+        );
+
+        // Auto-unlock clock keeps running through the closure
+        // (closed = tone absent, so silence accumulates).
+        if (signalTimeoutMs > 0 && _seenFirstOn) {
+          final silenceMs =
+              (_totalSamples - _lastSignalSample) * 1000 / sampleRate;
+          if (silenceMs >= signalTimeoutMs) {
+            _unlock(reason: 'signal_timeout');
+            return;
+          }
+        }
+        return;
+      } else if (_gateBuffer.isNotEmpty) {
+        replayOnReopen = true;
+      }
+    }
+
     final wantOn = _levels.process(env, blockMs);
 
     // Emitted before the isReady gate so the level bootstrap is
@@ -1343,6 +1429,42 @@ class AudioDecoder {
       profile: _profile,
     );
 
+    // Reopen replay: the buffered closure window (which must contain
+    // the tone onset — the quality-check cadence bounds how late
+    // the reopen can lag the onset) is re-processed through the
+    // tracker with the gate open, so the first edges of the
+    // returning tone are emitted with true timestamps instead of
+    // being swallowed.
+    if (replayOnReopen && _levels.isReady) {
+      // Rewind _totalSamples per buffered entry so _contentMs /
+      // _blockIdx (derived from it) carry true timestamps through
+      // _onTransition — the same time-travel the pre-lock replay
+      // uses.
+      final savedSamples = _totalSamples;
+      final firstSamples = _gateBuffer.first.samples;
+      var replayed = 0;
+      for (final e in _gateBuffer) {
+        _totalSamples = e.samples;
+        final w = _levels.process(e.env, blockMs);
+        if (w != _isOn) {
+          _isOn = w;
+          if (w) _seenFirstOn = true;
+          _onTransition();
+        }
+        replayed++;
+      }
+      final spanMs =
+          ((savedSamples - firstSamples) * 1000 / sampleRate).round();
+      _totalSamples = savedSamples;
+      onDebugGateReplay?.call(
+        timestampMs: _contentMs,
+        blockIdx: _blockIdx,
+        blocks: replayed,
+        spanMs: spanMs,
+      );
+      _gateBuffer.clear();
+    }
+
     // Auto-unlock (only if signalTimeoutMs > 0).
     // Default: permanent lock, no unlock during listening.
     if (signalTimeoutMs > 0) {
@@ -1355,34 +1477,6 @@ class AudioDecoder {
     }
 
     if (!_levels.isReady) return;
-
-    // Tone gate: once the locked tone has been absent longer than
-    // [toneGateTimeoutMs] (per the periodic quality check), stop
-    // emitting elements — voice and noise in the band decode as junk
-    // otherwise. The first ~[toneQualityIntervalBlocks] blocks of a
-    // returning tone may still be swallowed before the check sees
-    // it again (bounded by the check cadence), mirroring the known
-    // startup first-character limitation.
-    if (toneGateTimeoutMs > 0 && toneQualityIntervalBlocks > 0) {
-      final absentMs = _contentMs - _lastTonePresentMs;
-      final closed = absentMs > toneGateTimeoutMs;
-      if (closed != _gateClosed) {
-        _gateClosed = closed;
-        onDebugToneGate?.call(
-          timestampMs: _contentMs,
-          blockIdx: _blockIdx,
-          closed: closed,
-          absentMs: absentMs,
-        );
-      }
-      if (closed) {
-        // Silent polarity resync: keep _isOn current without
-        // emitting, so the first edge after the gate reopens is a
-        // true edge with a correct duration.
-        _isOn = wantOn;
-        return;
-      }
-    }
 
     if (wantOn != _isOn) {
       _isOn = wantOn;

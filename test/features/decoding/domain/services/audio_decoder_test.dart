@@ -799,6 +799,145 @@ void main() {
         expect(transitions, isNotEmpty);
       });
 
+      test('gate reopen replay recovers the first element', () {
+        final decoder = AudioDecoder(
+          minElementMs: 0,
+          toneGateTimeoutMs: 4000,
+        );
+        final gateRows = <Map<String, Object?>>[];
+        decoder.onDebugToneGate =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required closed,
+              required absentMs,
+            }) {
+              gateRows.add({'closed': closed, 't': timestampMs});
+            };
+        final replays = <Map<String, Object?>>[];
+        decoder.onDebugGateReplay =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required blocks,
+              required spanMs,
+            }) {
+              replays.add({'blocks': blocks, 'spanMs': spanMs});
+            };
+        final transitions = <Map<String, Object?>>[];
+        decoder.onDebugTransition =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required isOn,
+              required durationMs,
+              required seq,
+              required ditMs,
+              required wpm,
+            }) {
+              transitions.add({
+                't': timestampMs,
+                'on': isOn,
+                'dur': durationMs,
+              });
+            };
+
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateNoise(8000 * 45 ~/ 10, amplitude: 0.05));
+        expect(gateRows.last['closed'], isTrue);
+
+        final reopenedAt = gateRows.last['t'] as int;
+
+        // A single dit returns: the replay must recover its ON edge
+        // (the pre-replay code swallowed it — W became M on
+        // hardware).
+        decoder
+          ..processSamples(generateTone(700, 8000, 1200)) // 150 ms dit
+          ..processSamples(generateSilence(blockSize * 40))
+          ..flush();
+
+        expect(gateRows.last['closed'], isFalse);
+        expect(
+          replays,
+          isNotEmpty,
+          reason: 'a gate_replay row must be logged on reopen',
+        );
+        final afterReopen = transitions
+            .where((tr) => (tr['t'] as int) >= reopenedAt - 2000)
+            .toList();
+        expect(afterReopen, isNotEmpty);
+        final ons = afterReopen.where((tr) => tr['on'] as bool).toList();
+        expect(
+          ons,
+          isNotEmpty,
+          reason: 'the returning dit must produce a recovered ON edge',
+        );
+        final dit = ons.last;
+        expect(
+          (dit['dur'] as num).toDouble(),
+          inInclusiveRange(100, 200),
+          reason: 'recovered dit duration ~150 ms, got ${dit['dur']}',
+        );
+      });
+
+      test('levels stay frozen while the gate is closed', () {
+        final decoder = AudioDecoder(
+          minElementMs: 0,
+          toneGateTimeoutMs: 4000,
+        );
+        var gateClosed = false;
+        final marksWhileClosed = <double>[];
+        decoder.onDebugToneGate =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required closed,
+              required absentMs,
+            }) {
+              gateClosed = closed;
+            };
+        decoder.onDebugTracking =
+            ({
+              required timestampMs,
+              required blockIdx,
+              required freqHz,
+              required env,
+              required envDb,
+              required markDb,
+              required spaceDb,
+              required thresholdDb,
+              required onThrDb,
+              required offThrDb,
+              required separationDb,
+              required isReady,
+              required wantOn,
+              required isOn,
+              required ditMs,
+              required wpm,
+              required profile,
+            }) {
+              if (gateClosed && isReady && markDb != null) {
+                marksWhileClosed.add(markDb);
+              }
+            };
+
+        decoder
+          ..processSamples(generateTone(700, 8000, frameSize * 20))
+          ..processSamples(generateNoise(8000 * 45 ~/ 10, amplitude: 0.05))
+          ..flush();
+
+        expect(gateClosed, isTrue);
+        expect(marksWhileClosed, isNotEmpty);
+        expect(
+          marksWhileClosed.every((m) => m == marksWhileClosed.first),
+          isTrue,
+          reason:
+              'loud in-band noise during closure must not move the '
+              'frozen mark level',
+        );
+      });
+
       test('onDebugRetuneCheck reports dominant vs locked frequency', () {
         final decoder = AudioDecoder(
           reTuneIntervalBlocks: 5,

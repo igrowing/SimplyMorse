@@ -168,6 +168,24 @@ void main() {
       expect(cells[35], 'absent_ms=4020'); // detail
     });
 
+    test('gate replay rows land in their columns', () async {
+      final logger = await makeLogger();
+      logger.logGateReplay(
+        timestampMs: 35000,
+        blockIdx: 7000,
+        blocks: 60,
+        spanMs: 300,
+      );
+      final rows = await readRows(logger);
+
+      final cells = rows[1].split(',');
+      expect(cells[0], '35000');
+      expect(cells[1], 'tracking');
+      expect(cells[2], 'gate_replay');
+      expect(cells[3], '7000');
+      expect(cells[35], 'blocks=60 span_ms=300');
+    });
+
     test('omitted fields render as empty cells, not zeros', () async {
       final logger = await makeLogger();
       logger.logCapture(timestampMs: 100, event: 'stop');
