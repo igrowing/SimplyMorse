@@ -7,6 +7,12 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
+// PROPERTY_SUPPORT_AUDIO_UNPROCESSED is not present in all public
+// android.jar revisions, so the property key is inlined — it is a
+// stable platform contract ("android.media.property.*").
+private const val PROPERTY_SUPPORT_AUDIO_UNPROCESSED =
+    "android.media.property.SUPPORT_AUDIO_UNPROCESSED"
+
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -25,7 +31,7 @@ class MainActivity : FlutterActivity() {
                             getSystemService(Context.AUDIO_SERVICE) as AudioManager
                         result.success(
                             audioManager.getProperty(
-                                AudioManager.PROPERTY_SUPPORT_AUDIO_UNPROCESSED
+                                PROPERTY_SUPPORT_AUDIO_UNPROCESSED
                             ) == "true"
                         )
                     } else {
